@@ -1,0 +1,2 @@
+timestamp,accounts_cleaned,sol_recovered,success,error,reason
+2025-12-21T13:33:00.199169+00:00,1,6.497036902,True,,after_close

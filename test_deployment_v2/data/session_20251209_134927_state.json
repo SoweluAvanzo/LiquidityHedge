@@ -1,0 +1,66 @@
+{
+  "session_id": "20251209_134927",
+  "start_time": "2025-12-09T12:49:27.125897+00:00",
+  "end_time": "2025-12-09T12:49:27.127694+00:00",
+  "initial_balances": {
+    "sol": 0.13640236,
+    "usdc": 15.570349,
+    "total_usd": 33.75030570272824
+  },
+  "final_balances": {
+    "sol": 0.13640236,
+    "usdc": 15.570349,
+    "total_usd": 33.75030570272824
+  },
+  "positions": [
+    {
+      "position": "TEST_POSITION_ADDRESS_ABC123",
+      "open_time": "2025-12-09T12:49:27.127021+00:00",
+      "close_time": "2025-12-09T12:49:27.127437+00:00",
+      "open_price": 133.281834,
+      "close_price": 134.61465234,
+      "initial_value": 17.6640917,
+      "final_value": 18.3845860936,
+      "fees_earned": 0.1,
+      "il": 0.6538534766,
+      "tx_fees": 0.001,
+      "net_pnl": 0.8194943936,
+      "is_closed": true,
+      "close_reason": "test_close"
+    }
+  ],
+  "rebalances": [
+    {
+      "timestamp": "2025-12-09T12:49:27.127189+00:00",
+      "position": "TEST_POSITION_AD...",
+      "new_position": "NEW_TEST_POSITIO...",
+      "reason": "out_of_range",
+      "is_emergency": false,
+      "price": 133.281834,
+      "new_range": "$127.95 - $138.61",
+      "withdrawn": "0.0500 SOL + $11.00",
+      "deposited": "0.0480 SOL + $10.50",
+      "fees_collected": "0.000000 SOL + $0.0000",
+      "tx_fee": 0.002,
+      "swap_fee": 0.0
+    }
+  ],
+  "summary": {
+    "session_id": "20251209_134927",
+    "start_time": "2025-12-09T12:49:27.125897+00:00",
+    "end_time": "2025-12-09T12:49:27.127694+00:00",
+    "duration_hours": 4.991666666666666e-07,
+    "initial_value_usd": 33.75030570272824,
+    "current_value_usd": 33.75030570272824,
+    "total_fees_earned_usd": 0.1,
+    "total_il_usd": 0.6538534766,
+    "total_tx_fees_usd": 0.001,
+    "gross_pnl_usd": -33.65030570272824,
+    "net_pnl_usd": -33.65130570272824,
+    "net_pnl_pct": -99.70666932361446,
+    "positions_opened": 1,
+    "positions_closed": 1,
+    "total_rebalances": 1,
+    "emergency_rebalances": 0
+  }
+}

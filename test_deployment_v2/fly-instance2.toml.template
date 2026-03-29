@@ -1,0 +1,114 @@
+# fly.toml - LP Strategy v2 Instance 2 Configuration Template
+# Copy this file and customize for your second instance
+#
+# Usage:
+#   1. Copy: cp fly-instance2.toml.template fly-instance2.toml
+#   2. Edit: nano fly-instance2.toml
+#   3. Deploy: flyctl deploy -c test_deployment_v2/fly-instance2.toml
+#
+# IMPORTANT: Deploy from the project root (STLService/), not from test_deployment_v2/
+# Command: cd /path/to/STLService && flyctl deploy -c test_deployment_v2/fly-instance2.toml
+
+# ============================================================================
+# CHANGE THESE VALUES FOR YOUR NEW INSTANCE
+# ============================================================================
+app = 'lp-strategy-v2-instance2'  # ← CHANGE: Unique app name
+primary_region = 'iad'             # ← CHANGE: Region (iad, sjc, lhr, etc.)
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  # === Data Directory ===
+  DATA_DIR = '/data'
+
+  # === Session Settings ===
+  SESSION_DURATION_MINUTES = '20160'  # 2 weeks = 14 days × 24 hours × 60 minutes
+  MAX_POSITIONS = '1'
+  CHECK_INTERVAL_SECONDS = '60'
+
+  # === Strategy Parameters ===
+  # Aggression coefficient K (range width relative to ATR)
+  K_COEFFICIENT = '0.60'  # ← CHANGE: Adjust for different strategy
+  K_MIN = '0.55'
+  K_MAX = '0.65'
+
+  # Range bounds (as decimal)
+  MIN_RANGE = '0.03'
+  MAX_RANGE = '0.07'
+
+  # === ATR Configuration ===
+  ATR_PERIOD_DAYS = '14'
+  ATR_RECALC_INTERVAL_HOURS = '4'
+  MIN_HOURS_BETWEEN_RANGE_UPDATES = '12'
+  ATR_CHANGE_THRESHOLD = '0.10'
+
+  # === Rebalance Rules ===
+  MAX_REBALANCES_PER_DAY = '2'  # ← CHANGE: Adjust rebalance frequency
+  RATIO_SKEW_HIGH = '1.0'  # 100% - disable skew rebalancing (only rebalance when out of range)
+  RATIO_SKEW_LOW = '0.0'   # 0% - disable skew rebalancing (only rebalance when out of range)
+  EMERGENCY_ATR_MULTIPLE = '3.0'
+  SLIPPAGE_BPS = '50'  # ← CHANGE: Adjust slippage tolerance
+
+  # === Capital Settings ===
+  MAX_SOL_PER_POSITION = '50.0'  # ← CHANGE: Adjust capital limits
+  MAX_USDC_PER_POSITION = '10000.0'  # ← CHANGE: Adjust capital limits
+  MIN_SOL_RESERVE = '0.10'
+  CAPITAL_DEPLOYMENT_PCT = '0.95'  # ← CHANGE: Deploy % of wallet
+
+  # === Swap Settings ===
+  SWAP_ENABLED = 'true'
+  SWAP_IMBALANCE_THRESHOLD = '0.10'
+  SWAP_SLIPPAGE_BPS = '100'
+
+  # === Pool Configuration ===
+  # 0.04% fee pool (tick_spacing=4) - provides better range precision
+  # Alternative: HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ (0.30% fee, tick_spacing=64)
+  SOL_USDC_POOL = 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE'  # ← CHANGE: Different pool if desired
+
+  # === Execution Mode ===
+  DRY_RUN = 'false'  # ← CHANGE: Set to 'true' for testing
+
+  # === Network ===
+  SOLANA_NETWORK = 'mainnet-beta'
+
+# ============================================================================
+# CHANGE VOLUME NAME - Must be unique per instance
+# ============================================================================
+# Persistent storage for session data, logs, and CSV exports
+[[mounts]]
+  source = 'lp_strategy_data_instance2'  # ← CHANGE: Unique volume name
+  destination = '/data'
+
+# VM Configuration
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+
+# HTTP service configuration
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = 'connections'
+    hard_limit = 25
+    soft_limit = 20
+
+# Health check configuration
+[[http_service.checks]]
+  interval = '30s'
+  timeout = '10s'
+  grace_period = '30s'
+  method = 'GET'
+  path = '/health'
+
+
+
+
+
+

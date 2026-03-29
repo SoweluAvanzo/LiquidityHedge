@@ -1,0 +1,137 @@
+# fly.toml - LP Strategy v2 Instance 2 Configuration
+# Deploy from project root: cd /home/sowelo/Scrivania/STLService && flyctl deploy -c test_deployment_v2/fly-instance2.toml
+
+app = 'lp-strategy-v2-instance2'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  # === Data Directory ===
+  DATA_DIR = '/data'
+
+  # === Session Settings ===
+  SESSION_DURATION_MINUTES = '100000'  # 2 weeks = 14 days × 24 hours × 60 minutes
+  MAX_POSITIONS = '1'
+  CHECK_INTERVAL_SECONDS = '120'
+
+  # === Strategy Parameters ===
+  # Aggression coefficient K (range width relative to ATR)
+  # This reduces rebalance frequency by allowing positions to survive larger price moves
+  K_COEFFICIENT = '1.00'
+  K_MIN = '0.55'
+  K_MAX = '2.00'
+
+  # Range bounds (as decimal)
+  MIN_RANGE = '0.12'
+  MAX_RANGE = '0.15'
+
+  # === ATR Configuration ===
+  ATR_PERIOD_DAYS = '14'
+  ATR_RECALC_INTERVAL_HOURS = '4'
+  MIN_HOURS_BETWEEN_RANGE_UPDATES = '4'
+  # Changed from 0.001 (0.1%) to 0.01 (1%) to reduce re-ranging frequency
+  # Previously triggered range updates on tiny ATR changes, now requires 1% change
+  ATR_CHANGE_THRESHOLD = '0.01'
+
+  # === Rebalance Rules ===
+  MAX_REBALANCES_PER_DAY = '2'
+  RATIO_SKEW_HIGH = '0.80'  # 100% - disable skew rebalancing (only rebalance when out of range)
+  RATIO_SKEW_LOW = '0.10'   # percentage of the sol percentage in the position that triggers the rebalance 0% - disable skew rebalancing (only rebalance when out of range)
+  EMERGENCY_ATR_MULTIPLE = '2.0'
+  SLIPPAGE_BPS = '15'
+
+  # === Upward Rebalance Policy (asymmetric upward profit capture) ===
+  # NOTE: threshold is a decimal (0.0005 = 0.05%)
+  UPWARD_REBALANCE_ENABLED = 'true'
+  UPWARD_REBALANCE_THRESHOLD_PCT = '0.0005'
+  UPWARD_REBALANCE_MIN_INTERVAL_MIN = '6'
+  UPWARD_REBALANCE_COOLDOWN_MIN = '12'
+
+  # === Capital Settings ===
+  MAX_SOL_PER_POSITION = '90.0'
+  MAX_USDC_PER_POSITION = '20000.0'
+  MIN_SOL_RESERVE = '0.10'
+  CAPITAL_DEPLOYMENT_PCT = '0.95'  # Deploy 95% of wallet
+
+  # === Swap Settings ===
+  SWAP_ENABLED = 'true'
+  SWAP_IMBALANCE_THRESHOLD = '0.05'
+  SWAP_SLIPPAGE_BPS = '20'
+  SWAP_MIN_USD = '10'
+  JUPITER_ONLY_DIRECT_ROUTES = 'true'
+  JUPITER_MAX_ACCOUNTS = '20'
+
+  # === Jupiter Ultra API Settings ===
+  # Ultra API enables Jupiter rewards eligibility and gasless transactions
+  JUPITER_USE_ULTRA = 'true'
+  JUPITER_ULTRA_GASLESS = 'true'
+  JUPITER_ULTRA_FALLBACK = 'true'
+  JUPITER_ULTRA_CIRCUIT_BREAKER = '3'
+  JUPITER_ULTRA_COOLDOWN_SEC = '300'
+
+  #===stop loss conifig ===
+  STOP_LOSS_ENABLED = 'true'
+  STOP_LOSS_OUT_OF_RANGE_DURATION_MIN = '10'
+  STOP_LOSS_PRICE_DECLINE_THRESHOLD = '0.004'
+  STOP_LOSS_COOLDOWN_MIN = '10'
+  STOP_LOSS_SWAP_PERCENTAGE = '0.8'
+  STOP_LOSS_SLIPPAGE_BPS = '100'
+
+  # === Transaction Settings ===
+  # Priority fee for faster transaction inclusion during network congestion
+  # 1000 microlamports ≈ $0.0001 extra per transaction
+  TX_PRIORITY_FEE_ENABLED = 'true'
+  TX_PRIORITY_FEE_MICROLAMPORTS = '1000'
+  TX_COMPUTE_UNIT_LIMIT = '200000'
+
+  # === Token Extensions (Token2022) ===
+  # Uses Token2022 for position NFTs - makes ALL rent fully refundable
+  # Saves ~$1.15 per position cycle (mint account rent is returned on close)
+  # Set to 'true' to enable cost savings, 'false' for legacy SPL Token behavior
+  USE_TOKEN_EXTENSIONS = 'true'
+  TOKEN_EXTENSIONS_WITH_METADATA = 'false'
+
+  # === Pool Configuration ===
+  # 0.04% fee pool (tick_spacing=4) - provides better range precision
+  # Alternative: HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ (0.30% fee, tick_spacing=64)
+  SOL_USDC_POOL = 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE'
+
+  # === Execution Mode ===
+
+  # === Network ===
+  SOLANA_NETWORK = 'mainnet-beta'
+
+# Persistent storage for session data, logs, and CSV exports
+# UNIQUE volume name for this instance
+[[mounts]]
+  source = 'lp_strategy_data_instance2'
+  destination = '/data'
+
+# VM Configuration
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+
+# HTTP service configuration
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = 'connections'
+    hard_limit = 25
+    soft_limit = 20
+
+# Health check configuration
+[[http_service.checks]]
+  interval = '30s'
+  timeout = '10s'
+  grace_period = '30s'
+  method = 'GET'
+  path = '/health'

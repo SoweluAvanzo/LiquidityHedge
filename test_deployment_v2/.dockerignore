@@ -1,0 +1,76 @@
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Documentation
+docs/_build/
+
+# Local data (will be mounted as volume)
+data/
+*.csv
+*.log
+
+# Secrets (should be set via fly secrets)
+.env.local
+.env.production
+*.pem
+*.key
+
+# Test files (exclude from production)
+test_*.py
+*_test.py
+tests/
+
+# Notebooks
+*.ipynb
+notebooks/
+
+# Deployment scripts (not needed in container)
+deploy.sh
+DEPLOYMENT.md
+fly.toml
+
+# Keep .env out but NOT requirements.txt
+.env
