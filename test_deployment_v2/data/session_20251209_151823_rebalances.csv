@@ -1,0 +1,2 @@
+timestamp,position,reason,is_emergency,price,lower_before,upper_before,lower_after,upper_after,tx_fee_sol
+2025-12-09T14:18:23.976756+00:00,TEST_POSITION_ADDRESS_ABC123,out_of_range,False,132.224617,128.25787849,136.19135551,126.93563232,137.51360168,0.002

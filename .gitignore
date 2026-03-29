@@ -1,0 +1,23 @@
+# Environment & secrets
+.env
+.env.*
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+# Anchor / Solana
+lh-protocol/target/
+lh-protocol/.anchor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
