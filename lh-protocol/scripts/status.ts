@@ -76,7 +76,7 @@ async function main() {
     try {
       const t = await program.account.templateConfig.fetch(tplPda);
       console.log(`\n--- Template ${id} ---`);
-      console.log(`  Tenor:          ${t.tenorDays} days`);
+      console.log(`  Tenor:          ${t.tenorSeconds.toNumber()}s (${(t.tenorSeconds.toNumber() / 86_400).toFixed(2)} days)`);
       console.log(`  Width:          ${(t.widthBps / 100).toFixed(1)}%`);
       console.log(`  Severity:       ${(t.severityPpm.toNumber() / 10_000).toFixed(1)}%`);
       console.log(`  Floor:          ${(t.premiumFloorUsdc.toNumber() / 1e6).toFixed(4)} USDC`);

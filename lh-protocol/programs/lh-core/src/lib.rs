@@ -82,7 +82,7 @@ pub mod lh_core {
     pub fn create_template(
         ctx: Context<CreateTemplate>,
         template_id: u16,
-        tenor_days: u32,
+        tenor_seconds: u64,
         width_bps: u16,
         severity_ppm: u64,
         premium_floor_usdc: u64,
@@ -91,7 +91,7 @@ pub mod lh_core {
         pricing::handle_create_template(
             ctx,
             template_id,
-            tenor_days,
+            tenor_seconds,
             width_bps,
             severity_ppm,
             premium_floor_usdc,

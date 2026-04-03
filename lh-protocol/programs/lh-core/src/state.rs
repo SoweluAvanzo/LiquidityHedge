@@ -134,7 +134,7 @@ impl RegimeSnapshot {
 #[account]
 pub struct TemplateConfig {
     pub template_id: u16,
-    pub tenor_days: u32,
+    pub tenor_seconds: u64,
     pub width_bps: u16,
     pub severity_ppm: u64,
     pub premium_floor_usdc: u64,
@@ -146,7 +146,7 @@ pub struct TemplateConfig {
 impl TemplateConfig {
     pub const SIZE: usize = 8  // discriminator
         + 2   // template_id
-        + 4   // tenor_days
+        + 8   // tenor_seconds
         + 2   // width_bps
         + 8   // severity_ppm
         + 8   // premium_floor_usdc

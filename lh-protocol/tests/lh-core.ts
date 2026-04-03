@@ -215,7 +215,7 @@ describe("lh-core", () => {
   describe("Pricing", () => {
     it("creates template and regime snapshot", async () => {
       const [tpl] = findTemplate(1);
-      await program.methods.createTemplate(1, 7, 1000, new anchor.BN(500_000), new anchor.BN(1_000), new anchor.BN(1_000_000_000))
+      await program.methods.createTemplate(1, new anchor.BN(7 * 86_400), 1000, new anchor.BN(500_000), new anchor.BN(1_000), new anchor.BN(1_000_000_000))
         .accountsPartial({ admin: admin.publicKey, poolState, template: tpl, systemProgram: SystemProgram.programId })
         .rpc();
 
