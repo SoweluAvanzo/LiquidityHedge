@@ -89,6 +89,8 @@ pub fn handle_buy_certificate(
 ) -> Result<()> {
     let template = &ctx.accounts.template;
     require!(template.active, LhError::TemplateInactive);
+    require!(lower_barrier_e6 > 0, LhError::InvalidBarrier);
+    require!(notional_usdc > 0, LhError::InvalidNotional);
 
     // Verify regime snapshot freshness (max 15 minutes)
     let now = Clock::get()?.unix_timestamp;

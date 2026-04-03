@@ -8,7 +8,12 @@ use crate::errors::LhError;
 
 // ─── Constants ────────────────────────────────────────────────────────
 
-/// Pyth V2 on-chain oracle program (mainnet).
+/// Pyth V2 on-chain oracle program.
+/// On devnet, Pyth uses a different program ID than mainnet.
+#[cfg(feature = "devnet")]
+pub const PYTH_PROGRAM_V2: Pubkey =
+    pubkey!("gSbePebfvPy7tRqimPoVecS2UsBvYv46ynrzWocc92s");
+#[cfg(not(feature = "devnet"))]
 pub const PYTH_PROGRAM_V2: Pubkey =
     pubkey!("FsJ3A3u2vn5cTVofAjvy6y5kwABJAqYWpe4975bi2epH");
 
