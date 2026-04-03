@@ -101,13 +101,13 @@ pub struct CreateTemplate<'info> {
 pub fn handle_create_template(
     ctx: Context<CreateTemplate>,
     template_id: u16,
-    tenor_days: u32,
+    tenor_seconds: u64,
     width_bps: u16,
     severity_ppm: u64,
     premium_floor_usdc: u64,
     premium_ceiling_usdc: u64,
 ) -> Result<()> {
-    require!(tenor_days > 0, LhError::InvalidTemplate);
+    require!(tenor_seconds >= 60, LhError::InvalidTemplate); // minimum 1 minute
     require!(width_bps > 0, LhError::InvalidTemplate);
     require!(severity_ppm <= PPM as u64, LhError::InvalidTemplate);
     require!(
@@ -117,7 +117,7 @@ pub fn handle_create_template(
 
     let template = &mut ctx.accounts.template;
     template.template_id = template_id;
-    template.tenor_days = tenor_days;
+    template.tenor_seconds = tenor_seconds;
     template.width_bps = width_bps;
     template.severity_ppm = severity_ppm;
     template.premium_floor_usdc = premium_floor_usdc;
@@ -128,7 +128,7 @@ pub fn handle_create_template(
     emit!(events::TemplateCreated {
         template: template.key(),
         template_id,
-        tenor_days,
+        tenor_seconds,
     });
 
     Ok(())
@@ -161,7 +161,9 @@ pub fn compute_quote(
     require!(u_after_ppm <= u_max_ppm, LhError::InsufficientHeadroom);
 
     let sigma_ppm = regime.sigma_ppm as u128;
-    let tenor_ppm = ((template.tenor_days as u128) * PPM) / 365u128;
+    // Annualize: tenor_seconds / (365 * 86_400) expressed in PPM
+    let seconds_per_year: u128 = 365u128 * 86_400u128;
+    let tenor_ppm = ((template.tenor_seconds as u128) * PPM) / seconds_per_year;
     let sqrt_t_ppm = integer_sqrt(tenor_ppm * PPM);
     let width_ppm = (template.width_bps as u128) * 100u128;
 
@@ -205,14 +207,15 @@ pub fn compute_quote(
         0
     };
 
-    // C_rep = Cap * carry_bps * tenor_days / 10_000 / 100
+    // C_rep = Cap * carry_bps_per_day * tenor_seconds / BPS / (100 * 86_400)
+    // Equivalent to the daily carry prorated to the actual tenor duration
     let replication = cap
         .checked_mul(regime.carry_bps_per_day as u128)
         .ok_or(LhError::Overflow)?
-        .checked_mul(template.tenor_days as u128)
+        .checked_mul(template.tenor_seconds as u128)
         .ok_or(LhError::Overflow)?
         / BPS
-        / 100u128;
+        / (100u128 * 86_400u128);
 
     let mut premium = expected_payout + capital_charge + adverse + replication;
 

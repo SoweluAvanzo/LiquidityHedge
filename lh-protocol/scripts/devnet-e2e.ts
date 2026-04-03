@@ -171,7 +171,7 @@ async function main() {
     await program.methods
       .createTemplate(
         2, // template_id
-        1, // 1 day tenor
+        new anchor.BN(1200), // 20 minutes (1200 seconds)
         1000, // 10% width
         new anchor.BN(500_000), // 50% severity
         new anchor.BN(1_000), // floor: 0.001 USDC
@@ -184,7 +184,7 @@ async function main() {
         systemProgram: SystemProgram.programId,
       })
       .rpc();
-    console.log("  Template 2 created (1-day tenor)");
+    console.log("  Template 2 created (20-minute tenor = 1200s)");
   } catch (e: any) {
     if (e.toString().includes("already in use")) {
       console.log("  Template 2 already exists");

@@ -68,7 +68,7 @@ async function main() {
     await program.methods
       .createTemplate(
         templateId,
-        7,     // 7 days tenor
+        new anchor.BN(7 * 86_400),   // 7 days in seconds
         1000,  // 10% width (1000 bps)
         new anchor.BN(500_000),       // 50% severity
         new anchor.BN(1_000),         // floor: 0.001 USDC
@@ -81,7 +81,7 @@ async function main() {
         systemProgram: SystemProgram.programId,
       })
       .rpc();
-    console.log("✓ Template 1 created (7d / 10% width / 50% severity)");
+    console.log("✓ Template 1 created (7d=604800s / 10% width / 50% severity)");
   } catch (e: any) {
     if (e.toString().includes("already in use")) {
       console.log("- Template 1 already exists, skipping");

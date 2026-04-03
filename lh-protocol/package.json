@@ -12,7 +12,9 @@
     "devnet:status": "npx ts-node scripts/status.ts",
     "devnet:e2e": "npx ts-node scripts/devnet-e2e.ts",
     "open-and-lock": "npx ts-node clients/cli/open-and-lock.ts",
-    "health": "npx ts-node scripts/health.ts"
+    "health": "npx ts-node scripts/health.ts",
+    "live-demo": "npx ts-node scripts/live-demo.ts",
+    "live-demo:offchain": "npx ts-node scripts/live-demo-offchain.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",

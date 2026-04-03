@@ -110,7 +110,7 @@ pub fn handle_buy_certificate(
     let pool_key = ctx.accounts.pool_state.key();
     let position_key = ctx.accounts.position_state.key();
     let template_id = template.template_id;
-    let tenor_days = template.tenor_days;
+    let tenor_seconds = template.tenor_seconds;
 
     // Transfer premium from buyer to pool vault (buyer is signer, no PDA needed)
     token::transfer(
@@ -156,7 +156,7 @@ pub fn handle_buy_certificate(
         .ok_or(LhError::Overflow)?;
 
     // Compute expiry from template
-    let expiry_ts = now + (tenor_days as i64) * 86_400;
+    let expiry_ts = now + tenor_seconds as i64;
 
     // Initialize certificate state
     let cert = &mut ctx.accounts.certificate_state;

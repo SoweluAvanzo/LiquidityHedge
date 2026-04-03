@@ -67,7 +67,7 @@ async function main() {
     await program.methods
       .createTemplate(
         templateId,
-        7,     // 7 days tenor
+        new anchor.BN(7 * 86_400),   // 7 days in seconds
         1000,  // 10% width (1000 bps)
         new anchor.BN(500_000),       // 50% severity
         new anchor.BN(1_000),         // floor: 0.001 USDC

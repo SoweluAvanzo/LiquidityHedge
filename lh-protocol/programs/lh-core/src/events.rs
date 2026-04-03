@@ -91,5 +91,5 @@ pub struct RegimeUpdated {
 pub struct TemplateCreated {
     pub template: Pubkey,
     pub template_id: u16,
-    pub tenor_days: u32,
+    pub tenor_seconds: u64,
 }
