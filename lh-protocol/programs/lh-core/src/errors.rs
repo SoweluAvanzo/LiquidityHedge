@@ -76,4 +76,13 @@ pub enum LhError {
 
     #[msg("Account owner is not the expected program")]
     InvalidAccountOwner,
+
+    #[msg("Lower barrier must be greater than zero")]
+    InvalidBarrier,
+
+    #[msg("Notional must be greater than zero")]
+    InvalidNotional,
+
+    #[msg("Regime parameters out of acceptable range")]
+    InvalidRegimeParams,
 }

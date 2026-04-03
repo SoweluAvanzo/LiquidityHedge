@@ -39,6 +39,19 @@ pub fn handle_update_regime_snapshot(
     stress_flag: bool,
     carry_bps_per_day: u32,
 ) -> Result<()> {
+    // Validate regime parameters are within sane bounds
+    // sigma: 0.1% to 500% annualized (1_000 to 5_000_000 PPM)
+    require!(
+        sigma_ppm >= 1_000 && sigma_ppm <= 5_000_000,
+        LhError::InvalidRegimeParams
+    );
+    require!(
+        sigma_ma_ppm >= 1_000 && sigma_ma_ppm <= 5_000_000,
+        LhError::InvalidRegimeParams
+    );
+    // carry: max 10%/day (1_000 bps)
+    require!(carry_bps_per_day <= 1_000, LhError::InvalidRegimeParams);
+
     let regime = &mut ctx.accounts.regime_snapshot;
     regime.sigma_ppm = sigma_ppm;
     regime.sigma_ma_ppm = sigma_ma_ppm;
