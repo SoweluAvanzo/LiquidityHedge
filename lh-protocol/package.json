@@ -5,7 +5,7 @@
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
     "build": "anchor build",
     "build:devnet": "anchor build -- --features devnet",
-    "test": "anchor test",
+    "test": "anchor build -- --features test-mode && anchor test --skip-build",
     "risk-service": "npx ts-node clients/risk-service/index.ts",
     "operator-service": "npx ts-node clients/operator-service/index.ts",
     "devnet:init": "npx ts-node scripts/devnet-init.ts",
