@@ -149,3 +149,89 @@ export function runAssertions(data: {
 
   return results;
 }
+
+// ─── v2 Assertions ──────────────────────────────────────────────────
+
+export function runV2Assertions(data: {
+  premiumTotal: number;
+  premiumUpfront: number;
+  premiumDeferred: number;
+  deferredPremiumReleased: number;
+  rtTickLower: number;
+  rtTickUpper: number;
+  lpTickLower: number;
+  lpTickUpper: number;
+  rtReturnedUsdc: number;
+  rtDepositedUsdc: number;
+  rtDeferredEarned: number;
+  feeShareBps: number;
+  feeShareMinBps: number;
+  feeShareMaxBps: number;
+  poolReservesAfterSettle: number;
+  rtDeposit: number;
+  upfrontPremium: number;
+  payout: number;
+  deferredReleased: number;
+}): AssertionResult[] {
+  const results: AssertionResult[] = [];
+
+  // 1. Premium split: upfront + deferred == total
+  results.push(check(
+    "Premium split: upfront + deferred == total",
+    data.premiumUpfront + data.premiumDeferred === data.premiumTotal,
+    String(data.premiumTotal),
+    String(data.premiumUpfront + data.premiumDeferred),
+  ));
+
+  // 2. Deferred premium released at settlement equals deferred amount
+  if (data.premiumDeferred > 0) {
+    results.push(check(
+      "Deferred premium fully released at settlement",
+      data.deferredPremiumReleased === data.premiumDeferred,
+      String(data.premiumDeferred),
+      String(data.deferredPremiumReleased),
+    ));
+  }
+
+  // 3. RT position tick range wider than LP
+  const rtWidth = data.rtTickUpper - data.rtTickLower;
+  const lpWidth = data.lpTickUpper - data.lpTickLower;
+  results.push(check(
+    "RT tick range wider than LP",
+    rtWidth >= lpWidth,
+    `>= ${lpWidth}`,
+    String(rtWidth),
+  ));
+
+  // 4. Fee share within configured range
+  if (data.feeShareMaxBps > 0) {
+    results.push(check(
+      "Fee share within [min, max] range",
+      data.feeShareBps >= data.feeShareMinBps && data.feeShareBps <= data.feeShareMaxBps,
+      `[${data.feeShareMinBps}, ${data.feeShareMaxBps}]`,
+      String(data.feeShareBps),
+    ));
+  }
+
+  // 5. Pool reserves after settlement: rtDeposit + upfrontPremium + deferredReleased - payout
+  const expectedReserves = data.rtDeposit + data.upfrontPremium + data.deferredReleased - data.payout;
+  results.push(check(
+    "Pool reserves after settlement (v2 accounting)",
+    Math.abs(data.poolReservesAfterSettle - expectedReserves) <= 1,
+    String(expectedReserves),
+    String(data.poolReservesAfterSettle),
+  ));
+
+  // 6. RT gets back at least their deposit + deferred premium (at expiry, no penalty)
+  if (data.rtDeferredEarned > 0) {
+    results.push(check(
+      "RT returned includes deferred premium",
+      data.rtReturnedUsdc >= data.rtDepositedUsdc + data.rtDeferredEarned - 1,
+      `>= ${data.rtDepositedUsdc + data.rtDeferredEarned}`,
+      String(data.rtReturnedUsdc),
+    ));
+  }
+
+  return results;
+}
+

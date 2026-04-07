@@ -11,6 +11,9 @@ import {
   CertificateState,
   RegimeSnapshot,
   TemplateConfig,
+  RtPositionState,
+  PremiumEscrow,
+  ReplacementRequest,
 } from "../../types";
 
 export interface ProtocolState {
@@ -22,6 +25,10 @@ export interface ProtocolState {
   certificates: CertificateState[];
   shareLedger: Record<string, number>; // address → share balance
   processedTxSigs: string[]; // anti-replay
+  // v2 collections
+  rtPositions: RtPositionState[];
+  premiumEscrows: PremiumEscrow[];
+  replacementQueue: ReplacementRequest[];
 }
 
 function emptyState(): ProtocolState {
@@ -34,6 +41,9 @@ function emptyState(): ProtocolState {
     certificates: [],
     shareLedger: {},
     processedTxSigs: [],
+    rtPositions: [],
+    premiumEscrows: [],
+    replacementQueue: [],
   };
 }
 
@@ -50,7 +60,15 @@ export class StateStore {
   private load(): ProtocolState {
     try {
       const raw = fs.readFileSync(this.filePath, "utf-8");
-      return JSON.parse(raw) as ProtocolState;
+      const parsed = JSON.parse(raw);
+      // Backfill v2 fields for old state files
+      return {
+        ...emptyState(),
+        ...parsed,
+        rtPositions: parsed.rtPositions || [],
+        premiumEscrows: parsed.premiumEscrows || [],
+        replacementQueue: parsed.replacementQueue || [],
+      };
     } catch {
       return emptyState();
     }
@@ -192,6 +210,81 @@ export class StateStore {
     if (this.state.processedTxSigs.length > 1000) {
       this.state.processedTxSigs = this.state.processedTxSigs.slice(-500);
     }
+    this.save();
+  }
+
+  // ─── RT Positions (v2) ─────────────────────────────────────────
+
+  getRtPosition(positionMint: string): RtPositionState | undefined {
+    return this.state.rtPositions.find((p) => p.positionMint === positionMint);
+  }
+
+  getRtPositionsByOwner(rtOwner: string): RtPositionState[] {
+    return this.state.rtPositions.filter((p) => p.rtOwner === rtOwner);
+  }
+
+  addRtPosition(pos: RtPositionState): void {
+    this.state.rtPositions.push(pos);
+    this.save();
+  }
+
+  updateRtPosition(
+    positionMint: string,
+    updater: (pos: RtPositionState) => void
+  ): void {
+    const pos = this.getRtPosition(positionMint);
+    if (!pos) throw new Error(`RT position not found: ${positionMint}`);
+    updater(pos);
+    this.save();
+  }
+
+  // ─── Premium Escrows (v2) ──────────────────────────────────────
+
+  getPremiumEscrow(certPositionMint: string): PremiumEscrow | undefined {
+    return this.state.premiumEscrows.find(
+      (e) => e.certPositionMint === certPositionMint
+    );
+  }
+
+  addPremiumEscrow(escrow: PremiumEscrow): void {
+    this.state.premiumEscrows.push(escrow);
+    this.save();
+  }
+
+  updatePremiumEscrow(
+    certPositionMint: string,
+    updater: (escrow: PremiumEscrow) => void
+  ): void {
+    const escrow = this.getPremiumEscrow(certPositionMint);
+    if (!escrow) throw new Error(`Premium escrow not found: ${certPositionMint}`);
+    updater(escrow);
+    this.save();
+  }
+
+  // ─── Replacement Queue (v2) ────────────────────────────────────
+
+  getReplacementRequest(certPositionMint: string): ReplacementRequest | undefined {
+    return this.state.replacementQueue.find(
+      (r) => r.certPositionMint === certPositionMint
+    );
+  }
+
+  getOpenReplacementRequests(): ReplacementRequest[] {
+    return this.state.replacementQueue.filter((r) => r.status === "open");
+  }
+
+  addReplacementRequest(req: ReplacementRequest): void {
+    this.state.replacementQueue.push(req);
+    this.save();
+  }
+
+  updateReplacementRequest(
+    certPositionMint: string,
+    updater: (req: ReplacementRequest) => void
+  ): void {
+    const req = this.getReplacementRequest(certPositionMint);
+    if (!req) throw new Error(`Replacement request not found: ${certPositionMint}`);
+    updater(req);
     this.save();
   }
 }

@@ -14,18 +14,27 @@ import {
   CertificateState,
   RegimeSnapshot,
   TemplateConfig,
+  RtPositionState,
   RegisterPositionParams,
   TemplateParams,
   RegimeParams,
   BuyCertParams,
   BuyCertResult,
   SettleResult,
+  PoolV2Config,
+  DepositRtResult,
+  WithdrawRtResult,
+  DepositLpAndHedgeResult,
+  ReplacementRequest,
 } from "../types";
 import { StateStore } from "./state/store";
 import { AuditLogger } from "./audit/logger";
 import * as poolOps from "./operations/pool";
 import * as escrowOps from "./operations/escrow";
 import * as certOps from "./operations/certificates";
+import * as rtOps from "./operations/rt-positions";
+import * as replacementOps from "./operations/replacement";
+import * as vaultPosOps from "./operations/vault-positions";
 
 export class OffchainLhProtocol implements ILhProtocol {
   private store: StateStore;
@@ -49,11 +58,12 @@ export class OffchainLhProtocol implements ILhProtocol {
   async initPool(
     admin: Keypair,
     usdcMint: PublicKey,
-    uMaxBps: number
+    uMaxBps: number,
+    v2Config?: import("../types").PoolV2Config
   ): Promise<void> {
     await poolOps.initPool(
       this.store, this.logger, this.connection,
-      this.vaultKeypair, admin, usdcMint, uMaxBps
+      this.vaultKeypair, admin, usdcMint, uMaxBps, v2Config
     );
   }
 
@@ -216,5 +226,63 @@ export class OffchainLhProtocol implements ILhProtocol {
     const cert = this.store.getCertificate(positionMint.toBase58());
     if (!cert) throw new Error(`Certificate not found: ${positionMint.toBase58()}`);
     return cert;
+  }
+
+  // ─── v2: RT Position Management ────────────────────────────────
+
+  async depositRt(
+    rt: Keypair, solAmount: number, usdcAmount: number,
+    expiryTs: number, linkedCertMint?: string,
+  ): Promise<DepositRtResult> {
+    return rtOps.depositRt(
+      this.store, this.logger, this.connection,
+      this.vaultKeypair, rt, solAmount, usdcAmount, expiryTs, linkedCertMint,
+    );
+  }
+
+  async withdrawRtEarly(rt: Keypair, rtPositionMint: string): Promise<WithdrawRtResult> {
+    return rtOps.withdrawRtEarly(
+      this.store, this.logger, this.connection, this.vaultKeypair, rt, rtPositionMint,
+    );
+  }
+
+  async withdrawRtAtExpiry(rt: Keypair, rtPositionMint: string): Promise<WithdrawRtResult> {
+    return rtOps.withdrawRtAtExpiry(
+      this.store, this.logger, this.connection, this.vaultKeypair, rt, rtPositionMint,
+    );
+  }
+
+  async getRtPositionState(rtPositionMint: string): Promise<RtPositionState> {
+    const pos = this.store.getRtPosition(rtPositionMint);
+    if (!pos) throw new Error(`RT position not found: ${rtPositionMint}`);
+    return pos;
+  }
+
+  // ─── v2: LP Vault-Managed Position ─────────────────────────────
+
+  async depositLpAndHedge(
+    lp: Keypair, solAmount: number, usdcAmount: number,
+    templateId: number, capUsdc: number, barrierPct: number,
+    premiumTxSignature: string,
+  ): Promise<DepositLpAndHedgeResult> {
+    return vaultPosOps.depositLpAndHedge(
+      this.store, this.logger, this.connection, this.vaultKeypair,
+      lp, solAmount, usdcAmount, templateId, capUsdc, barrierPct, premiumTxSignature,
+    );
+  }
+
+  // ─── v2: Replacement RT ────────────────────────────────────────
+
+  async fillReplacementRequest(
+    newRt: Keypair, certPositionMint: string, solAmount: number, usdcAmount: number,
+  ): Promise<DepositRtResult & { bonusUsdc: number }> {
+    return replacementOps.fillReplacementRequest(
+      this.store, this.logger, this.connection, this.vaultKeypair,
+      newRt, certPositionMint, solAmount, usdcAmount,
+    );
+  }
+
+  async getReplacementRequests(): Promise<ReplacementRequest[]> {
+    return this.store.getOpenReplacementRequests();
   }
 }

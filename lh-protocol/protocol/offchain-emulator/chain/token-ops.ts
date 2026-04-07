@@ -114,10 +114,16 @@ export async function verifyIncomingTransfer(
   expectedAmount: number,
   expectedMint: PublicKey
 ): Promise<boolean> {
-  const tx = await connection.getParsedTransaction(txSignature, {
-    commitment: "confirmed",
-    maxSupportedTransactionVersion: 0,
-  });
+  // Retry fetching the parsed tx (RPC may not have indexed it yet)
+  let tx: any = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    tx = await connection.getParsedTransaction(txSignature, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    });
+    if (tx) break;
+    if (attempt < 3) await new Promise<void>((r) => globalThis.setTimeout(r, 2000));
+  }
 
   if (!tx || tx.meta?.err) return false;
 

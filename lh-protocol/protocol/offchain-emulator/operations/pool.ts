@@ -5,7 +5,7 @@
 
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
-import { PoolState, BPS } from "../../types";
+import { PoolState, PoolV2Config, BPS } from "../../types";
 import { StateStore } from "../state/store";
 import {
   ensureVaultAta,
@@ -21,7 +21,8 @@ export async function initPool(
   vaultKeypair: Keypair,
   admin: Keypair,
   usdcMint: PublicKey,
-  uMaxBps: number
+  uMaxBps: number,
+  v2Config?: PoolV2Config
 ): Promise<void> {
   if (store.getPool()) throw new Error("Pool already initialized");
 
@@ -36,10 +37,16 @@ export async function initPool(
     activeCapUsdc: 0,
     totalShares: 0,
     uMaxBps,
+    // v2 config (defaults = v1 behavior)
+    premiumUpfrontBps: v2Config?.premiumUpfrontBps ?? 10_000,
+    feeShareMinBps: v2Config?.feeShareMinBps ?? 0,
+    feeShareMaxBps: v2Config?.feeShareMaxBps ?? 0,
+    earlyExitPenaltyBps: v2Config?.earlyExitPenaltyBps ?? 0,
+    rtTickWidthMultiplier: v2Config?.rtTickWidthMultiplier ?? 2,
   };
 
   store.setPool(pool);
-  logger.logOperation("initPool", { admin: pool.admin, uMaxBps }, store.getVersion());
+  logger.logOperation("initPool", { admin: pool.admin, uMaxBps, v2Config }, store.getVersion());
 }
 
 /**
