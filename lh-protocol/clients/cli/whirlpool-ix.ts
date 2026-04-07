@@ -68,12 +68,8 @@ export function getTickArrayStartIndex(
   tickSpacing: number
 ): number {
   const ticksPerArray = tickSpacing * TICK_ARRAY_SIZE;
-  let startIndex = Math.floor(tick / ticksPerArray) * ticksPerArray;
-  // Python-style floor division for negative numbers
-  if (tick < 0 && tick % ticksPerArray !== 0) {
-    startIndex -= ticksPerArray;
-  }
-  return startIndex;
+  // Math.floor already does floor-toward-negative-infinity in JS
+  return Math.floor(tick / ticksPerArray) * ticksPerArray;
 }
 
 /**
@@ -243,6 +239,20 @@ export function sqrtPriceX64ToPrice(
   const priceRaw = sqrtPriceFloat * sqrtPriceFloat;
   const decimalAdjust = Math.pow(10, decimalsA - decimalsB);
   return priceRaw * decimalAdjust;
+}
+
+/**
+ * Convert a human-readable price to sqrtPriceX64.
+ * Inverse of sqrtPriceX64ToPrice.
+ */
+export function priceToSqrtPriceX64(
+  price: number,
+  decimalsA: number = 9,
+  decimalsB: number = 6
+): bigint {
+  const decimalAdjust = Math.pow(10, decimalsA - decimalsB);
+  const sqrtPrice = Math.sqrt(price / decimalAdjust);
+  return BigInt(Math.floor(sqrtPrice * Number(Q64)));
 }
 
 /**
@@ -459,4 +469,100 @@ export function buildIncreaseLiquidityIx(params: {
     keys,
     data,
   });
+}
+
+// ─── Decrease Liquidity ─────────────────────────────────────────────
+
+export function buildDecreaseLiquidityIx(params: {
+  whirlpool: PublicKey;
+  positionAuthority: PublicKey;
+  positionPda: PublicKey;
+  positionTokenAccount: PublicKey;
+  tokenOwnerAccountA: PublicKey;
+  tokenOwnerAccountB: PublicKey;
+  tokenVaultA: PublicKey;
+  tokenVaultB: PublicKey;
+  tickArrayLower: PublicKey;
+  tickArrayUpper: PublicKey;
+  liquidityAmount: bigint;
+  tokenMinA: bigint;
+  tokenMinB: bigint;
+}): TransactionInstruction {
+  const data = Buffer.alloc(40);
+  ORCA_DISCRIMINATORS.decreaseLiquidity.copy(data, 0);
+  const liqBuf = Buffer.alloc(16);
+  let liq = params.liquidityAmount;
+  for (let i = 0; i < 16; i++) {
+    liqBuf[i] = Number(liq & BigInt(0xff));
+    liq >>= BigInt(8);
+  }
+  liqBuf.copy(data, 8);
+  new BN(params.tokenMinA.toString()).toArrayLike(Buffer, "le", 8).copy(data, 24);
+  new BN(params.tokenMinB.toString()).toArrayLike(Buffer, "le", 8).copy(data, 32);
+
+  const keys: AccountMeta[] = [
+    { pubkey: params.whirlpool, isSigner: false, isWritable: true },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: params.positionAuthority, isSigner: true, isWritable: false },
+    { pubkey: params.positionPda, isSigner: false, isWritable: true },
+    { pubkey: params.positionTokenAccount, isSigner: false, isWritable: false },
+    { pubkey: params.tokenOwnerAccountA, isSigner: false, isWritable: true },
+    { pubkey: params.tokenOwnerAccountB, isSigner: false, isWritable: true },
+    { pubkey: params.tokenVaultA, isSigner: false, isWritable: true },
+    { pubkey: params.tokenVaultB, isSigner: false, isWritable: true },
+    { pubkey: params.tickArrayLower, isSigner: false, isWritable: true },
+    { pubkey: params.tickArrayUpper, isSigner: false, isWritable: true },
+  ];
+  return new TransactionInstruction({ programId: WHIRLPOOL_PROGRAM_ID, keys, data });
+}
+
+// ─── Collect Fees ───────────────────────────────────────────────────
+
+export function buildCollectFeesIx(params: {
+  whirlpool: PublicKey;
+  positionAuthority: PublicKey;
+  positionPda: PublicKey;
+  positionTokenAccount: PublicKey;
+  tokenOwnerAccountA: PublicKey;
+  tokenOwnerAccountB: PublicKey;
+  tokenVaultA: PublicKey;
+  tokenVaultB: PublicKey;
+}): TransactionInstruction {
+  const data = Buffer.alloc(8);
+  ORCA_DISCRIMINATORS.collectFees.copy(data, 0);
+  // Account order: owner_a, vault_a, owner_b, vault_b (interleaved, not grouped)
+  const keys: AccountMeta[] = [
+    { pubkey: params.whirlpool, isSigner: false, isWritable: false },
+    { pubkey: params.positionAuthority, isSigner: true, isWritable: false },
+    { pubkey: params.positionPda, isSigner: false, isWritable: true },
+    { pubkey: params.positionTokenAccount, isSigner: false, isWritable: false },
+    { pubkey: params.tokenOwnerAccountA, isSigner: false, isWritable: true },
+    { pubkey: params.tokenVaultA, isSigner: false, isWritable: true },
+    { pubkey: params.tokenOwnerAccountB, isSigner: false, isWritable: true },
+    { pubkey: params.tokenVaultB, isSigner: false, isWritable: true },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+  ];
+  return new TransactionInstruction({ programId: WHIRLPOOL_PROGRAM_ID, keys, data });
+}
+
+// ─── Close Position ─────────────────────────────────────────────────
+
+export function buildClosePositionIx(params: {
+  positionAuthority: PublicKey;
+  receiver: PublicKey;
+  positionPda: PublicKey;
+  positionMint: PublicKey;
+  positionTokenAccount: PublicKey;
+}): TransactionInstruction {
+  const data = Buffer.alloc(8);
+  ORCA_DISCRIMINATORS.closePosition.copy(data, 0);
+  const keys: AccountMeta[] = [
+    { pubkey: params.positionAuthority, isSigner: true, isWritable: false },
+    { pubkey: params.receiver, isSigner: false, isWritable: true },
+    { pubkey: params.positionPda, isSigner: false, isWritable: true },
+    { pubkey: params.positionMint, isSigner: false, isWritable: true },
+    { pubkey: params.positionTokenAccount, isSigner: false, isWritable: true },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+  ];
+  return new TransactionInstruction({ programId: WHIRLPOOL_PROGRAM_ID, keys, data });
 }

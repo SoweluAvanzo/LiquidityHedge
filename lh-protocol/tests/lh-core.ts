@@ -271,7 +271,8 @@ describe("lh-core", () => {
       await program.methods
         .registerLockedPosition(
           new anchor.BN(150_000_000), new anchor.BN(1_000_000_000),
-          new anchor.BN(150_000_000), -10000, 10000
+          new anchor.BN(150_000_000), -10000, 10000,
+          new anchor.BN(500_000_000)
         )
         .accountsPartial({
           owner: admin.publicKey, positionMint,
@@ -289,6 +290,8 @@ describe("lh-core", () => {
       assert.equal(pos.upperTick, 10000);
       // In test-mode, oracle_p0 = p0 (Pyth skipped)
       assert.equal(pos.oracleP0E6.toNumber(), 150_000_000);
+      // Liquidity stored from instruction arg in test-mode
+      assert.equal(pos.liquidity.toNumber(), 500_000_000);
     });
 
     it("buys a certificate (quote + premium + NFT)", async () => {
@@ -417,7 +420,8 @@ describe("lh-core", () => {
       await program.methods
         .registerLockedPosition(
           new anchor.BN(150_000_000), new anchor.BN(1_000_000_000),
-          new anchor.BN(150_000_000), -10000, 10000
+          new anchor.BN(150_000_000), -10000, 10000,
+          new anchor.BN(500_000_000)
         )
         .accountsPartial({
           owner: admin.publicKey, positionMint: setup.positionMint,

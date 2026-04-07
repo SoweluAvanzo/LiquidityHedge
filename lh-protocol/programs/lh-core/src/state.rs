@@ -41,6 +41,7 @@ pub struct PositionState {
     pub oracle_p0_e6: u64,
     pub deposited_a: u64,
     pub deposited_b: u64,
+    pub liquidity: u128,
     pub protected_by: Option<Pubkey>,
     pub status: u8,
     pub bump: u8,
@@ -57,6 +58,7 @@ impl PositionState {
         + 8   // oracle_p0_e6
         + 8   // deposited_a
         + 8   // deposited_b
+        + 16  // liquidity (u128)
         + 33  // protected_by (Option<Pubkey>: 1 tag + 32 key)
         + 1   // status
         + 1;  // bump

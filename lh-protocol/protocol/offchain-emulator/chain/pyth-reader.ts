@@ -29,27 +29,39 @@ export interface PythPrice {
  *   [224..228] exponent (i32)
  *   [232..240] timestamp (i64)
  */
+/**
+ * Read and validate a Pyth V2 price feed.
+ * Falls back to Whirlpool-derived price if Pyth feed is stale/unavailable
+ * (Pyth V2 push feeds on mainnet are deprecated; pull feeds use a different format).
+ */
 export async function readPythPrice(
   connection: Connection,
-  feedAddress: PublicKey
+  feedAddress: PublicKey,
+  whirlpoolFallback?: { address: PublicKey }
 ): Promise<PythPrice> {
   const info = await connection.getAccountInfo(feedAddress);
-  if (!info) throw new Error(`Pyth feed not found: ${feedAddress.toBase58()}`);
+  if (!info) {
+    if (whirlpoolFallback) return readWhirlpoolFallback(connection, whirlpoolFallback.address);
+    throw new Error(`Pyth feed not found: ${feedAddress.toBase58()}`);
+  }
   const data = Buffer.from(info.data);
 
   if (data.length < 240) {
+    if (whirlpoolFallback) return readWhirlpoolFallback(connection, whirlpoolFallback.address);
     throw new Error(`Pyth account too small: ${data.length} < 240`);
   }
 
   // Magic number check
   const magic = data.readUInt32LE(0);
   if (magic !== PYTH_MAGIC) {
+    if (whirlpoolFallback) return readWhirlpoolFallback(connection, whirlpoolFallback.address);
     throw new Error(`Invalid Pyth magic: 0x${magic.toString(16)}`);
   }
 
-  // Status check
+  // Status check — Pyth V2 push feeds on mainnet may be deprecated (status=0)
   const status = data.readUInt32LE(172);
   if (status !== PYTH_STATUS_TRADING) {
+    if (whirlpoolFallback) return readWhirlpoolFallback(connection, whirlpoolFallback.address);
     throw new Error(`Pyth status not TRADING: ${status}`);
   }
 
@@ -62,6 +74,7 @@ export async function readPythPrice(
   // Staleness check
   const now = Math.floor(Date.now() / 1000);
   if (now - timestamp > PYTH_MAX_STALENESS_S) {
+    if (whirlpoolFallback) return readWhirlpoolFallback(connection, whirlpoolFallback.address);
     throw new Error(
       `Pyth feed stale: age=${now - timestamp}s, max=${PYTH_MAX_STALENESS_S}s`
     );
@@ -84,6 +97,28 @@ export async function readPythPrice(
   }
 
   return { priceE6, confE6, timestamp };
+}
+
+/**
+ * Fallback: derive price from Orca Whirlpool sqrtPriceX64.
+ * Uses 0.5% as a conservative confidence estimate.
+ */
+async function readWhirlpoolFallback(
+  connection: Connection,
+  whirlpoolAddress: PublicKey
+): Promise<PythPrice> {
+  const { decodeWhirlpoolAccount, sqrtPriceX64ToPrice } = await import(
+    "../../../clients/cli/whirlpool-ix"
+  );
+  const info = await connection.getAccountInfo(whirlpoolAddress);
+  if (!info) throw new Error("Whirlpool fallback: account not found");
+  const wp = decodeWhirlpoolAccount(Buffer.from(info.data));
+  const price = sqrtPriceX64ToPrice(wp.sqrtPrice);
+  const priceE6 = Math.floor(price * 1_000_000);
+  // Conservative confidence: 0.5% of price
+  const confE6 = Math.floor(priceE6 * 0.005);
+  console.log(`  [Pyth fallback] Using Whirlpool price: $${price.toFixed(4)} (conf: $${(confE6/1e6).toFixed(4)})`);
+  return { priceE6, confE6, timestamp: Math.floor(Date.now() / 1000) };
 }
 
 /**

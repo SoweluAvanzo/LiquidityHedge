@@ -4,6 +4,7 @@ use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
 use crate::constants::*;
 use crate::errors::LhError;
 use crate::events;
+use crate::math;
 use crate::pyth;
 use crate::state::*;
 
@@ -242,13 +243,18 @@ pub struct SettleCertificate<'info> {
 pub fn handle_settle_certificate(ctx: Context<SettleCertificate>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
 
-    // Read certificate values before mutable borrows
+    // Read certificate and position values before mutable borrows
     let expiry_ts = ctx.accounts.certificate_state.expiry_ts;
     let lower_barrier_e6 = ctx.accounts.certificate_state.lower_barrier_e6;
-    let notional_usdc = ctx.accounts.certificate_state.notional_usdc;
     let cap_usdc = ctx.accounts.certificate_state.cap_usdc;
     let cert_owner = ctx.accounts.certificate_state.owner;
     let pool_bump = ctx.accounts.pool_state.bump;
+
+    // Position data for CL value computation
+    let entry_price_e6 = ctx.accounts.position_state.p0_price_e6;
+    let liquidity = ctx.accounts.position_state.liquidity;
+    let lower_tick = ctx.accounts.position_state.lower_tick;
+    let upper_tick = ctx.accounts.position_state.upper_tick;
 
     require!(now >= expiry_ts, LhError::TooEarly);
 
@@ -258,17 +264,42 @@ pub fn handle_settle_certificate(ctx: Context<SettleCertificate>) -> Result<()> 
     // Conservative downside: price - confidence
     let conservative_price = price_e6.saturating_sub(conf_e6);
 
-    // Proportional payout: min(cap, max(0, (barrier - price) * notional / barrier))
-    let payout = if conservative_price >= lower_barrier_e6 {
+    // ── Corridor payout using actual CL position value ──────────────
+    // Protect losses WITHIN [barrier, entry]: payout = actual CL loss.
+    // Below barrier: cap payout at barrier-level loss (no discontinuity).
+    // Above entry: no payout.
+
+    // Compute CL tick bounds as sqrtPriceX64 (from Orca tick indices)
+    let tick_sqrt_lower = {
+        let sq = (1.0001f64).powi(lower_tick).sqrt();
+        (sq * (math::Q64 as f64)) as u128
+    };
+    let tick_sqrt_upper = {
+        let sq = (1.0001f64).powi(upper_tick).sqrt();
+        (sq * (math::Q64 as f64)) as u128
+    };
+
+    // Entry value
+    let entry_sqrt = math::price_e6_to_sqrt_price_x64(entry_price_e6);
+    let (entry_a, entry_b) = math::estimate_token_amounts(
+        liquidity, entry_sqrt, tick_sqrt_lower, tick_sqrt_upper
+    );
+    let entry_value_e6 = math::cl_position_value_e6(entry_a, entry_b, entry_price_e6);
+
+    let payout = if conservative_price >= entry_price_e6 {
+        // Price at or above entry — no loss
         0u64
     } else {
-        let deficit = lower_barrier_e6 - conservative_price;
-        let raw_payout = (deficit as u128)
-            .checked_mul(notional_usdc as u128)
-            .unwrap_or(u128::MAX)
-            / (lower_barrier_e6.max(1) as u128);
-        let capped = raw_payout.min(cap_usdc as u128);
-        capped as u64
+        // Clamp effective price to barrier (caps payout at barrier-level loss)
+        let effective_price = conservative_price.max(lower_barrier_e6);
+        let settle_sqrt = math::price_e6_to_sqrt_price_x64(effective_price);
+        let (settle_a, settle_b) = math::estimate_token_amounts(
+            liquidity, settle_sqrt, tick_sqrt_lower, tick_sqrt_upper
+        );
+        let settle_value_e6 = math::cl_position_value_e6(settle_a, settle_b, effective_price);
+
+        let loss = entry_value_e6.saturating_sub(settle_value_e6);
+        loss.min(cap_usdc)
     };
 
     // Pay claim via CPI before taking mutable borrows

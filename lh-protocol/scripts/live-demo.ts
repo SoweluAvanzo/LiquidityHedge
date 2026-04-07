@@ -279,7 +279,8 @@ async function main() {
   const registerIx = await program.methods
     .registerLockedPosition(
       new anchor.BN(priceE6), new anchor.BN(solLamports.toString()),
-      new anchor.BN(usdcMicro.toString()), lowerTick, upperTick
+      new anchor.BN(usdcMicro.toString()), lowerTick, upperTick,
+      new anchor.BN(liquidity.toString())
     )
     .accountsPartial({
       owner: lpWallet.publicKey, positionMint, whirlpool: WHIRLPOOL_ADDRESS,
