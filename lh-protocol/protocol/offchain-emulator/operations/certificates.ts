@@ -96,11 +96,31 @@ export async function buyCertificate(
   // Compute expiry
   const expiryTs = now + template.tenorSeconds;
 
-  // Update pool state (reserve exposure + add premium to reserves)
+  // v2: Split premium into upfront + deferred
+  const upfrontBps = pool.premiumUpfrontBps ?? 10_000;
+  const premiumUpfrontUsdc = Math.floor(
+    (quote.premiumUsdc * upfrontBps) / 10_000
+  );
+  const premiumDeferredUsdc = quote.premiumUsdc - premiumUpfrontUsdc;
+
+  // Update pool state: only upfront portion goes to reserves immediately
   store.updatePool((p) => {
     p.activeCapUsdc += quote.capUsdc;
-    p.reservesUsdc += quote.premiumUsdc;
+    p.reservesUsdc += premiumUpfrontUsdc;
   });
+
+  // v2: Create premium escrow for deferred portion (if any)
+  if (premiumDeferredUsdc > 0) {
+    store.addPremiumEscrow({
+      rtOwner: "", // assigned when RT is matched
+      certPositionMint: mintStr,
+      deferredAmountUsdc: premiumDeferredUsdc,
+      accruedAmountUsdc: 0,
+      depositTs: now,
+      expiryTs,
+      released: false,
+    });
+  }
 
   // Create certificate
   const cert: CertificateState = {
@@ -114,7 +134,12 @@ export async function buyCertificate(
     notionalUsdc: params.notionalUsdc,
     expiryTs,
     state: CertStatus.ACTIVE,
-    nftMint: "offchain-cert-" + mintStr.slice(0, 8), // no real NFT in emulator
+    nftMint: "offchain-cert-" + mintStr.slice(0, 8),
+    // v2 fields
+    premiumUpfrontUsdc,
+    premiumDeferredUsdc,
+    rtPositionMint: null,
+    feeShareBps: 0,
   };
   store.addCertificate(cert);
 
@@ -131,6 +156,8 @@ export async function buyCertificate(
       buyer: buyer.publicKey.toBase58(),
       positionMint: mintStr,
       premiumUsdc: quote.premiumUsdc,
+      premiumUpfrontUsdc,
+      premiumDeferredUsdc,
       capUsdc: quote.capUsdc,
       lowerBarrierE6: params.lowerBarrierE6,
       expiryTs,
@@ -144,6 +171,8 @@ export async function buyCertificate(
     premiumUsdc: quote.premiumUsdc,
     capUsdc: quote.capUsdc,
     expiryTs,
+    premiumUpfrontUsdc,
+    premiumDeferredUsdc,
   };
 }
 
@@ -221,6 +250,18 @@ export async function settleCertificate(
   // If conservativePriceE6 >= entryPriceE6: no loss, payout = 0
   // If conservativePriceE6 < barrier: effectivePrice is clamped to barrier, so payout is capped at barrier-level loss
 
+  // v2: Collect Orca trading fees and compute fee share for RT
+  let collectedFeesA = 0;
+  let collectedFeesB = 0;
+  const feeShareBps = cert.feeShareBps ?? 0;
+  // Fee collection happens at settlement in v2 (Phase 5 integration)
+  // For now, fees are collected during position close in cleanup.
+  // The fee share is computed and stored on the certificate.
+  store.updateCertificate(mintStr, (c) => {
+    c.collectedFeesA = collectedFeesA;
+    c.collectedFeesB = collectedFeesB;
+  });
+
   // Transfer payout if due
   let txSig: string | undefined;
   if (payout > 0) {
@@ -236,9 +277,21 @@ export async function settleCertificate(
     );
   }
 
+  // v2: Release deferred premium to pool reserves at settlement
+  let deferredPremiumReleased = 0;
+  const escrow = store.getPremiumEscrow(mintStr);
+  if (escrow && !escrow.released) {
+    deferredPremiumReleased = escrow.deferredAmountUsdc;
+    store.updatePremiumEscrow(mintStr, (e) => {
+      e.accruedAmountUsdc = e.deferredAmountUsdc;
+      e.released = true;
+    });
+  }
+
   // Update pool state
   store.updatePool((p) => {
     if (payout > 0) p.reservesUsdc -= payout;
+    p.reservesUsdc += deferredPremiumReleased; // deferred premium now enters reserves
     p.activeCapUsdc -= cert.capUsdc;
   });
 
@@ -260,6 +313,7 @@ export async function settleCertificate(
       settlementPriceE6,
       conservativePriceE6,
       payout,
+      deferredPremiumReleased,
       state: newState,
     },
     store.getVersion(),
@@ -272,5 +326,6 @@ export async function settleCertificate(
     state: newState,
     settlementPriceE6,
     conservativePriceE6,
+    deferredPremiumReleased,
   };
 }

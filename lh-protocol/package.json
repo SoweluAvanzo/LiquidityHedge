@@ -15,7 +15,8 @@
     "health": "npx ts-node scripts/health.ts",
     "live-demo": "npx ts-node scripts/live-demo.ts",
     "live-demo:offchain": "npx ts-node scripts/live-demo-offchain.ts",
-    "integration-test": "npx ts-node scripts/integration-test.ts"
+    "integration-test": "npx ts-node scripts/integration-test.ts",
+    "integration-test-v2": "npx ts-node scripts/integration-test-v2.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
