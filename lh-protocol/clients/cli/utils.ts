@@ -202,6 +202,41 @@ export async function sendTxWithRetry(
   throw new Error("Max retries exceeded");
 }
 
+// ─── RPC Retry ──────────────────────────────────────────────────────
+
+/**
+ * Retry an async RPC operation with exponential backoff.
+ * Pattern from reference implementation (solana_client.py):
+ * 3 attempts, 1s/2s/4s backoff, retry on any fetch/network error.
+ */
+export async function rpcWithRetry<T>(
+  fn: () => Promise<T>,
+  maxAttempts: number = 3
+): Promise<T> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      const isTransient =
+        msg.includes("fetch failed") ||
+        msg.includes("FetchError") ||
+        msg.includes("ECONNRESET") ||
+        msg.includes("ETIMEDOUT") ||
+        msg.includes("429") ||
+        msg.includes("503") ||
+        msg.includes("socket hang up");
+      if (isTransient && attempt < maxAttempts) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error("rpcWithRetry: max attempts exceeded");
+}
+
 // ─── Formatting ──────────────────────────────────────────────────────
 
 /**

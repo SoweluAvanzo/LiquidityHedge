@@ -55,6 +55,7 @@ export interface PositionState {
   oracleP0E6: number;
   depositedA: number; // lamports
   depositedB: number; // micro-USDC
+  liquidity: string; // bigint as string for JSON serialization
   protectedBy: string | null; // positionMint of cert, or null
   status: number; // PositionStatus
 }

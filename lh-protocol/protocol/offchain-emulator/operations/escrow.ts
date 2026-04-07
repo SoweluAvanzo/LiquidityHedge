@@ -15,7 +15,6 @@ import {
 } from "../../types";
 import { StateStore } from "../state/store";
 import { validateOrcaPosition } from "../chain/orca-reader";
-import { readPythPrice } from "../chain/pyth-reader";
 import { transferFromVault, getTokenBalance } from "../chain/token-ops";
 import { AuditLogger } from "../audit/logger";
 
@@ -62,16 +61,20 @@ export async function registerLockedPosition(
     new PublicKey(pool.usdcMint)
   );
 
-  // Pyth entry price verification (same as position_escrow/instructions.rs:118-130)
-  const pyth = await readPythPrice(connection, params.pythFeed);
-  const oracleP0E6 = pyth.priceE6;
+  // Entry price verification against the Whirlpool's live price.
+  // Uses the pool's sqrtPriceX64 directly — same source as the position's value.
+  const { sqrtPriceX64ToPrice } = await import(
+    "../../../clients/cli/whirlpool-ix"
+  );
+  const wpPrice = sqrtPriceX64ToPrice(whirlpoolData.sqrtPrice);
+  const oracleP0E6 = Math.floor(wpPrice * 1_000_000);
   const diff = Math.abs(params.p0PriceE6 - oracleP0E6);
   const tolerance = Math.floor(
     (oracleP0E6 * ENTRY_PRICE_TOLERANCE_PPM) / PPM
   );
   if (diff > tolerance) {
     throw new Error(
-      `Entry price too far from oracle: reported=${params.p0PriceE6}, oracle=${oracleP0E6}, diff=${diff}, tolerance=${tolerance}`
+      `Entry price too far from Whirlpool: reported=${params.p0PriceE6}, pool=${oracleP0E6}, diff=${diff}, tolerance=${tolerance}`
     );
   }
 
@@ -89,6 +92,7 @@ export async function registerLockedPosition(
     oracleP0E6,
     depositedA: params.depositedA,
     depositedB: params.depositedB,
+    liquidity: orcaPosition.liquidity.toString(),
     protectedBy: null,
     status: PositionStatus.LOCKED,
   };

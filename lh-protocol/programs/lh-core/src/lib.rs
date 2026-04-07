@@ -46,6 +46,7 @@ pub mod lh_core {
         deposited_b: u64,
         lower_tick: i32,
         upper_tick: i32,
+        liquidity: u128,
     ) -> Result<()> {
         position_escrow::handle_register_locked_position(
             ctx,
@@ -54,6 +55,7 @@ pub mod lh_core {
             deposited_b,
             lower_tick,
             upper_tick,
+            liquidity,
         )
     }
 

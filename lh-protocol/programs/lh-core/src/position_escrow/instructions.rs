@@ -67,13 +67,14 @@ pub fn handle_register_locked_position(
     deposited_b: u64,
     lower_tick: i32,
     upper_tick: i32,
+    liquidity: u128,
 ) -> Result<()> {
     // ── Production: full Orca + Pyth validation ─────────────────
     // In test-mode these checks are skipped because localnet cannot create
     // accounts with arbitrary data at Whirlpool-program-owned PDAs.
     // The tick bounds fall back to the LP-supplied instruction arguments.
     #[cfg(not(feature = "test-mode"))]
-    let (resolved_lower_tick, resolved_upper_tick, oracle_p0_e6) = {
+    let (resolved_lower_tick, resolved_upper_tick, oracle_p0_e6, resolved_liquidity) = {
         // Owner checks
         require!(
             ctx.accounts.whirlpool.owner == &orca::WHIRLPOOL_PROGRAM_ID,
@@ -129,8 +130,8 @@ pub fn handle_register_locked_position(
             / PPM;
         require!((diff as u128) <= tolerance, LhError::InvalidEntryPrice);
 
-        // Use Orca-sourced ticks and oracle price
-        (orca_pos.tick_lower_index, orca_pos.tick_upper_index, oracle_price_e6)
+        // Use Orca-sourced ticks, oracle price, and liquidity
+        (orca_pos.tick_lower_index, orca_pos.tick_upper_index, oracle_price_e6, orca_pos.liquidity)
     };
 
     // ── Test-mode fallback: use LP-supplied args ────────────────
@@ -139,8 +140,8 @@ pub fn handle_register_locked_position(
     // PDA addresses. In test-mode we trust the LP-supplied tick bounds and
     // entry price. Production builds validate everything on-chain.
     #[cfg(feature = "test-mode")]
-    let (resolved_lower_tick, resolved_upper_tick, oracle_p0_e6) = {
-        (lower_tick, upper_tick, p0_price_e6)
+    let (resolved_lower_tick, resolved_upper_tick, oracle_p0_e6, resolved_liquidity) = {
+        (lower_tick, upper_tick, p0_price_e6, liquidity)
     };
 
     let state = &mut ctx.accounts.position_state;
@@ -153,6 +154,7 @@ pub fn handle_register_locked_position(
     state.oracle_p0_e6 = oracle_p0_e6;
     state.deposited_a = deposited_a;
     state.deposited_b = deposited_b;
+    state.liquidity = resolved_liquidity;
     state.protected_by = None;
     state.status = position_status::LOCKED;
     state.bump = ctx.bumps.position_state;

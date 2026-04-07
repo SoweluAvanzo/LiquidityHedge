@@ -15,10 +15,17 @@ import {
 } from "../../types";
 import { StateStore } from "../state/store";
 import { computeQuote } from "./pricing";
-import { readPythPrice } from "../chain/pyth-reader";
 import { verifyIncomingTransfer, transferFromVault } from "../chain/token-ops";
 import { AuditLogger } from "../audit/logger";
-import { PYTH_SOL_USD_FEED } from "../../../clients/cli/config";
+import { WHIRLPOOL_ADDRESS } from "../../../clients/cli/config";
+import {
+  estimateTokenAmounts,
+  positionValueUsd,
+} from "../../../clients/cli/position-value";
+import {
+  tickToSqrtPriceX64,
+  priceToSqrtPriceX64,
+} from "../../../clients/cli/whirlpool-ix";
 
 /**
  * Buy a hedge certificate. Caller must have transferred premium USDC
@@ -167,21 +174,52 @@ export async function settleCertificate(
     throw new Error(`TooEarly: ${cert.expiryTs - now}s remaining`);
   }
 
-  // Read Pyth price
-  const pyth = await readPythPrice(connection, PYTH_SOL_USD_FEED);
+  // Read settlement price directly from the Orca Whirlpool pool.
+  // This is the exact price that determines the LP's position composition —
+  // using the same source for payout as for position value ensures perfect alignment.
+  // No oracle dependency, no confidence interval, no staleness risk.
+  const {
+    decodeWhirlpoolAccount,
+    sqrtPriceX64ToPrice,
+  } = await import("../../../clients/cli/whirlpool-ix");
+  const wpInfo = await connection.getAccountInfo(WHIRLPOOL_ADDRESS);
+  if (!wpInfo) throw new Error("Whirlpool not found for settlement");
+  const wpData = decodeWhirlpoolAccount(Buffer.from(wpInfo.data));
+  const settlementPriceUsd = sqrtPriceX64ToPrice(wpData.sqrtPrice);
+  const settlementPriceE6 = Math.floor(settlementPriceUsd * 1_000_000);
 
-  // Conservative downside: price - confidence (same as on-chain)
-  const conservativePriceE6 = Math.max(0, pyth.priceE6 - pyth.confE6);
+  // No confidence adjustment — Whirlpool price is the ground truth
+  const conservativePriceE6 = settlementPriceE6;
 
-  // Proportional payout: min(cap, max(0, (barrier - price) * notional / barrier))
+  // ── Corridor payout using actual CL position value ──────────────────
+  // Payout = actual position loss within [barrier, entry], capped at barrier-level loss below barrier.
+  const pos = store.getPosition(mintStr);
+  if (!pos) throw new Error(`Position not found: ${mintStr}`);
+  const liquidity = BigInt(pos.liquidity);
+  const sqrtPriceLower = tickToSqrtPriceX64(pos.lowerTick);
+  const sqrtPriceUpper = tickToSqrtPriceX64(pos.upperTick);
+  const entryPriceE6 = pos.p0PriceE6;
+
+  // Entry value (at p0)
+  const sqrtPriceEntry = priceToSqrtPriceX64(entryPriceE6 / 1e6);
+  const entryAmounts = estimateTokenAmounts(liquidity, sqrtPriceEntry, sqrtPriceLower, sqrtPriceUpper);
+  const entryValue = positionValueUsd(entryAmounts.amountA, entryAmounts.amountB, entryPriceE6 / 1e6);
+
   let payout = 0;
-  if (conservativePriceE6 < cert.lowerBarrierE6) {
-    const deficit = cert.lowerBarrierE6 - conservativePriceE6;
-    const rawPayout = Math.floor(
-      (deficit * cert.notionalUsdc) / Math.max(cert.lowerBarrierE6, 1)
-    );
-    payout = Math.min(rawPayout, cert.capUsdc);
+  if (conservativePriceE6 < entryPriceE6) {
+    // Price dropped — compute CL position loss
+    const effectivePriceE6 = Math.max(conservativePriceE6, cert.lowerBarrierE6);
+    const effectivePriceUsd = effectivePriceE6 / 1e6;
+    const sqrtPriceSettle = priceToSqrtPriceX64(effectivePriceUsd);
+    const settleAmounts = estimateTokenAmounts(liquidity, sqrtPriceSettle, sqrtPriceLower, sqrtPriceUpper);
+    const settleValue = positionValueUsd(settleAmounts.amountA, settleAmounts.amountB, effectivePriceUsd);
+
+    const positionLossUsd = Math.max(0, entryValue - settleValue);
+    const positionLossUsdc = Math.floor(positionLossUsd * 1e6);
+    payout = Math.min(positionLossUsdc, cert.capUsdc);
   }
+  // If conservativePriceE6 >= entryPriceE6: no loss, payout = 0
+  // If conservativePriceE6 < barrier: effectivePrice is clamped to barrier, so payout is capped at barrier-level loss
 
   // Transfer payout if due
   let txSig: string | undefined;
@@ -219,7 +257,7 @@ export async function settleCertificate(
     "settleCertificate",
     {
       positionMint: mintStr,
-      settlementPriceE6: pyth.priceE6,
+      settlementPriceE6,
       conservativePriceE6,
       payout,
       state: newState,
@@ -232,7 +270,7 @@ export async function settleCertificate(
   return {
     payout,
     state: newState,
-    settlementPriceE6: pyth.priceE6,
+    settlementPriceE6,
     conservativePriceE6,
   };
 }

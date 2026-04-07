@@ -187,17 +187,17 @@ export function formatPositionSnapshot(
   snap: PositionSnapshot,
   label: string = ""
 ): string {
-  const solAmt = (Number(snap.amountA) / 1e9).toFixed(6);
+  const solAmt = (Number(snap.amountA) / 1e9).toFixed(9);
   const usdcAmt = (Number(snap.amountB) / 1e6).toFixed(6);
   const lines = [
     label ? `── ${label} ──` : "── Position Snapshot ──",
     `  Time:          ${new Date(snap.timestamp * 1000).toISOString()}`,
-    `  SOL Price:     $${snap.price.toFixed(4)}`,
-    `  Token A (SOL): ${solAmt} ($${(Number(snap.amountA) / 1e9 * snap.price).toFixed(4)})`,
+    `  SOL Price:     $${snap.price.toFixed(6)}`,
+    `  Token A (SOL): ${solAmt} ($${(Number(snap.amountA) / 1e9 * snap.price).toFixed(8)})`,
     `  Token B (USDC): ${usdcAmt}`,
-    `  Position value: $${snap.valueUsd.toFixed(4)}`,
-    `  Hold value:    $${snap.holdValueUsd.toFixed(4)}`,
-    `  IL:            $${snap.ilUsd.toFixed(4)} (${snap.ilPct.toFixed(2)}%)`,
+    `  Position value: $${snap.valueUsd.toFixed(8)}`,
+    `  Hold value:    $${snap.holdValueUsd.toFixed(8)}`,
+    `  IL:            $${snap.ilUsd.toFixed(8)} (${snap.ilPct.toFixed(6)}%)`,
     `  In range:      ${snap.isInRange}`,
     `  Ticks:         [${snap.tickLower}, ${snap.tickUpper}] current=${snap.tickCurrent}`,
   ];

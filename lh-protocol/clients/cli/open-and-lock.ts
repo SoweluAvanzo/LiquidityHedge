@@ -326,7 +326,8 @@ async function main() {
       new anchor.BN(solLamports.toString()),
       new anchor.BN(usdcMicro.toString()),
       lowerTick,
-      upperTick
+      upperTick,
+      new anchor.BN(liquidity.toString())
     )
     .accountsPartial({
       owner: payer.publicKey,
