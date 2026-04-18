@@ -58,9 +58,35 @@ export async function buyCertificate(
   if (!template) throw new Error(`Template not found: ${params.templateId}`);
   if (!template.active) throw new Error("Template inactive");
 
-  // Barrier and notional validation (from our hardening)
+  // ── Auto-compute barrier = lower tick of position (barrier = 1 - width) ──
+  if (!params.lowerBarrierE6 || params.lowerBarrierE6 <= 0) {
+    // Barrier aligns with the position's lower tick price
+    const barrierPct = 1 - template.widthBps / 10_000;
+    params.lowerBarrierE6 = Math.floor(pos.p0PriceE6 * barrierPct);
+  }
   if (params.lowerBarrierE6 <= 0) throw new Error("InvalidBarrier");
   if (params.notionalUsdc <= 0) throw new Error("InvalidNotional");
+
+  // ── Auto-compute natural cap = V(S₀) − V(B) if not specified ──
+  if (!params.capUsdc || params.capUsdc <= 0) {
+    const lowerSqrt = tickToSqrtPriceX64(pos.lowerTick);
+    const upperSqrt = tickToSqrtPriceX64(pos.upperTick);
+    const entrySqrt = priceToSqrtPriceX64(pos.p0PriceE6 / 1e6);
+    const barrierSqrt = priceToSqrtPriceX64(params.lowerBarrierE6 / 1e6);
+    const entryAmounts = estimateTokenAmounts(
+      BigInt(pos.liquidity), entrySqrt, lowerSqrt, upperSqrt
+    );
+    const barrierAmounts = estimateTokenAmounts(
+      BigInt(pos.liquidity), barrierSqrt, lowerSqrt, upperSqrt
+    );
+    const entryValue = positionValueUsd(
+      entryAmounts.amountA, entryAmounts.amountB, pos.p0PriceE6 / 1e6
+    );
+    const barrierValue = positionValueUsd(
+      barrierAmounts.amountA, barrierAmounts.amountB, params.lowerBarrierE6 / 1e6
+    );
+    params.capUsdc = Math.max(1, Math.floor((entryValue - barrierValue) * 1e6));
+  }
 
   // Regime freshness check (900 seconds)
   const regime = store.getRegime();
@@ -96,17 +122,23 @@ export async function buyCertificate(
   // Compute expiry
   const expiryTs = now + template.tenorSeconds;
 
-  // v2: Split premium into upfront + deferred
+  // ── Protocol fee: 1.5% of premium to treasury ──
+  const protocolFeeBps = pool.protocolFeeBps ?? 150;
+  const protocolFee = Math.floor((quote.premiumUsdc * protocolFeeBps) / 10_000);
+  const premiumAfterFee = quote.premiumUsdc - protocolFee;
+
+  // v2: Split remaining premium into upfront + deferred
   const upfrontBps = pool.premiumUpfrontBps ?? 10_000;
   const premiumUpfrontUsdc = Math.floor(
-    (quote.premiumUsdc * upfrontBps) / 10_000
+    (premiumAfterFee * upfrontBps) / 10_000
   );
-  const premiumDeferredUsdc = quote.premiumUsdc - premiumUpfrontUsdc;
+  const premiumDeferredUsdc = premiumAfterFee - premiumUpfrontUsdc;
 
-  // Update pool state: only upfront portion goes to reserves immediately
+  // Update pool state: only upfront portion (after protocol fee) goes to reserves
   store.updatePool((p) => {
     p.activeCapUsdc += quote.capUsdc;
     p.reservesUsdc += premiumUpfrontUsdc;
+    p.protocolFeesCollected = (p.protocolFeesCollected ?? 0) + protocolFee;
   });
 
   // v2: Create premium escrow for deferred portion (if any)

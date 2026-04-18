@@ -1,0 +1,4 @@
+comparison,persists_on_test
+protocol_vs_plain,False
+protocol_vs_perp_fixed,False
+protocol_vs_perp_dynamic,False

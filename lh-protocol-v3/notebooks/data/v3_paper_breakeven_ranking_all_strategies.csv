@@ -1,0 +1,14 @@
+strategy,yield_split,breakeven_fee_day,joint_viable,rank
+protocol_lp,0.022222,0.005086,1.0,1
+protocol_lp,0.088889,0.005086,1.0,2
+protocol_lp,0.133333,0.005086,1.0,3
+perp_dynamic_lp,,0.005571,,4
+perp_fixed_lp,,0.005571,,5
+plain_lp,,0.005571,,6
+protocol_lp,0.0,0.005571,1.0,7
+protocol_lp,0.044444,0.005571,1.0,8
+protocol_lp,0.066667,0.005571,1.0,9
+protocol_lp,0.155556,0.005571,1.0,10
+protocol_lp,0.177778,0.005571,1.0,11
+protocol_lp,0.2,0.005571,1.0,12
+protocol_lp,0.111111,0.006057,1.0,13

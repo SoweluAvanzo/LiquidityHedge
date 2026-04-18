@@ -16,7 +16,15 @@
     "live-demo": "npx ts-node scripts/live-demo.ts",
     "live-demo:offchain": "npx ts-node scripts/live-demo-offchain.ts",
     "integration-test": "npx ts-node scripts/integration-test.ts",
-    "integration-test-v2": "npx ts-node scripts/integration-test-v2.ts"
+    "integration-test-v2": "npx ts-node scripts/integration-test-v2.ts",
+    "integration-test-optimized": "npx ts-node scripts/integration-test-optimized.ts",
+    "init-optimized": "npx ts-node scripts/init-optimized-pool.ts",
+    "verify-risk": "npx ts-node scripts/verify-risk-integration.ts",
+    "api-server": "npx ts-node clients/api-server/index.ts",
+    "test:unit": "npx ts-mocha tests/unit/*.test.ts --timeout 10000",
+    "test:unit:risk": "npx ts-mocha tests/unit/risk-service.test.ts --timeout 10000",
+    "test:unit:pricing": "npx ts-mocha tests/unit/pricing.test.ts --timeout 10000",
+    "live-system-test": "npx ts-node scripts/live-system-test.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
@@ -24,11 +32,15 @@
     "@solana/spl-token": "^0.4.0",
     "@solana/web3.js": "^1.95.0",
     "bs58": "^6.0.0",
-    "dotenv": "^17.4.0"
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.0",
+    "express": "^5.2.1"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.0",
     "@types/chai": "^4.3.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/mocha": "^9.0.0",
     "chai": "^4.3.4",
     "mocha": "^9.0.3",

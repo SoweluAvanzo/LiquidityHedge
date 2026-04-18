@@ -1,0 +1,32 @@
+{
+  "name": "lh-protocol-final",
+  "version": "1.0.0",
+  "description": "Liquidity Hedge Protocol — Final version with corridor hedge certificates for concentrated liquidity positions",
+  "main": "protocol-src/index.ts",
+  "scripts": {
+    "test": "npx ts-mocha 'tests/**/*.test.ts' --timeout 30000 --recursive",
+    "test:unit": "npx ts-mocha 'tests/unit/**/*.test.ts' --timeout 30000 --recursive",
+    "test:integration": "npx ts-mocha 'tests/integration/**/*.test.ts' --timeout 60000 --recursive",
+    "test:scenarios": "npx ts-mocha 'tests/scenarios/**/*.test.ts' --timeout 60000 --recursive",
+    "test:invariants": "npx ts-mocha 'tests/invariants/**/*.test.ts' --timeout 60000 --recursive",
+    "live-test": "npx ts-node scripts/live-scenario-test.ts",
+    "live-orca": "npx ts-node scripts/live-orca-test.ts"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
+    "@solana/spl-token": "^0.4.0",
+    "@solana/web3.js": "^1.95.0",
+    "bs58": "^6.0.0",
+    "dotenv": "^17.4.0"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "chai": "^4.3.0",
+    "mocha": "^10.2.0",
+    "ts-mocha": "^10.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0"
+  }
+}

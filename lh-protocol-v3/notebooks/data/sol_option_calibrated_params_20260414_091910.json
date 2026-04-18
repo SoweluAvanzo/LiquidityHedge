@@ -1,0 +1,28 @@
+{
+  "timestamp_utc": "2026-04-14T09:19:10.251552+00:00",
+  "sample": {
+    "rows_total": 218,
+    "rows_used": 91,
+    "rows_tradable": 91,
+    "venues": [
+      "lyra"
+    ]
+  },
+  "option_pricing_params": {
+    "iv_atm_anchor": 0.56496,
+    "iv_floor": 0.55421,
+    "iv_cap": 0.6306,
+    "iv_skew_per_10pct_moneyness": -0.039396693954233945,
+    "iv_term_slope_per_30d": -0.02943996267950178,
+    "spread_pct_median": 0.0,
+    "spread_pct_stress_p75": 0.0,
+    "liquidity_penalty_multiplier": 1.1825688073394496,
+    "iv_rv_median": null
+  },
+  "notes": [
+    "Use iv_atm_anchor as baseline implied vol in BS pricing.",
+    "Adjust iv by skew and term: iv_eff = clamp(iv_anchor + skew_term + term_term, iv_floor, iv_cap).",
+    "Apply spread_pct_median (or stress p75) as execution cost uplift on option premium.",
+    "When tradable quotes are sparse, multiply spread by liquidity_penalty_multiplier."
+  ]
+}

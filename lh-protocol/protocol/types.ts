@@ -56,6 +56,10 @@ export interface PoolState {
   feeShareMaxBps?: number;        // default 0
   earlyExitPenaltyBps?: number;   // default 0 = no penalty
   rtTickWidthMultiplier?: number; // default 2 = RT gets 2x LP tick width
+  // v2: protocol fee
+  protocolFeeBps?: number;        // default 150 = 1.5% of premium to treasury
+  treasuryPubkey?: string;        // treasury wallet address (optional)
+  protocolFeesCollected?: number;  // cumulative micro-USDC protocol fees
 }
 
 export interface PositionState {
@@ -211,6 +215,8 @@ export interface PoolV2Config {
   feeShareMaxBps?: number;
   earlyExitPenaltyBps?: number;
   rtTickWidthMultiplier?: number;
+  protocolFeeBps?: number;        // default 150 = 1.5% of premium
+  treasuryPubkey?: string;        // treasury wallet address
 }
 
 export interface DepositRtParams {

@@ -1,0 +1,4 @@
+strategy,yield_split,breakeven_fee_day,joint_viable
+plain_lp,,0.005571,
+perp_fixed_lp,,0.005571,
+perp_dynamic_lp,,0.005571,

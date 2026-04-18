@@ -104,8 +104,15 @@ export async function openVaultPosition(
   tx.add(buildUnwrapSolIx(wsolAta, vaultKeypair.publicKey));
   await sendTxWithRetry(connection, tx, [vaultKeypair, positionMintKp]);
 
-  // Read actual on-chain position data
-  const orcaPosInfo = await connection.getAccountInfo(orcaPositionPda);
+  // Read actual on-chain position data (retry with delay for RPC indexing)
+  let orcaPosInfo = await connection.getAccountInfo(orcaPositionPda);
+  if (!orcaPosInfo) {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      await new Promise(r => setTimeout(r, 2000 * attempt));
+      orcaPosInfo = await connection.getAccountInfo(orcaPositionPda);
+      if (orcaPosInfo) break;
+    }
+  }
   if (!orcaPosInfo) throw new Error("Position PDA not found after opening");
   const orcaPosData = decodePositionAccount(Buffer.from(orcaPosInfo.data));
   const actualLiquidity = orcaPosData.liquidity;

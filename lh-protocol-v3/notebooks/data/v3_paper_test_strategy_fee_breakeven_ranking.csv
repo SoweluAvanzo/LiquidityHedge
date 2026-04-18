@@ -1,0 +1,5 @@
+strategy,breakeven_fee_day,rank
+perp_fixed_lp,0.0046,1
+plain_lp,0.005086,2
+perp_dynamic_lp,0.005086,3
+protocol_lp_selected,0.006543,4

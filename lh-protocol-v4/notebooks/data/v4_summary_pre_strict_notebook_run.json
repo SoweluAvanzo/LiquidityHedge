@@ -1,0 +1,19 @@
+{
+  "total_configs": 486,
+  "joint_viable_configs": 269,
+  "strict_feasible_configs": 58,
+  "robust_competitive_configs": 77,
+  "best_config": {
+    "lp_mean_%": 1.6530757863306489,
+    "rt_mean_%": 0.004708958770171351,
+    "ratio_median": 0.95478640235262,
+    "ratio_p95": 1.007595784117817,
+    "arb_total_usd": 498.29740855257006,
+    "alpha_rv": 0.1,
+    "alpha_ivrv": 0.4,
+    "k_lin": 0.1,
+    "k_quad": 0.2,
+    "yield_share_to_rt": 0.05,
+    "max_utilization": 0.6
+  }
+}
