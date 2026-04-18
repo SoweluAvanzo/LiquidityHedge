@@ -1,0 +1,19 @@
+{
+  "total_configs": 486,
+  "strict_feasible_configs": 180,
+  "robust_feasible_configs": 180,
+  "launch_default_note": "This is a governance default at launch; governance can update parameters later, while premium remains demand/supply-responsive via m_amm.",
+  "best_config": {
+    "lp_mean_%": 1.3930295534822126,
+    "rt_mean_%": 0.007112860671932644,
+    "rt_p5_%": -0.017658988707924744,
+    "m_amm_mean": 0.75,
+    "imbalance_p95": -0.9962803281486504,
+    "alpha_rv": 0.1,
+    "alpha_ivrv": 0.4,
+    "k_lin": 0.2,
+    "k_quad": 0.1,
+    "yield_share_to_rt": 0.15,
+    "max_utilization": 0.6
+  }
+}

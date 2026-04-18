@@ -43,6 +43,9 @@ export async function initPool(
     feeShareMaxBps: v2Config?.feeShareMaxBps ?? 0,
     earlyExitPenaltyBps: v2Config?.earlyExitPenaltyBps ?? 0,
     rtTickWidthMultiplier: v2Config?.rtTickWidthMultiplier ?? 2,
+    protocolFeeBps: v2Config?.protocolFeeBps ?? 150,
+    treasuryPubkey: v2Config?.treasuryPubkey ?? "",
+    protocolFeesCollected: 0,
   };
 
   store.setPool(pool);
