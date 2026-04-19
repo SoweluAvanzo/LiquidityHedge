@@ -1,237 +1,217 @@
-/**
- * Unit tests for the pricing engine (computeQuote).
- *
- * Tests the on-chain heuristic formula with known inputs and expected outputs.
- * Verifies edge cases, monotonicity properties, and floor/ceiling clamping.
- *
- * Run: npx ts-mocha tests/unit/pricing.test.ts
- */
-
 import { expect } from "chai";
-import { computeQuote } from "../../protocol/offchain-emulator/operations/pricing";
-import { PoolState, TemplateConfig, RegimeSnapshot } from "../../protocol/types";
+import {
+  computePremium,
+  computeFeeDiscount,
+  computeHeuristicFV,
+  computeGaussHermiteFV,
+} from "../../protocol-src/operations/pricing";
+import { resolveEffectiveMarkup } from "../../protocol-src/operations/regime";
+import { naturalCap } from "../../protocol-src/utils/position-value";
+import { makePool, makeTemplate, makeRegime } from "../helpers";
 
-// ─── Test Fixtures ──────────────────────────────────────────────────
+describe("Pricing Engine", () => {
+  // ── Canonical premium formula ─────────────────────────────
 
-function makePool(overrides?: Partial<PoolState>): PoolState {
-  return {
-    admin: "admin",
-    usdcMint: "usdc",
-    usdcVault: "vault",
-    reservesUsdc: 100_000_000,   // $100
-    activeCapUsdc: 10_000_000,   // $10 active
-    totalShares: 100_000_000,
-    uMaxBps: 8_000,              // 80%
-    ...overrides,
-  };
-}
-
-function makeTemplate(overrides?: Partial<TemplateConfig>): TemplateConfig {
-  return {
-    templateId: 1,
-    tenorSeconds: 7 * 86_400,     // 7 days
-    widthBps: 1_000,              // ±10%
-    severityPpm: 420_000,         // calibrated for ±10%
-    premiumFloorUsdc: 1_000,      // $0.001
-    premiumCeilingUsdc: 1_000_000_000, // $1000
-    active: true,
-    ...overrides,
-  };
-}
-
-function makeRegime(overrides?: Partial<RegimeSnapshot>): RegimeSnapshot {
-  return {
-    sigmaPpm: 650_000,            // 65%
-    sigmaMaPpm: 600_000,
-    stressFlag: false,
-    carryBpsPerDay: 10,
-    updatedTs: Math.floor(Date.now() / 1000),
-    signer: "risk-service",
-    ...overrides,
-  };
-}
-
-// ─── Tests ──────────────────────────────────────────────────────────
-
-describe("Pricing Engine: computeQuote", () => {
-  describe("Basic computation", () => {
-    it("produces a positive premium for standard inputs", () => {
-      const quote = computeQuote(1_000_000, makeTemplate(), makePool(), makeRegime()); // $1 cap
-      expect(quote.premiumUsdc).to.be.greaterThan(0);
-      expect(quote.expectedPayoutUsdc).to.be.greaterThan(0);
-      expect(quote.capUsdc).to.equal(1_000_000);
+  describe("computePremium: Premium = max(P_floor, FV * m_vol - y * E[F])", () => {
+    it("returns P_floor when FV*m_vol - discount < P_floor", () => {
+      const premium = computePremium(10_000, 1.05, 50_000, 50_000);
+      // 10_000 * 1.05 - 50_000 = -39_500 < 50_000
+      expect(premium).to.equal(50_000);
     });
 
-    it("premium >= expected payout (risk loading)", () => {
-      const quote = computeQuote(5_000_000, makeTemplate(), makePool(), makeRegime());
-      expect(quote.premiumUsdc).to.be.at.least(quote.expectedPayoutUsdc);
+    it("returns FV*m_vol - discount when that exceeds P_floor", () => {
+      const premium = computePremium(1_000_000, 1.10, 100_000, 50_000);
+      // 1_000_000 * 1.10 - 100_000 = 1_000_000
+      expect(premium).to.equal(1_000_000);
     });
 
-    it("returns all breakdown components", () => {
-      const quote = computeQuote(1_000_000, makeTemplate(), makePool(), makeRegime());
-      expect(quote.expectedPayoutUsdc).to.be.a("number");
-      expect(quote.capitalChargeUsdc).to.be.a("number");
-      expect(quote.adverseSelectionUsdc).to.be.a("number");
-      expect(quote.replicationCostUsdc).to.be.a("number");
+    it("premium >= P_floor always", () => {
+      const premiumFloor = 50_000;
+      // Even with zero FV
+      expect(computePremium(0, 1.05, 0, premiumFloor)).to.be.greaterThanOrEqual(premiumFloor);
+      // Even with large discount
+      expect(computePremium(100_000, 1.05, 500_000, premiumFloor)).to.be.greaterThanOrEqual(premiumFloor);
     });
 
-    it("premium = sum of components (before clamping)", () => {
-      const quote = computeQuote(1_000_000, makeTemplate(), makePool(), makeRegime());
-      const sum = quote.expectedPayoutUsdc + quote.capitalChargeUsdc +
-                  quote.adverseSelectionUsdc + quote.replicationCostUsdc;
-      // Premium may be clamped, so it should be >= floor and <= ceiling
-      // If not clamped, should equal sum
-      if (sum >= 1_000 && sum <= 1_000_000_000) {
-        expect(quote.premiumUsdc).to.equal(sum);
-      }
+    it("premium increases with FV", () => {
+      const p1 = computePremium(500_000, 1.10, 50_000, 50_000);
+      const p2 = computePremium(1_000_000, 1.10, 50_000, 50_000);
+      expect(p2).to.be.greaterThan(p1);
+    });
+
+    it("premium increases with m_vol", () => {
+      const p1 = computePremium(500_000, 1.05, 50_000, 50_000);
+      const p2 = computePremium(500_000, 1.20, 50_000, 50_000);
+      expect(p2).to.be.greaterThan(p1);
+    });
+
+    it("premium decreases with fee discount", () => {
+      const p1 = computePremium(500_000, 1.10, 0, 50_000);
+      const p2 = computePremium(500_000, 1.10, 100_000, 50_000);
+      expect(p2).to.be.lessThan(p1);
     });
   });
 
-  describe("Monotonicity properties", () => {
-    it("premium increases with volatility", () => {
-      const low = computeQuote(1_000_000, makeTemplate(), makePool(), makeRegime({ sigmaPpm: 200_000 }));
-      const mid = computeQuote(1_000_000, makeTemplate(), makePool(), makeRegime({ sigmaPpm: 650_000 }));
-      const high = computeQuote(1_000_000, makeTemplate(), makePool(), makeRegime({ sigmaPpm: 1_200_000 }));
-      expect(mid.premiumUsdc).to.be.greaterThan(low.premiumUsdc);
-      expect(high.premiumUsdc).to.be.greaterThan(mid.premiumUsdc);
+  // ── Effective markup ──────────────────────────────────────
+
+  describe("resolveEffectiveMarkup: m_vol = max(floor, IV/RV)", () => {
+    it("returns floor when ivRvRatio < floor", () => {
+      expect(resolveEffectiveMarkup(1.02, 1.05)).to.equal(1.05);
     });
 
-    it("premium increases with cap", () => {
-      const small = computeQuote(500_000, makeTemplate(), makePool(), makeRegime());
-      const large = computeQuote(5_000_000, makeTemplate(), makePool(), makeRegime());
-      expect(large.premiumUsdc).to.be.greaterThan(small.premiumUsdc);
+    it("returns ivRvRatio when ivRvRatio > floor", () => {
+      expect(resolveEffectiveMarkup(1.15, 1.05)).to.equal(1.15);
     });
 
-    it("premium increases with utilization", () => {
-      const lowUtil = computeQuote(1_000_000, makeTemplate(),
-        makePool({ activeCapUsdc: 1_000_000 }), makeRegime());
-      const highUtil = computeQuote(1_000_000, makeTemplate(),
-        makePool({ activeCapUsdc: 50_000_000 }), makeRegime());
-      expect(highUtil.premiumUsdc).to.be.greaterThan(lowUtil.premiumUsdc);
+    it("returns floor when ivRvRatio = 0 (unavailable)", () => {
+      expect(resolveEffectiveMarkup(0, 1.05)).to.equal(1.05);
     });
 
-    it("premium increases with tenor", () => {
-      const short = computeQuote(1_000_000, makeTemplate({ tenorSeconds: 3600 }), makePool(), makeRegime());
-      const long = computeQuote(1_000_000, makeTemplate({ tenorSeconds: 30 * 86400 }), makePool(), makeRegime());
-      expect(long.premiumUsdc).to.be.greaterThan(short.premiumUsdc);
-    });
-
-    it("premium decreases with wider width (lower p_hit)", () => {
-      const narrow = computeQuote(1_000_000, makeTemplate({ widthBps: 500 }), makePool(), makeRegime());
-      const wide = computeQuote(1_000_000, makeTemplate({ widthBps: 2000 }), makePool(), makeRegime());
-      expect(narrow.premiumUsdc).to.be.greaterThan(wide.premiumUsdc);
+    it("returns floor when ivRvRatio = floor", () => {
+      expect(resolveEffectiveMarkup(1.05, 1.05)).to.equal(1.05);
     });
   });
 
-  describe("Stress flag", () => {
-    it("adverse selection = 0 when no stress", () => {
-      const quote = computeQuote(1_000_000, makeTemplate(), makePool(), makeRegime({ stressFlag: false }));
-      expect(quote.adverseSelectionUsdc).to.equal(0);
+  // ── Fee discount ──────────────────────────────────────────
+
+  describe("computeFeeDiscount: y * E[F]", () => {
+    it("fee discount = y * notional * dailyFee * tenorDays", () => {
+      // y=0.10, notional=$30, dailyFee=0.005, tenor=7 days
+      const discount = computeFeeDiscount(30_000_000, 0.005, 0.10, 7);
+      // 30_000_000 * 0.005 * 7 * 0.10 = 105_000
+      expect(discount).to.equal(105_000);
     });
 
-    it("adverse selection = cap/10 when stressed", () => {
-      const cap = 10_000_000; // $10
-      const quote = computeQuote(cap, makeTemplate(), makePool(), makeRegime({ stressFlag: true }));
-      expect(quote.adverseSelectionUsdc).to.equal(Math.floor(cap / 10));
+    it("fee discount = 0 when feeSplitRate = 0", () => {
+      expect(computeFeeDiscount(30_000_000, 0.005, 0, 7)).to.equal(0);
     });
 
-    it("stress adds to premium", () => {
-      const noStress = computeQuote(1_000_000, makeTemplate(), makePool(), makeRegime({ stressFlag: false }));
-      const stress = computeQuote(1_000_000, makeTemplate(), makePool(), makeRegime({ stressFlag: true }));
-      expect(stress.premiumUsdc).to.be.greaterThan(noStress.premiumUsdc);
-    });
-  });
-
-  describe("Floor and ceiling clamping", () => {
-    it("premium >= floor", () => {
-      const floor = 500_000; // $0.50
-      const quote = computeQuote(1_000, makeTemplate({ premiumFloorUsdc: floor, severityPpm: 1 }),
-        makePool(), makeRegime({ sigmaPpm: 1_000 }));
-      expect(quote.premiumUsdc).to.be.at.least(floor);
-    });
-
-    it("premium <= ceiling", () => {
-      const ceiling = 100_000; // $0.10
-      const quote = computeQuote(1_000_000, makeTemplate({ premiumCeilingUsdc: ceiling }),
-        makePool({ reservesUsdc: 1_000_000_000 }), makeRegime({ sigmaPpm: 2_000_000 }));
-      expect(quote.premiumUsdc).to.be.at.most(ceiling);
+    it("fee discount increases with fee split rate", () => {
+      const d1 = computeFeeDiscount(30_000_000, 0.005, 0.05, 7);
+      const d2 = computeFeeDiscount(30_000_000, 0.005, 0.15, 7);
+      expect(d2).to.be.greaterThan(d1);
     });
   });
 
-  describe("Utilization constraint", () => {
-    it("rejects when utilization exceeds u_max", () => {
-      const pool = makePool({ reservesUsdc: 10_000_000, activeCapUsdc: 8_000_000, uMaxBps: 8_000 });
-      // Adding $3 cap would push utilization above 80%
-      expect(() => computeQuote(3_000_000, makeTemplate(), pool, makeRegime()))
-        .to.throw(/InsufficientHeadroom|headroom/i);
+  // ── Heuristic fair-value proxy ────────────────────────────
+
+  describe("computeHeuristicFV", () => {
+    it("produces positive FV for standard inputs", () => {
+      const pool = makePool();
+      const template = makeTemplate();
+      const regime = makeRegime();
+      const heuristic = computeHeuristicFV(5_000_000, template, pool, regime);
+      expect(heuristic).to.not.be.null;
+      expect(heuristic!.totalUsdc).to.be.greaterThan(0);
     });
 
-    it("accepts when utilization is within u_max", () => {
-      const pool = makePool({ reservesUsdc: 100_000_000, activeCapUsdc: 10_000_000, uMaxBps: 8_000 });
-      expect(() => computeQuote(1_000_000, makeTemplate(), pool, makeRegime()))
-        .to.not.throw();
+    it("returns null when utilization exceeded", () => {
+      const pool = makePool({ reservesUsdc: 1_000_000, activeCapUsdc: 500_000 });
+      const template = makeTemplate();
+      const regime = makeRegime();
+      // Cap of $50 on $1 pool at 30% u_max → exceeds
+      const heuristic = computeHeuristicFV(50_000_000, template, pool, regime);
+      expect(heuristic).to.be.null;
+    });
+
+    it("FV increases with volatility", () => {
+      const pool = makePool();
+      const template = makeTemplate();
+      const r1 = makeRegime({ sigmaPpm: 400_000 });
+      const r2 = makeRegime({ sigmaPpm: 800_000 });
+      const fv1 = computeHeuristicFV(5_000_000, template, pool, r1)!.totalUsdc;
+      const fv2 = computeHeuristicFV(5_000_000, template, pool, r2)!.totalUsdc;
+      expect(fv2).to.be.greaterThan(fv1);
+    });
+
+    it("FV increases with cap", () => {
+      const pool = makePool();
+      const template = makeTemplate();
+      const regime = makeRegime();
+      const fv1 = computeHeuristicFV(2_000_000, template, pool, regime)!.totalUsdc;
+      const fv2 = computeHeuristicFV(8_000_000, template, pool, regime)!.totalUsdc;
+      expect(fv2).to.be.greaterThan(fv1);
+    });
+
+    it("stress flag adds adverse selection charge (cap/10)", () => {
+      const pool = makePool();
+      const template = makeTemplate();
+      const noStress = makeRegime({ stressFlag: false });
+      const stress = makeRegime({ stressFlag: true });
+      const fvNoStress = computeHeuristicFV(5_000_000, template, pool, noStress)!;
+      const fvStress = computeHeuristicFV(5_000_000, template, pool, stress)!;
+      expect(fvStress.adverseSelectionUsdc).to.equal(500_000); // 5M / 10
+      expect(fvNoStress.adverseSelectionUsdc).to.equal(0);
+      expect(fvStress.totalUsdc).to.be.greaterThan(fvNoStress.totalUsdc);
+    });
+
+    it("components sum to total (before ceiling)", () => {
+      const pool = makePool();
+      const template = makeTemplate();
+      const regime = makeRegime();
+      const h = computeHeuristicFV(5_000_000, template, pool, regime)!;
+      const sum = h.expectedPayoutUsdc + h.capitalChargeUsdc +
+                  h.adverseSelectionUsdc + h.replicationCostUsdc;
+      expect(h.totalUsdc).to.equal(sum);
+    });
+
+    it("FV decreases with wider width", () => {
+      const pool = makePool();
+      const regime = makeRegime();
+      const narrow = makeTemplate({ widthBps: 500 });
+      const wide = makeTemplate({ widthBps: 1500 });
+      const fv1 = computeHeuristicFV(5_000_000, narrow, pool, regime)!.totalUsdc;
+      const fv2 = computeHeuristicFV(5_000_000, wide, pool, regime)!.totalUsdc;
+      expect(fv1).to.be.greaterThan(fv2);
     });
   });
 
-  describe("Edge cases", () => {
-    it("handles minimum tenor (60 seconds)", () => {
-      const quote = computeQuote(1_000_000, makeTemplate({ tenorSeconds: 60 }), makePool(), makeRegime());
-      expect(quote.premiumUsdc).to.be.greaterThan(0);
+  // ── Gauss-Hermite quadrature FV ───────────────────────────
+
+  describe("computeGaussHermiteFV", () => {
+    const L = 10_000;
+    const pL = 135;
+    const pU = 165;
+    const S0 = 150;
+    const cap = naturalCap(S0, L, pL, pU);
+
+    it("FV > 0 for realistic volatility", () => {
+      const fv = computeGaussHermiteFV(S0, 0.65, L, pL, pU, cap);
+      expect(fv).to.be.greaterThan(0);
     });
 
-    it("handles very high sigma (500%)", () => {
-      const quote = computeQuote(1_000_000, makeTemplate(), makePool(), makeRegime({ sigmaPpm: 5_000_000 }));
-      expect(quote.premiumUsdc).to.be.greaterThan(0);
-      expect(Number.isFinite(quote.premiumUsdc)).to.be.true;
+    it("FV increases with volatility", () => {
+      const fv1 = computeGaussHermiteFV(S0, 0.40, L, pL, pU, cap);
+      const fv2 = computeGaussHermiteFV(S0, 0.80, L, pL, pU, cap);
+      expect(fv2).to.be.greaterThan(fv1);
     });
 
-    it("handles very small cap ($0.001)", () => {
-      const quote = computeQuote(1_000, makeTemplate(), makePool(), makeRegime());
-      expect(quote.premiumUsdc).to.be.at.least(0);
+    it("FV <= cap (bounded by maximum payout)", () => {
+      const fv = computeGaussHermiteFV(S0, 1.50, L, pL, pU, cap);
+      expect(fv).to.be.lessThanOrEqual(cap + 0.01);
     });
 
-    it("p_hit caps at 1.0 (PPM) for extreme sigma", () => {
-      const extreme = computeQuote(1_000_000,
-        makeTemplate({ widthBps: 100 }), // very narrow
-        makePool(), makeRegime({ sigmaPpm: 5_000_000 })); // extreme vol
-      // p_hit should cap at PPM, so E[Payout] = cap * 1.0 * severity / PPM
-      const expectedMax = Math.floor(1_000_000 * 420_000 / 1_000_000);
-      expect(extreme.expectedPayoutUsdc).to.be.at.most(expectedMax + 1);
+    it("FV approaches 0 as volatility approaches 0", () => {
+      const fvHigh = computeGaussHermiteFV(S0, 0.65, L, pL, pU, cap);
+      const fvLow = computeGaussHermiteFV(S0, 0.05, L, pL, pU, cap);
+      expect(fvLow).to.be.lessThan(fvHigh * 0.1);
     });
   });
 
-  describe("Calibrated templates (optimized parameters)", () => {
-    it("±5% template at σ=65% produces ~1.20× fair value", () => {
-      // Fair value at σ=65%, ±5%, 7d, barrier=90%: ~$253 for $880 cap
-      // Heuristic with severity=345,000 should produce ~$304
-      const quote = computeQuote(880_000_000, // $880 cap
-        makeTemplate({ widthBps: 500, severityPpm: 345_000 }),
-        makePool({ reservesUsdc: 10_000_000_000, activeCapUsdc: 0, uMaxBps: 5000 }),
-        makeRegime({ sigmaPpm: 650_000, carryBpsPerDay: 10 })
-      );
-      // Premium should be around $280-$330 range (1.10-1.30× fair value)
-      const premiumUsd = quote.premiumUsdc / 1e6;
-      expect(premiumUsd).to.be.within(250, 350);
-    });
+  // ── Monotonicity properties ───────────────────────────────
 
-    it("±10% template at σ=65% produces ~1.20× fair value", () => {
-      const quote = computeQuote(745_000_000, // $745 cap
-        makeTemplate({ widthBps: 1_000, severityPpm: 420_000 }),
-        makePool({ reservesUsdc: 10_000_000_000, activeCapUsdc: 0, uMaxBps: 5000 }),
-        makeRegime({ sigmaPpm: 650_000, carryBpsPerDay: 10 })
-      );
-      const premiumUsd = quote.premiumUsdc / 1e6;
-      expect(premiumUsd).to.be.within(210, 350);
-    });
+  describe("Premium monotonicity (end-to-end)", () => {
+    it("premium increases with volatility (higher sigma → higher FV → higher premium)", () => {
+      const pool = makePool();
+      const template = makeTemplate();
+      const r1 = makeRegime({ sigmaPpm: 400_000 });
+      const r2 = makeRegime({ sigmaPpm: 900_000 });
 
-    it("±15% template at σ=65% produces ~1.20× fair value", () => {
-      const quote = computeQuote(645_000_000, // $645 cap
-        makeTemplate({ widthBps: 1_500, severityPpm: 640_000 }),
-        makePool({ reservesUsdc: 10_000_000_000, activeCapUsdc: 0, uMaxBps: 5000 }),
-        makeRegime({ sigmaPpm: 650_000, carryBpsPerDay: 10 })
-      );
-      const premiumUsd = quote.premiumUsdc / 1e6;
-      expect(premiumUsd).to.be.within(180, 310);
+      const fv1 = computeHeuristicFV(5_000_000, template, pool, r1)!.totalUsdc;
+      const fv2 = computeHeuristicFV(5_000_000, template, pool, r2)!.totalUsdc;
+      const p1 = computePremium(fv1, 1.08, 100_000, 50_000);
+      const p2 = computePremium(fv2, 1.08, 100_000, 50_000);
+      expect(p2).to.be.greaterThan(p1);
     });
   });
 });

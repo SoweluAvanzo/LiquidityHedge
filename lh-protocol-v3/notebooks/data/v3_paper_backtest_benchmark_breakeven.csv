@@ -1,4 +1,0 @@
-strategy,yield_split,breakeven_fee_day,joint_viable,lp_mean_at_breakeven,rt_mean_at_breakeven,weeks
-plain_lp,,0.005652,,0.00014578014823218925,,157
-perp_fixed_lp,,0.005945,,0.0001782674244328093,,157
-perp_dynamic_lp,,0.00526,,8.618199629439865e-05,,157

@@ -1,10 +1,13 @@
-.anchor
-.DS_Store
-target
-**/*.rs.bk
-node_modules
-test-ledger
-.yarn
+# Secrets — never commit
 .env
+!.env.example
 wallet-*.json
-test-results-*
+
+# Node
+node_modules/
+dist/
+yarn.lock
+
+# Runtime data
+protocol-data/
+*.jsonl

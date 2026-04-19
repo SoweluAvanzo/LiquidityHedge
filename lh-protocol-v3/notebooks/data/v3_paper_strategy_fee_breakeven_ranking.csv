@@ -1,5 +1,0 @@
-strategy,breakeven_fee_day,rank
-protocol_lp_best_joint,0.005086,1
-plain_lp,0.005571,2
-perp_fixed_lp,0.005571,3
-perp_dynamic_lp,0.005571,4
