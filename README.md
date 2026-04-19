@@ -51,7 +51,6 @@ LiquidityHedge/
 │   ├── tests/                         #   133 tests (unit, integration, scenarios, invariants)
 │   ├── scripts/                       #   Backtest (Birdeye data) + live Orca test
 │   └── docs/                          #   8 scientific documentation files
-├── docs/                              # Canonical pricing contract
 ├── DLT2026_Paper_A-6.pdf             # Academic paper
 ├── liquidity_hedge_protocol_poc(1).md # Original specification
 └── CLAUDE.md                          # AI assistant context
@@ -85,7 +84,6 @@ yarn live-orca
 ## Documentation
 
 - **Protocol docs:** [`lh-protocol/docs/`](lh-protocol/docs/) — 8 files covering mathematical foundations, pricing methodology, protocol mechanism, risk parameters, implementation, and empirical results
-- **Canonical pricing contract:** [`docs/PRICING_CONTRACT.md`](docs/PRICING_CONTRACT.md)
 - **Original specification:** [`liquidity_hedge_protocol_poc(1).md`](liquidity_hedge_protocol_poc(1).md)
 - **Academic paper:** [`DLT2026_Paper_A-6.pdf`](DLT2026_Paper_A-6.pdf)
 
