@@ -4,121 +4,103 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Liquidity Hedge Protocol — a Solana smart-contract-based system that lets a liquidity provider (LP) open a real Orca Whirlpool concentrated liquidity position on SOL/USDC, escrow the position NFT, buy an NFT hedge certificate, and transfer bounded downside risk to a risk taker (RT) who underwrites a USDC protection pool. The PoC implements **Product A: cash-settled capped corridor certificate** with **proportional payout** — a single hedge product on a single pair (SOL/USDC) with a single USDC-only pool.
+Liquidity Hedge Protocol — a corridor hedge certificate for concentrated liquidity positions on Orca Whirlpools (SOL/USDC). The LP buys a certificate whose payoff exactly replicates impermanent loss within the position's price range, transferring bounded downside risk to a Risk Taker (RT) who underwrites a USDC protection pool.
+
+The canonical premium formula is:
+```
+Premium = max(P_floor, FV · m_vol − y · E[F])
+```
 
 The full specification is in `liquidity_hedge_protocol_poc(1).md`. The academic paper is `DLT2026_Paper_A-6.pdf`.
 
-## Actual Stack
+## Stack
 
-- **On-chain:** Anchor 0.31.1, Solana CLI 3.1.12 (Agave), platform-tools v1.52, Rust 1.94.1
-- **Off-chain:** TypeScript (Node 22), `@coral-xyz/anchor` 0.31.1, `@solana/web3.js` v1.x, `@solana/spl-token` v0.4
-- **Deployment:** Solana devnet (on-chain), Fly.io (off-chain services)
+- **Off-chain emulator:** TypeScript (Node 22), `@solana/web3.js` v1.x, `@solana/spl-token` v0.4
+- **Live integration:** Orca Whirlpools (raw instruction builders), Birdeye OHLCV API
+- **Testing:** Mocha + Chai (133 tests)
+- **Target deployment:** Anchor 0.31.1, Solana (Agave) 3.1.12
 
 ## Build & Test Commands
 
 All commands run from `lh-protocol/` subdirectory:
 
 ```bash
-anchor build                       # build the on-chain program → target/deploy/lh_core.so
-anchor test                        # build + deploy to localnet + run Mocha tests
-anchor deploy --provider.cluster devnet  # deploy to devnet
-yarn install                       # install dependencies (uses yarn, not npm)
+yarn install                          # install dependencies
+yarn test                             # run all 133 tests
+yarn test:unit                        # unit tests only (pricing, pool, certificates, math, regime)
+yarn test:integration                 # full lifecycle, multi-certificate, edge cases
+yarn test:scenarios                   # hedge effectiveness, RT viability, fee-split analysis
+yarn test:invariants                  # economic invariants under random inputs
+yarn live-test                        # backtest with real Birdeye SOL/USDC prices
+yarn live-orca                        # live test with real Orca position on Solana
 ```
 
 ## Architecture
 
-### On-chain: `lh-protocol/programs/lh-core/src/`
+### Off-chain emulator: `lh-protocol/protocol-src/`
 
-One Anchor program `lh_core` with internal modules:
-- **pool/** — USDC protection pool: `initialize_pool`, `deposit_usdc`, `withdraw_usdc` (NAV-based share pricing)
-- **position_escrow/** — custody of position NFTs: `register_locked_position`, `release_position`
-- **certificates/** — NFT hedge certificates: `buy_certificate`, `settle_certificate` (proportional payout)
-- **pricing/** — `compute_quote` (on-chain), `update_regime_snapshot`, `create_template`
-- **state.rs** — `PoolState`, `PositionState`, `CertificateState`, `RegimeSnapshot`, `TemplateConfig`
-- **constants.rs** — PDA seeds, Pyth staleness thresholds, PPM/BPS constants
-- **math.rs** — `integer_sqrt` for fixed-point arithmetic
-- **errors.rs** / **events.rs**
+- **operations/** — Core protocol logic
+  - `pricing.ts` — Canonical premium formula, heuristic FV proxy, numerical quadrature
+  - `pool.ts` — NAV-based USDC pool (deposit, withdraw, utilization guard)
+  - `certificates.ts` — Certificate lifecycle (buy, settle)
+  - `regime.ts` — Regime snapshot, severity calibration, IV/RV
+- **clients/** — External integrations
+  - `birdeye.ts` — Birdeye OHLCV API client, volatility computation
+  - `whirlpool-ix.ts` — Raw Orca Whirlpool instruction builders
+  - `config.ts` — Program IDs, mints, PDA derivation
+- **utils/** — CL math (`position-value.ts`), integer sqrt (`math.ts`)
+- **state/** — In-memory state store with JSON persistence
+- **audit/** — Structured JSONL audit logging
+- **interface.ts** — `ILhProtocol` interface
+- **index.ts** — `OffchainLhProtocol` class implementing the interface
+- **types.ts** — Constants (PPM, BPS, Q64), state interfaces
 
-### Off-chain (planned): `clients/` and `scripts/`
+### Documentation: `lh-protocol/docs/`
 
-- **risk-service** — Birdeye OHLCV → volatility → `RegimeSnapshot` publisher
-- **operator-service** — settlement loop, reserve reconciliation
-- **scripts/** — demo/devnet initialization scripts
-
-## Key Implementation Patterns
-
-- **Box<Account<>> for large structs** — `BuyCertificate` accounts exceed SBF 4096-byte stack limit; use `Box<Account<'info, T>>` to heap-allocate
-- **Borrow-before-CPI** — read immutable values (bump, keys) before CPI calls, take `&mut` only after CPIs complete to avoid borrow checker conflicts
-- **`init-if-needed`** on `RegimeSnapshot` — created on first `update_regime_snapshot` call
-- **`idl-build` feature** must propagate to both `anchor-lang` and `anchor-spl`
-- **u64 args in TypeScript** — always pass as `new anchor.BN(value)`, not raw numbers
-
-## PDA Seeds
-
-- `PoolState`: `[b"pool"]`
-- USDC vault: `[b"pool_vault"]`
-- Share mint: `[b"share_mint"]`
-- `PositionState`: `[b"position", position_mint.key()]`
-- `CertificateState`: `[b"certificate", position_mint.key()]`
-- `RegimeSnapshot`: `[b"regime", pool.key()]`
-- `TemplateConfig`: `[b"template", template_id.to_le_bytes()]`
+Eight files covering mathematical foundations, pricing methodology, protocol mechanism, risk parameters, implementation details, references, and empirical results.
 
 ## Key Design Decisions
 
-- **Proportional payout** (not binary): `payout = min(cap, max(0, (barrier - price) * notional / barrier))`
-- **NAV-based pool shares**: premiums increase `reserves_usdc` → share value rises; withdrawals guarded by utilization constraint
-- **On-chain TemplateConfig**: admin-created accounts for product parameters (tenor, width, severity, floor/ceiling)
-- **Entry price verification** against Pyth (planned ±5% tolerance)
-- **Pyth** for settlement prices with staleness (30s) + confidence interval checks
-- **Settlement is permissionless** — anyone can call `settle_certificate` for liveness
+- **Barrier = lower bound of CL position range** — no separate barrier parameter; the corridor covers the full concentrated range
+- **No cover ratio** — full corridor coverage always
+- **P_floor is a governance parameter** — not derived from a formula
+- **m_vol = max(markupFloor, IV/RV)** — variance risk premium from option markets
+- **Fee split** — RT receives y% of LP trading fees at settlement (premium discount at purchase)
+- **Value-neutrality theorem** — LP_PnL + RT_PnL = Unhedged_PnL − protocolFee (Theorem 2.2)
+
+## Premium Formula
+
+```
+Premium = max(P_floor, FV · m_vol − y · E[F])
+```
+
+- `FV` = fair value via numerical integration under risk-neutral GBM
+- `m_vol` = `max(markupFloor, IV/RV)`
+- `y` = fee-split rate (e.g. 10%)
+- `E[F]` = expected LP trading fees over tenor
+- `P_floor` = governance minimum (e.g. 1% of position value)
+
+## Corridor Payoff
+
+```
+Π(S_T) = min(Cap, max(0, V(S_0) − V(max(S_T, B))))
+```
+
+where V(S) is the CL position value function (3-piece piecewise), B = p_l (barrier = lower price bound), Cap = V(S_0) − V(B).
 
 ## State Machines
 
-- `PositionState.status`: `Locked (1) -> Released (2) | Closed (3)`
-- `CertificateState.state`: `Created (0) -> Active (1) -> Settled (2) | Expired (3)`
+- `PositionState.status`: `Locked (1) → Released (2) | Closed (3)`
+- `CertificateState.state`: `Created (0) → Active (1) → Settled (2) | Expired (3)`
 
-## Quote Formula
+## Constants
 
+```typescript
+PPM = 1_000_000          // parts per million
+BPS = 10_000             // basis points
+DEFAULT_MARKUP_FLOOR = 1.05
+DEFAULT_FEE_SPLIT_RATE = 0.10
+DEFAULT_PREMIUM_FLOOR_USDC = 1_500_000  // $1.50
+DEFAULT_PROTOCOL_FEE_BPS = 150          // 1.5%
+DEFAULT_U_MAX_BPS = 3_000              // 30%
 ```
-Premium = clamp(E[Payout] + C_cap + C_adv + C_rep, floor, ceiling)
-```
-- `E[Payout] = Cap * p_hit(σ, T, width) * severity_ppm / PPM²`
-- `C_cap = Cap * (U_after / PPM)² / 5` — quadratic utilization charge
-- `C_adv = Cap / 10` if stress_flag, else 0
-- `C_rep = Cap * carry_bps * tenor_days / BPS / 100`
-- Floor/ceiling from `TemplateConfig`
-
-## Critical Invariants
-
-- Escrow vault must hold exactly 1 position NFT before `register_locked_position` succeeds
-- `active_cap + new_cap <= U_max * reserves / 10_000` must hold before certificate activation
-- Settlement uses conservative price: `price_e6 - conf_e6`
-- Position NFT cannot be released while `protected_by` is set
-- `post_withdrawal_reserves >= active_cap * 10_000 / u_max_bps` for RT withdrawals
-
-## Reference Implementation: `test_deployment_v2/`
-
-**DO NOT MODIFY** this directory. It is a read-only reference — a production Orca Whirlpools LP bot (Python/FastAPI) used as a source of patterns for integrating with real Orca Whirlpools.
-
-### What to use from it
-
-- **Orca interaction patterns:** `app/chain/orca_client.py` (pool state fetching, position discovery, open/close lifecycle)
-- **Instruction building:** `app/chain/whirlpool_instructions.py` (Anchor discriminators, tick array derivation, Token2022 support)
-- **Transaction management:** `app/chain/transaction_manager.py` (signing, retry logic)
-- **API keys & addresses (from `.env`):**
-  - Helius RPC: `https://mainnet.helius-rpc.com/?api-key=2ef5fdd0-5c3b-4ae1-a2fc-e12b3fd605e7`
-  - Birdeye: `ed577a4a6a4f480fa659b4f18673e4b1`
-  - Jupiter: `63dadbb1-483c-409d-9205-84c9935af09d`
-  - SOL/USDC Whirlpool pool: `Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE`
-  - Whirlpool program ID: `whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc`
-  - SOL mint: `So11111111111111111111111111111111111111112`
-  - Mainnet USDC mint: `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`
-
-### Key Orca constants from reference
-
-- **Tick spacing:** 64 (for 1% fee tier SOL/USDC pool)
-- **Tick array size:** 88 ticks per array
-- **Tick bounds:** MIN_TICK = -443636, MAX_TICK = 443636
-- **Position PDA:** `[b"position", position_mint]` under Whirlpool program
-- **Tick array PDA:** `[b"tick_array", whirlpool, start_tick_index_string]` under Whirlpool program
-- **Price math:** `price = 1.0001^tick * 10^(decimals_a - decimals_b)` → for SOL/USDC: `price = 1.0001^tick * 1000`

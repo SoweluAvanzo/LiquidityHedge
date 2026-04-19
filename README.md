@@ -1,131 +1,93 @@
 # Liquidity Hedge Protocol
 
-A Solana smart-contract-based system that lets a liquidity provider (LP) hedge the downside risk of a concentrated liquidity position on Orca Whirlpools. The protocol escrows the position NFT, issues an NFT hedge certificate, and routes bounded risk to a risk taker (RT) who underwrites a USDC protection pool.
-
-The PoC implements **Product A: cash-settled capped corridor certificate** — a single hedge product on a single pair (SOL/USDC) with proportional payout and a USDC-only underwriting pool.
+A corridor hedge certificate protocol for concentrated liquidity positions on Orca Whirlpools (SOL/USDC). The LP buys a certificate whose payoff exactly replicates the impermanent loss within the position's price range, transferring bounded downside risk to a Risk Taker (RT) who underwrites a USDC protection pool.
 
 ## How It Works
 
-1. **LP opens** a real Orca Whirlpool concentrated liquidity position (SOL/USDC).
-2. **LP locks** the position NFT into the protocol's escrow vault.
-3. **LP buys** a hedge certificate — the protocol quotes a dynamic premium based on volatility, utilization, and tenor.
-4. **RT deposits** USDC into the protection pool and receives pool shares (NAV-based pricing).
-5. On expiry or settlement trigger, **anyone can call** `settle_certificate` (permissionless liveness).
-6. If the settlement price (Pyth oracle, conservative = price - confidence) breaches the barrier, the certificate pays out proportionally up to the cap.
-7. The position NFT is released back to the LP.
+1. **LP opens** a concentrated liquidity position on Orca Whirlpools (SOL/USDC).
+2. **RT deposits** USDC into the protection pool, receiving NAV-based pool shares.
+3. **LP locks** the position and **buys** a corridor hedge certificate.
+4. The premium is computed as: `Premium = max(P_floor, FV · m_vol − y · E[F])`.
+5. On expiry, **anyone can settle** the certificate (permissionless).
+6. If price dropped, the corridor payoff compensates the LP's impermanent loss, capped at the natural cap.
+7. The RT receives the premium plus a share of LP trading fees.
 
-### Payout Formula
-
-```
-payout = min(cap, max(0, (barrier - price) * notional / barrier))
-```
-
-### Premium Quote
+### Corridor Payoff
 
 ```
-Premium = clamp(E[Payout] + C_cap + C_adv + C_rep, floor, ceiling)
+Π(S_T) = min(Cap, max(0, V(S_0) − V(max(S_T, B))))
 ```
 
-Where `E[Payout]` is the expected loss, `C_cap` is a quadratic utilization charge, `C_adv` is a stress surcharge, and `C_rep` is a carry cost. Floor and ceiling are set per product template.
+where `V(S)` is the concentrated liquidity position value function, `B` is the barrier (= lower bound of the position range), and `Cap = V(S_0) − V(B)` is the natural cap.
 
-## Technology Stack
+### Premium Formula
 
-| Layer | Technology | Version |
-|-------|-----------|---------|
-| On-chain program | Anchor (Rust) | 0.31.1 |
-| Solana CLI | Agave | 3.1.12 |
-| Platform tools | Solana platform-tools | v1.52 |
-| Rust | rustc | 1.94.1 |
-| Off-chain clients | TypeScript (Node.js) | 22 |
-| Anchor TS SDK | @coral-xyz/anchor | 0.31.1 |
-| Web3 | @solana/web3.js | 1.x |
-| SPL Token | @solana/spl-token | 0.4 |
-| Oracle | Pyth Network | — |
-| AMM | Orca Whirlpools | — |
-| Deployment target | Solana devnet | — |
+```
+Premium = max(P_floor, FV · m_vol − y · E[F])
+```
+
+| Term | Meaning |
+|------|---------|
+| `P_floor` | Governance-set minimum premium |
+| `FV` | Fair value: risk-neutral expected payoff under GBM |
+| `m_vol` | Volatility markup: `max(markupFloor, IV/RV)` |
+| `y · E[F]` | Fee discount: fee-split rate × expected LP fees |
+
+### Key Result (Theorem 2.2)
+
+The corridor hedge is a **value-neutral redistribution**: `LP_PnL + RT_PnL = Unhedged_PnL − protocolFee`. The two-sided breakeven yield equals the unhedged breakeven yield plus a negligible protocol fee wedge (~0.3 bps/day). At any fee yield where unhedged LPing is profitable, the protocol can be parameterized so both LP and RT are also profitable.
 
 ## Repository Structure
 
 ```
 LiquidityHedge/
-├── lh-protocol/                        # Anchor workspace (on-chain + off-chain)
-│   ├── programs/lh-core/src/           # Solana program source
-│   │   ├── pool/                       #   USDC protection pool (init, deposit, withdraw)
-│   │   ├── position_escrow/            #   Position NFT custody (lock, release)
-│   │   ├── certificates/               #   Hedge certificate lifecycle (buy, settle)
-│   │   ├── pricing/                    #   Quote engine, regime snapshots, templates
-│   │   ├── state.rs                    #   Account structs (PoolState, CertificateState, …)
-│   │   ├── constants.rs                #   PDA seeds, thresholds, PPM/BPS constants
-│   │   ├── math.rs                     #   Fixed-point arithmetic (integer_sqrt)
-│   │   ├── errors.rs                   #   Custom error codes
-│   │   ├── events.rs                   #   Anchor events
-│   │   ├── pyth.rs                     #   Pyth oracle helpers
-│   │   └── orca.rs                     #   Orca Whirlpool struct definitions
-│   ├── tests/                          # Mocha integration tests
-│   ├── clients/                        # Off-chain services (TypeScript)
-│   │   ├── risk-service/               #   Volatility → RegimeSnapshot publisher
-│   │   ├── operator-service/           #   Settlement loop, reserve reconciliation
-│   │   └── cli/                        #   Admin CLI
-│   ├── scripts/                        # Devnet/mainnet initialization scripts
-│   ├── Anchor.toml                     # Anchor config (localnet + devnet)
-│   └── package.json
-├── test_deployment_v2/                 # Reference: Orca Whirlpools LP bot (Python)
-│   └── (read-only — patterns for Orca integration)
-├── liquidity_hedge_protocol_poc(1).md  # Full PoC specification
-├── DLT2026_Paper_A-6.pdf              # Academic paper
-├── CLAUDE.md                           # AI assistant project context
-└── contribution_guide.md               # Contribution guidelines
+├── lh-protocol/                       # Protocol implementation
+│   ├── protocol-src/                  #   Off-chain emulator (TypeScript)
+│   │   ├── operations/                #     pricing, pool, certificates, regime
+│   │   ├── clients/                   #     Birdeye API, Orca Whirlpool instructions
+│   │   ├── utils/                     #     CL math, position valuation
+│   │   ├── state/                     #     In-memory state store
+│   │   └── audit/                     #     Structured audit logging
+│   ├── tests/                         #   133 tests (unit, integration, scenarios, invariants)
+│   ├── scripts/                       #   Backtest (Birdeye data) + live Orca test
+│   └── docs/                          #   8 scientific documentation files
+├── docs/                              # Canonical pricing contract
+├── DLT2026_Paper_A-6.pdf             # Academic paper
+├── liquidity_hedge_protocol_poc(1).md # Original specification
+└── CLAUDE.md                          # AI assistant context
 ```
 
-## On-Chain Program Modules
-
-| Module | Instructions | Purpose |
-|--------|-------------|---------|
-| **pool** | `initialize_pool`, `deposit_usdc`, `withdraw_usdc` | USDC protection pool with NAV-based share pricing |
-| **position_escrow** | `register_locked_position`, `release_position` | Custody of Orca position NFTs |
-| **certificates** | `buy_certificate`, `settle_certificate` | Hedge certificate lifecycle and payout |
-| **pricing** | `compute_quote`, `update_regime_snapshot`, `create_template` | Dynamic premium computation |
-
-## Key Design Decisions
-
-- **Proportional payout** (not binary) — fairer for partial price moves.
-- **NAV-based pool shares** — premiums increase share value; withdrawals are guarded by utilization constraints.
-- **Permissionless settlement** — anyone can call `settle_certificate` for liveness guarantees.
-- **On-chain TemplateConfig** — admin-created product templates control tenor, width, severity, floor/ceiling.
-- **Pyth oracle** with staleness (30s) and confidence interval checks for settlement prices.
-- **Conservative settlement price** — uses `price - confidence` to protect the LP.
-
-## Build and Test
-
-All commands run from the `lh-protocol/` directory:
+## Quick Start
 
 ```bash
-# Install dependencies
+cd lh-protocol
 yarn install
 
-# Build the on-chain program
-anchor build
+# Run all 133 tests
+yarn test
 
-# Run tests (builds, deploys to localnet, runs Mocha suite)
-anchor test
+# Backtest with real Birdeye SOL/USDC prices (requires BIRDEYE_API_KEY)
+cp .env.example .env   # fill in API keys
+yarn live-test
 
-# Deploy to devnet
-anchor deploy --provider.cluster devnet
+# Live test with real Orca position (requires funded wallets)
+yarn live-orca
 ```
 
-### Prerequisites
+## Empirical Results (56 weeks of real SOL/USDC data)
 
-- Rust 1.94.1+ with the Solana BPF toolchain
-- Solana CLI 3.1.12+ (Agave)
-- Anchor CLI 0.31.1
-- Node.js 22+
-- Yarn
+| Width | Volatility Reduction | Max Drawdown Reduction | Two-Sided Breakeven | Hedge Cost |
+|-------|---------------------|------------------------|--------------------|--------------------|
+| ±5% | 27% | 23% | 0.416%/day | 0.1 bps/day |
+| ±7.5% | 41% | 55% | 0.363%/day | 0.3 bps/day |
+| ±10% | **55%** | **79%** | **0.318%/day** | **0.3 bps/day** |
 
 ## Documentation
 
-- **Full specification:** [`liquidity_hedge_protocol_poc(1).md`](liquidity_hedge_protocol_poc(1).md)
+- **Protocol docs:** [`lh-protocol/docs/`](lh-protocol/docs/) — 8 files covering mathematical foundations, pricing methodology, protocol mechanism, risk parameters, implementation, and empirical results
+- **Canonical pricing contract:** [`docs/PRICING_CONTRACT.md`](docs/PRICING_CONTRACT.md)
+- **Original specification:** [`liquidity_hedge_protocol_poc(1).md`](liquidity_hedge_protocol_poc(1).md)
 - **Academic paper:** [`DLT2026_Paper_A-6.pdf`](DLT2026_Paper_A-6.pdf)
-- **Contribution guidelines:** [`contribution_guide.md`](contribution_guide.md)
 
 ## License
 

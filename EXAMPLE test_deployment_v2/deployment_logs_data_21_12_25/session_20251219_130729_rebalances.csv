@@ -1,2 +1,0 @@
-timestamp,position,reason,is_emergency,price,lower_before,upper_before,lower_after,upper_after,tx_fee_sol
-2025-12-21T13:33:00.340771+00:00,Abj2y3WMhtYQQ7EeGUghHAm6EnCJsCM8hshWRNoD8UoN,out_of_range,False,123.60887435365481,123.6505932799923,128.54227674648843,121.28344059458915,125.97889492639669,0.0
