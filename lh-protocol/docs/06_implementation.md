@@ -264,7 +264,8 @@ The test helpers (`tests/helpers.ts`) provide factory functions for creating tes
 **Running tests:**
 
 ```bash
-cd lp-final_version && npx mocha --require ts-node/register tests/unit/*.test.ts
+cd lh-protocol && yarn test            # all 133 tests
+cd lh-protocol && yarn test:unit       # unit tests only
 ```
 
 ## 6.7 References for This Section
