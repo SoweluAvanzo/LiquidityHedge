@@ -1,11 +1,16 @@
 /**
  * Hedge Effectiveness Tests
  *
- * Proves that the corridor hedge certificate reduces LP downside risk.
- * Each test creates a fresh protocol, buys a certificate, settles at
- * a specific price, and compares hedged vs unhedged LP outcomes.
+ * Proves that the Liquidity Hedge certificate replicates IL within
+ * the active range [p_l, p_u]. Each test creates a fresh protocol,
+ * buys a certificate, settles at a specific price, and compares
+ * hedged vs unhedged LP outcomes.
  *
- * Position parameters: L=50, S_0=$150, p_l=$135, p_u=$165, cap~$4.46
+ * Under the signed-swap design:
+ *   - Below S_0: payout > 0 (RT owes LP)
+ *   - Above S_0: payout < 0 (LP surrenders upside to RT)
+ *
+ * Position parameters: L=50, S_0=$150, p_l=$135, p_u=$165
  */
 
 import { expect } from "chai";
@@ -14,7 +19,8 @@ import {
   CertificateStatus,
   clPositionValue,
   naturalCap,
-  corridorPayoff,
+  naturalCapUp,
+  lhPayoff,
 } from "../../protocol-src/index";
 import { DEFAULT_POOL_CONFIG, DEFAULT_TEMPLATE } from "../../protocol-src/config/templates";
 import {
@@ -33,7 +39,8 @@ const L = 50;            // liquidity
 const PL = 135;          // lower bound = barrier
 const PU = 165;          // upper bound
 const V0 = clPositionValue(S0, L, PL, PU);
-const CAP = naturalCap(S0, L, PL, PU);
+const CAP_DOWN = naturalCap(S0, L, PL, PU);
+const CAP_UP = naturalCapUp(S0, L, PL, PU);
 
 // ---------------------------------------------------------------------------
 // Helper: buy certificate and settle at a given price
@@ -84,44 +91,59 @@ describe("Hedge Effectiveness", () => {
     );
   });
 
-  // ── Test 2: Severe 10% drop (barrier hit) ─────────────────
-  it("Severe drop (10%, hits barrier): hedged LP loss capped", () => {
-    const ST = 135; // exactly at barrier
+  // ── Test 2: Severe 10% drop (lower bound hit) ────────────
+  it("Severe drop (10%, hits p_l): payout = +Cap_down, LP locked at V(S_0)", () => {
+    const ST = 135; // exactly at p_l
     const { cert, result } = buyAndSettle(ST);
 
     const premiumUsd = cert.premiumUsdc / 1_000_000;
     const payoutUsd = result.payoutUsdc / 1_000_000;
-    const capUsd = cert.capUsdc / 1_000_000;
+    const capDownUsd = cert.capUsdc / 1_000_000;
 
-    // At the barrier the payout should be the full cap
-    expect(payoutUsd).to.be.closeTo(capUsd, 0.01);
+    // At the lower bound the payout equals Cap_down
+    expect(payoutUsd).to.be.closeTo(capDownUsd, 0.01);
 
     // Hedged net loss = IL + premium - payout
     const ilUnhedged = unhedgedIL(ST);
     const ilHedged = ilUnhedged + premiumUsd - payoutUsd;
 
-    // The cap fully compensates the IL within the corridor,
-    // so hedged loss should be approximately the premium cost only
+    // Within [p_l, p_u], Π exactly replicates IL, so hedged LP's net
+    // loss is just the premium
     expect(ilHedged).to.be.closeTo(premiumUsd, 0.02);
     expect(ilHedged).to.be.lessThan(ilUnhedged);
   });
 
-  // ── Test 3: Price up 5% → cost bounded to premium ─────────
-  it("Price up 5%: hedge cost is bounded to premium", () => {
+  // ── Test 3: Price up 5% → LP surrenders upside to RT ─────
+  it("Price up 5%: LP pays RT the upside give-up (swap semantics)", () => {
     const ST = 157.50; // +5%
     const { cert, result } = buyAndSettle(ST);
 
-    expect(result.payoutUsdc).to.equal(0, "no payout when price rises");
-    expect(result.state).to.equal(CertificateStatus.Expired);
-
-    // The only cost to the hedged LP is the premium
     const premiumUsd = cert.premiumUsdc / 1_000_000;
-    const hedgeCost = premiumUsd; // premium paid, no payout received
+    const payoutUsd = result.payoutUsdc / 1_000_000;
 
-    // Hedge cost is bounded and small relative to cap
-    const capUsd = cert.capUsdc / 1_000_000;
-    expect(hedgeCost).to.be.lessThan(capUsd);
-    expect(hedgeCost).to.be.greaterThan(0);
+    // Under the swap, upside inside the active range is surrendered:
+    // payout is NEGATIVE and equals V(S_0) − V(S_T) < 0
+    const expectedPayout = V0 - clPositionValue(ST, L, PL, PU);
+    expect(payoutUsd).to.be.lessThan(0, "payout is negative for upside");
+    expect(payoutUsd).to.be.closeTo(expectedPayout, 0.02);
+    expect(result.state).to.equal(CertificateStatus.Settled);
+
+    // LP net within [p_l, p_u] = V(S_0) − premium (locked at entry value)
+    const vT = clPositionValue(ST, L, PL, PU);
+    const lpNet = vT + payoutUsd - premiumUsd; // position + payoff - premium
+    const lpLocked = V0 - premiumUsd;
+    expect(lpNet).to.be.closeTo(lpLocked, 0.02);
+  });
+
+  // ── Test 3b: Price above upper bound → capped upside give-up ─
+  it("Price up >10% (hits p_u): LP surrenders at most Cap_up", () => {
+    const ST = 170; // above p_u = 165
+    const { cert, result } = buyAndSettle(ST);
+
+    const payoutUsd = result.payoutUsdc / 1_000_000;
+    expect(payoutUsd).to.be.closeTo(-CAP_UP, 0.01);
+    // Concavity of V guarantees |Cap_up| < Cap_down
+    expect(Math.abs(payoutUsd)).to.be.lessThan(CAP_DOWN);
   });
 
   // ── Test 4: Price flat → premium is small relative to V ───
@@ -232,24 +254,21 @@ describe("Hedge Effectiveness", () => {
     );
   });
 
-  // ── Test 6: Payout compensates IL within corridor ─────────
-  it("Summary: payout exactly compensates IL within corridor", () => {
-    // Test at several prices between barrier ($135) and entry ($150)
-    const testPrices = [136, 138, 140, 142, 144, 146, 148, 149];
+  // ── Test 6: Payout exactly replicates V(S_0) − V(S_T) in [p_l, p_u] ─
+  it("Exact IL replication: Π = V(S_0) − V(S_T) within [p_l, p_u]", () => {
+    // Both sides of S_0 within the active range
+    const testPrices = [136, 140, 144, 148, 150, 152, 156, 160, 164];
 
     for (const ST of testPrices) {
       const { cert, result } = buyAndSettle(ST);
 
       const payoutUsd = result.payoutUsdc / 1_000_000;
-      const actualIL = unhedgedIL(ST); // V(S_0) - V(S_T)
+      const expected = V0 - clPositionValue(ST, L, PL, PU); // signed
 
-      // Within the corridor (barrier < ST < S0), the corridor payoff
-      // should equal the actual IL: payout = V(S0) - V(ST)
-      // They should match to within rounding tolerance
       expect(payoutUsd).to.be.closeTo(
-        actualIL,
+        expected,
         0.02,
-        `At S_T=${ST}: payout (${payoutUsd.toFixed(4)}) should match IL (${actualIL.toFixed(4)})`,
+        `At S_T=${ST}: payout ${payoutUsd.toFixed(4)} should equal V(S_0)−V(S_T) = ${expected.toFixed(4)}`,
       );
     }
   });

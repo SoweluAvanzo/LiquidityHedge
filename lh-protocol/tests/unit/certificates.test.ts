@@ -122,10 +122,19 @@ describe("Certificate Lifecycle", () => {
       return { protocol, expiryTs: result.expiryTs };
     }
 
-    it("price >= entry → payout = 0, state = EXPIRED", () => {
+    it("price > entry → payout < 0 (LP surrenders upside), state = SETTLED", () => {
       const { protocol, expiryTs } = buyAndExpire();
       const result = protocol.settleCertificate(
         "settler", "pos-mint-1", 160_000_000, 1_000_000, expiryTs,
+      );
+      expect(result.payoutUsdc).to.be.lessThan(0);
+      expect(result.state).to.equal(CertificateStatus.Settled);
+    });
+
+    it("price = entry → payout = 0, state = EXPIRED", () => {
+      const { protocol, expiryTs } = buyAndExpire();
+      const result = protocol.settleCertificate(
+        "settler", "pos-mint-1", 150_000_000, 1_000_000, expiryTs,
       );
       expect(result.payoutUsdc).to.equal(0);
       expect(result.state).to.equal(CertificateStatus.Expired);

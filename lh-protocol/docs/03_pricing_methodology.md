@@ -2,13 +2,38 @@
 
 ## 3.1 Fair Value as Risk-Neutral Expectation
 
-The fair value (FV) of the corridor certificate is the discounted risk-neutral expectation of the corridor payoff. Since the tenor is short (7 days) and USDC is the numeraire, we neglect discounting and define:
+The fair value (FV) of the Liquidity Hedge certificate is the discounted risk-neutral expectation of the signed swap payoff. Since the tenor is short (7 days) and USDC is the numeraire, we neglect discounting and define:
 
 ```
 FV = E^Q[PI(S_T)] = integral from 0 to infinity of PI(S_T) * f(S_T) dS_T
 ```
 
-where `f(S_T)` is the risk-neutral density of `S_T` under GBM (Section 2.2.2) and `PI(S_T)` is the corridor payoff (Definition 2.2).
+where `f(S_T)` is the risk-neutral density of `S_T` under GBM (Section 2.2.2) and `PI(S_T) = V(S_0) - V(clamp(S_T, p_l, p_u))` is the swap payoff (Definition 2.2).
+
+**Sign of `FV`.** Even though the integrand is signed — positive for `S_T < S_0`, negative for `S_T > S_0` — the integral `FV = E_Q[V(S_0) - V(clamp(S_T, p_l, p_u))]` is **always non-negative**. This follows from Jensen's inequality applied to the concave function `V(clamp(·, p_l, p_u))`: under the risk-neutral measure (with `r = 0`, `E_Q[S_T] = S_0`),
+
+```
+E_Q[V(clamp(S_T, p_l, p_u))] <= V(E_Q[clamp(S_T, p_l, p_u)]) <= V(S_0),
+```
+
+so `FV >= 0`. Equality holds only in the degenerate limit `σ → 0`. The magnitude of `FV` is the **convexity adjustment** — the risk-neutral premium the LP pays for transferring the concavity of their position to the RT.
+
+### 3.1.1 Put-Minus-Call-Spread Decomposition
+
+By the identity `V(S_0) - V(clamp(S_T, p_l, p_u)) = [V(S_0) - V(max(S_T, p_l))]_+ - [V(min(S_T, p_u)) - V(S_0)]_+`, the swap FV decomposes as
+
+```
+FV_swap = FV_put_spread − FV_call_spread
+```
+
+where
+
+```
+FV_put_spread  = E_Q[min(Cap_down, max(0, V(S_0) − V(max(S_T, p_l))))]   (downside leg)
+FV_call_spread = E_Q[min(Cap_up,   max(0, V(min(S_T, p_u)) − V(S_0)))]    (upside leg)
+```
+
+Both legs are non-negative, and by the concavity wedge of Proposition 2.1, `FV_put_spread > FV_call_spread`, so `FV_swap > 0`. The decomposition is useful for both intuition and pricing: each leg is a standard capped-put FV integral, and the swap FV is their difference.
 
 Substituting the standard normal parameterization `z -> S_T(z) = S_0 * exp(-sigma^2/2 * T + sigma * sqrt(T) * z)`:
 
@@ -43,15 +68,15 @@ The coefficients follow the pattern: 1, 4, 2, 4, 2, ..., 4, 2, 4, 1.
 The protocol uses `N = 200` sub-intervals, yielding 201 evaluation points. At each node `z_i`:
 
 1. Compute the terminal price: `S_T = S_0 * exp(-sigma^2/2 * T + sigma * sqrt(T) * z_i)`
-2. Evaluate the corridor payoff: `PI(S_T)` using the CL value function
+2. Evaluate the Liquidity Hedge payoff: `PI(S_T) = V(S_0) − V(clamp(S_T, p_l, p_u))` (signed)
 3. Weight by the normal PDF: `g(z_i) = PI(S_T) * phi(z_i)`
 
 ### 3.2.3 Convergence Analysis
 
 Simpson's rule has error `O(h^4)` for smooth integrands [12, 13]. The integrand `g(z) = PI(S_T(z)) * phi(z)` is:
 
-- Continuous everywhere (Proposition 2.1(v))
-- C^1 except at `z` values mapping to `S_T = S_0` and `S_T = B`, where `PI` has derivative discontinuities
+- Continuous everywhere (Proposition 2.2(v))
+- C^1 except at `z` values mapping to `S_T = p_l` and `S_T = p_u`, where `PI` has derivative discontinuities (the two clamp kinks)
 
 At the kink points, Simpson's rule converges as `O(h^2)` locally. However, with `N = 200` and `h = 0.06`, the numerical error is below 0.01% relative to Monte Carlo estimates with 10^6 paths. This was verified empirically for `sigma in [0.30, 1.50]` and width `+/-10%`.
 
@@ -80,7 +105,7 @@ Premium = max(P_floor, FV * m_vol - y * E[F])
 
 where:
 
-- `FV` = fair value of the corridor payoff (risk-neutral expectation, Section 3.1)
+- `FV` = fair value of the signed Liquidity Hedge swap payoff (risk-neutral expectation, Section 3.1)
 - `m_vol = max(markupFloor, IV/RV)` = volatility markup (Section 3.3.3)
 - `y` = fee-split rate (e.g., 0.10 = 10%)
 - `E[F]` = expected LP trading fees over the tenor
@@ -170,7 +195,7 @@ where `sqrt_T_ppm = integerSqrt(T_ppm * PPM)` and `T_ppm = tenorSeconds * PPM / 
 E[Payout] = Cap * p_hit * severity / PPM^2
 ```
 
-The severity parameter controls the expected loss magnitude conditional on the price being in the corridor. Higher severity means larger expected losses.
+The severity parameter controls the expected loss magnitude conditional on the price being in the active range `[p_l, p_u]`. Higher severity means larger expected losses.
 
 **Capital Charge `C_cap`.** A quadratic utilization-based charge reflecting the pool's concentration risk:
 
@@ -223,7 +248,7 @@ The calibration uses a geometric proxy for `FV_target`:
 FV_target ~ Cap * p_hit * (width/2) / PPM
 ```
 
-This approximation captures the average payoff in the corridor under GBM. The severity is clamped to `[1, PPM]` (i.e., 0.0001% to 100%).
+This approximation captures the average signed payoff in the active range under GBM. The severity is clamped to `[1, PPM]` (i.e., 0.0001% to 100%).
 
 **Algorithm:**
 
@@ -257,7 +282,7 @@ The dynamic severity calibration (Section 5.5) reduces the steady-state error to
 - Width: `+/-10%` => `p_l = $135.00`, `p_u = $165.00`
 - `L = 50` (liquidity)
 - Tenor: 7 days
-- Pool: $100 reserves, 0% utilization
+- Pool: \$100 reserves, 0% utilization
 - `m_vol = 1.08` (IV/RV ratio)
 - `y = 0.10` (fee-split rate)
 - Daily fee rate: 0.5%
@@ -286,11 +311,15 @@ vol = 0.65 * sqrt(7/365) = 0.0900
 
 For each z_i:
   S_T = 150 * exp(-0.00405 + 0.0900 * z_i)
-  PI(S_T) = corridor payoff at S_T
+  PI(S_T) = V(S_0) − V(clamp(S_T, p_l, p_u))   (signed)
   g(z_i) = PI(S_T) * phi(z_i)
 
-FV = Simpson sum ~ $0.63
+FV_swap ≈ FV_put_spread − FV_call_spread
+        ≈ \$0.63 − \$0.25
+        ≈ \$0.38
 ```
+
+The swap's FV is roughly 60% of the capped-put FV at these parameters: the upside-giveup leg (`FV_call_spread ≈ \$0.25`) partially offsets the downside leg (`FV_put_spread ≈ \$0.63`). The difference shrinks for narrower widths (where both caps are smaller) and widens for wider widths.
 
 **Step 3: Fee Discount**
 
@@ -299,38 +328,40 @@ E[F] = 6_000_000 * 0.005 * 7 = $0.21 (210,000 micro-USDC)
 y * E[F] = 0.10 * 210,000 = $0.021 (21,000 micro-USDC)
 ```
 
-(Note: notional used here is the position entry value of ~$6.00.)
+(Note: notional used here is the position entry value of ~\$6.00.)
 
 **Step 4: Canonical Premium**
 
 ```
-Raw = FV * m_vol - y * E[F]
-    = 630,000 * 1.08 - 21,000
-    = 680,400 - 21,000
-    = 659,400 micro-USDC ($0.659)
+Raw = FV_swap * m_vol - y * E[F]
+    = 380,000 * 1.08 - 21,000
+    = 410,400 - 21,000
+    = 389,400 micro-USDC (\$0.389)
 
-Premium = max(P_floor, Raw) = max(50,000, 659,400) = 659,400 micro-USDC
+Premium = max(P_floor, Raw) = max(50,000, 389,400) = 389,400 micro-USDC
 ```
 
 **Step 5: Protocol Fee**
 
 ```
-protocolFee = 659,400 * 150 / 10,000 = 9,891 micro-USDC ($0.010)
-premiumToPool = 659,400 - 9,891 = 649,509 micro-USDC ($0.650)
+protocolFee = 389,400 * 150 / 10,000 = 5,841 micro-USDC (\$0.006)
+premiumToPool = 389,400 - 5,841 = 383,559 micro-USDC (\$0.383)
 ```
 
-**Summary:**
+**Summary (Liquidity Hedge swap vs. capped-put reference):**
 
-| Component | Value (micro-USDC) | Value (USD) |
-|-----------|-------------------|-------------|
-| Fair Value (FV) | 630,000 | $0.630 |
-| Markup (m_vol = 1.08) | 680,400 | $0.680 |
-| Fee Discount | -21,000 | -$0.021 |
-| Raw Premium | 659,400 | $0.659 |
-| P_floor | 50,000 | $0.050 |
-| **Final Premium** | **659,400** | **$0.659** |
-| Protocol Fee (1.5%) | 9,891 | $0.010 |
-| To Pool | 649,509 | $0.650 |
+| Component | Value (micro-USDC) | Value (USD) | Capped-put reference |
+|-----------|-------------------|-------------|----------------------|
+| Fair Value (FV_swap) | 380,000 | \$0.380 | (FV_put ≈ \$0.630) |
+| Markup (m_vol = 1.08) | 410,400 | \$0.410 | (\$0.680) |
+| Fee Discount | -21,000 | -\$0.021 | -\$0.021 |
+| Raw Premium | 389,400 | \$0.389 | \$0.659 |
+| P_floor | 50,000 | \$0.050 | \$0.050 |
+| **Final Premium** | **389,400** | **\$0.389** | **\$0.659** |
+| Protocol Fee (1.5%) | 5,841 | \$0.006 | \$0.010 |
+| To Pool | 383,559 | \$0.383 | \$0.650 |
+
+The swap premium is ~40% lower than the equivalent capped-put premium for the same risk parameters — the LP pays less upfront in exchange for surrendering the (bounded, concavity-adjusted) upside above `S_0` to the RT.
 
 ## 3.6 References for This Section
 

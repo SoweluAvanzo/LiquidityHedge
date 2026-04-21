@@ -13,10 +13,10 @@ import {
   CertificateState,
   RegimeSnapshot,
   TemplateConfig,
-} from "./types";
-import { PoolInitConfig } from "./config/templates";
-import { BuyCertResult } from "./operations/certificates";
-import { SettleResult } from "./operations/certificates";
+} from "../types";
+import { PoolInitConfig } from "../config/templates";
+import { BuyCertResult } from "../orchestrator/certificates";
+import { SettleResult } from "../orchestrator/certificates";
 
 // ---------------------------------------------------------------------------
 // Parameter interfaces
@@ -94,14 +94,14 @@ export interface ILhProtocol {
   // ── Certificates ────────────────────────────────────────────
 
   /**
-   * Buy a corridor hedge certificate for a locked position.
+   * Buy a Liquidity Hedge certificate for a locked position.
    * Premium formula: max(P_floor, FV · m_vol − y · E[F])
    */
   buyCertificate(buyer: string, params: BuyCertParams): BuyCertResult;
 
   /**
    * Settle a certificate at/after expiry. Permissionless.
-   * Computes corridor payoff and fee split.
+   * Computes the signed Liquidity Hedge payoff and fee split.
    * @param nowTs - Optional override for current time (testing)
    */
   settleCertificate(

@@ -3,13 +3,16 @@
  *
  * Manages the two main certificate operations:
  *
- *   buyCertificate:    LP purchases corridor hedge protection
+ *   buyCertificate:    LP purchases Liquidity Hedge protection
  *   settleCertificate: Anyone settles at/after expiry (permissionless)
  *
- * The corridor payoff:
- *   Π(S_T) = min(Cap, max(0, V(S_0) - V(max(S_T, B))))
+ * The Liquidity Hedge payoff (signed swap on V(·)):
+ *   Π(S_T) = V(S_0) - V(clamp(S_T, p_l, p_u))
  *
- * where B = p_l (the barrier equals the lower bound of the CL range).
+ * Positive ⇒ RT pays LP (downside realized within the active range).
+ * Negative ⇒ LP pays RT (upside realized within the active range), settled
+ *            physically from the escrowed position's proceeds, which
+ *            always cover the owed amount.
  */
 
 import {
@@ -23,16 +26,16 @@ import {
   TemplateConfig,
   REGIME_MAX_AGE_S,
 } from "../types";
-import { StateStore } from "../state/store";
-import { computeQuote, computeFeeDiscount, QuoteParams } from "./pricing";
-import { availableHeadroom } from "./pool";
-import { isRegimeFresh } from "./regime";
+import { StateStore } from "../event-audit/store";
+import { computeQuote, computeFeeDiscount, QuoteParams } from "../pricing-engine/pricing";
+import { availableHeadroom } from "../pool-manager/pool";
+import { isRegimeFresh } from "../risk-analyser/regime";
 import { computeBarrierFromWidth } from "../config/templates";
 import {
   clPositionValue,
   naturalCap,
-  corridorPayoff,
-} from "../utils/position-value";
+  lhPayoff,
+} from "../pricing-engine/position-value";
 
 // ---------------------------------------------------------------------------
 // Buy certificate
@@ -59,7 +62,7 @@ export interface BuyCertResult {
 }
 
 /**
- * Purchase a corridor hedge certificate for a locked CL position.
+ * Purchase a Liquidity Hedge certificate for a locked CL position.
  *
  * Steps:
  *   1. Validate position is locked and unprotected
@@ -213,27 +216,30 @@ export interface SettleResult {
  *
  * Settlement is permissionless — anyone can call it for protocol liveness.
  *
- * Payout computation:
- *   1. If settlementPrice >= entryPrice: payout = 0 (EXPIRED)
- *   2. If barrier <= settlementPrice < entryPrice:
- *        payout = min(cap, V(S_0) - V(settlementPrice))  (SETTLED)
- *   3. If settlementPrice < barrier:
- *        payout = cap  (SETTLED, barrier floors effective price)
+ * Payout is the signed Liquidity Hedge swap payoff:
+ *   Π(S_T) = V(S_0) - V(clamp(S_T, p_l, p_u))
+ *
+ *   - S_T < p_l:          Π = +Cap_down (RT pays LP maximum)
+ *   - p_l ≤ S_T ≤ S_0:    Π = V(S_0) - V(S_T)  (RT pays LP, exact IL)
+ *   - S_0 ≤ S_T ≤ p_u:    Π = V(S_0) - V(S_T)  (LP pays RT, upside give-up)
+ *   - S_T > p_u:          Π = -Cap_up (LP pays RT maximum)
  *
  * Fee split: rtFeeIncome = feeSplitRate * feesAccruedUsdc
  *
  * State updates:
- *   - Pool reserves: -= payout, += rtFeeIncome
- *   - Pool activeCapUsdc: -= capUsdc
+ *   - Pool reserves: -= payout  (negative payout ⇒ pool gains)
+ *                   += rtFeeIncome
+ *   - Pool activeCapUsdc: -= capUsdc (releases Cap_down reservation)
  *   - Position.protectedBy: cleared
- *   - Certificate state: SETTLED or EXPIRED
+ *   - Certificate state: SETTLED on any non-zero payout, EXPIRED only
+ *     at the measure-zero event S_T = S_0 exactly.
  *
  * @param store              - State store
  * @param positionMint       - Position mint of the certificate to settle
  * @param settlementPriceE6  - Settlement price (micro-USD, from oracle)
  * @param feesAccruedUsdc    - LP trading fees accrued during tenor (micro-USDC)
  * @param nowTs              - Current timestamp
- * @returns Settlement result
+ * @returns Settlement result (payoutUsdc is signed: + ⇒ RT→LP, − ⇒ LP→RT)
  */
 export function settleCertificate(
   store: StateStore,
@@ -264,25 +270,23 @@ export function settleCertificate(
   const template = store.getTemplate(cert.templateId);
   if (!template) throw new Error(`Template ${cert.templateId} not found`);
 
-  // Compute payout using the corridor payoff formula
+  // Signed Liquidity Hedge payoff
   const S0 = cert.entryPriceE6 / 1_000_000;
   const ST = settlementPriceE6 / 1_000_000;
   const pL = cert.lowerBarrierE6 / 1_000_000;
   const pU = S0 * (1 + template.widthBps / BPS);
   const L = Number(position.liquidity);
-  const cap = cert.capUsdc / 1_000_000;
 
-  const payoutUsd = corridorPayoff(ST, S0, L, pL, pU, cap);
-  const payoutUsdc = Math.floor(payoutUsd * 1_000_000);
+  const payoutUsd = lhPayoff(ST, S0, L, pL, pU);
+  const payoutUsdc = Math.trunc(payoutUsd * 1_000_000);
 
   // Fee split: RT receives y% of LP's actual trading fees
   const rtFeeIncomeUsdc = Math.floor(cert.feeSplitRate * feesAccruedUsdc);
 
-  // Determine final state
+  // Any non-zero cash flow is a real settlement under the swap
   const finalState =
-    payoutUsdc > 0 ? CertificateStatus.Settled : CertificateStatus.Expired;
+    payoutUsdc !== 0 ? CertificateStatus.Settled : CertificateStatus.Expired;
 
-  // Update certificate
   store.updateCertificate(positionMint, (c) => {
     c.state = finalState;
     c.settlementPriceE6 = settlementPriceE6;
@@ -290,14 +294,14 @@ export function settleCertificate(
     c.rtFeeIncomeUsdc = rtFeeIncomeUsdc;
   });
 
-  // Update pool: deduct payout, add fee split income
+  // Pool accounting handles signed payout transparently: negative
+  // payoutUsdc (LP owes RT) becomes a positive addition to reserves.
   store.updatePool((p) => {
     p.reservesUsdc -= payoutUsdc;
     p.reservesUsdc += rtFeeIncomeUsdc;
     p.activeCapUsdc -= cert.capUsdc;
   });
 
-  // Release position protection
   store.updatePosition(positionMint, (pos) => {
     pos.protectedBy = null;
   });

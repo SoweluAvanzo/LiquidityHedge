@@ -5,10 +5,10 @@ import {
   computeIvRvFromDualSource,
   isRegimeFresh,
   updateRegime,
-} from "../../protocol-src/operations/regime";
+} from "../../protocol-src/risk-analyser/regime";
 import { PPM } from "../../protocol-src/types";
-import { StateStore } from "../../protocol-src/state/store";
-import { initPool } from "../../protocol-src/operations/pool";
+import { StateStore } from "../../protocol-src/event-audit/store";
+import { initPool } from "../../protocol-src/pool-manager/pool";
 import { DEFAULT_POOL_CONFIG, DEFAULT_TEMPLATE } from "../../protocol-src/config/templates";
 import { makeRegime } from "../helpers";
 

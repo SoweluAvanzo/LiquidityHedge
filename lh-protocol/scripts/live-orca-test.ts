@@ -2,7 +2,7 @@
 /**
  * live-orca-test.ts — Open a REAL Orca Whirlpool concentrated liquidity
  * position on Solana, register it in the off-chain protocol emulator,
- * buy a corridor hedge certificate, monitor the position, and settle
+ * buy a Liquidity Hedge certificate, monitor the position, and settle
  * at expiry.
  *
  * WARNING: This script uses REAL funds on Solana mainnet/devnet.
@@ -45,16 +45,23 @@ import {
   tickToSqrtPriceX64,
   alignTick,
   estimateLiquidity,
+  deriveAta,
+} from "../protocol-src/market-data/decoder";
+import {
   buildOpenPositionIx,
   buildIncreaseLiquidityIx,
   buildWrapSolIxs,
   buildUnwrapSolIx,
-  deriveAta,
-} from "../protocol-src/clients/whirlpool-ix";
+} from "../protocol-src/position-escrow/orca-adapter";
 import {
   estimateTokenAmounts,
   positionValueUsd,
-} from "../protocol-src/utils/position-value";
+} from "../protocol-src/pricing-engine/position-value";
+// ── Certificate Lifecycle Manager (CLM) ────────────────────────────
+import {
+  refreshAndReadFees,
+  autoClosePosition,
+} from "../protocol-src/orchestrator/lifecycle";
 
 // ── Chain config ────────────────────────────────────────────────────
 import {
@@ -64,13 +71,13 @@ import {
   deriveOrcaPositionPda,
   deriveTickArrayPda,
   tickArrayStartIndex,
-} from "../protocol-src/clients/config";
+} from "../protocol-src/config/chain";
 
 // ── Birdeye ─────────────────────────────────────────────────────────
 import {
   fetchOHLCV,
   computeVolatility,
-} from "../protocol-src/clients/birdeye";
+} from "../protocol-src/market-data/birdeye-adapter";
 
 // ── Protocol emulator ───────────────────────────────────────────────
 import {
@@ -90,8 +97,40 @@ const TENOR_SECONDS = parseInt(process.env.TENOR_SECONDS || "1200", 10);
 const LP_SOL = 0.01;
 const LP_USDC = 2.0;
 const RT_DEPOSIT_USDC = 8_000_000; // 8 USDC (micro-USDC)
-const TICK_WIDTH = 200;
 const MONITOR_INTERVAL_S = 60;
+
+/**
+ * Tick offsets are derived from DEFAULT_TEMPLATE.widthBps so the on-chain
+ * CL range exactly matches the emulator's linear hedge range [p_l, p_u]
+ * with p_l = S_0 · (1 − widthBps/BPS), p_u = S_0 · (1 + widthBps/BPS).
+ *
+ * The offsets are asymmetric in tick space (log-price) because the price
+ * range is arithmetically symmetric — e.g., widthBps=1000 gives tick
+ * offsets of −1054 (down to 0.9·S_0) and +953 (up to 1.1·S_0).
+ */
+const LN_1_0001 = Math.log(1.0001);
+
+function tickOffsetsFromWidthBps(widthBps: number): {
+  below: number;
+  above: number;
+} {
+  const below = Math.round(Math.log(10_000 / (10_000 - widthBps)) / LN_1_0001);
+  const above = Math.round(Math.log((10_000 + widthBps) / 10_000) / LN_1_0001);
+  return { below, above };
+}
+
+/** Close entirely to DUST-free to keep repeat runs from leaking capital. */
+const POSITION_CLOSE_SLIPPAGE_BPS = 50; // 0.5% slippage tolerance on decrease
+
+/**
+ * Premium floor as a fraction of the actual position value V(S_0).
+ * Default 1.5% — matches the range used in the §8 empirical analysis at
+ * joint-breakeven. Override with env: P_FLOOR_FRACTION=0.02 etc.
+ * Set to 0 to fall back to the absolute DEFAULT_PREMIUM_FLOOR_USDC.
+ */
+const P_FLOOR_FRACTION = parseFloat(
+  process.env.P_FLOOR_FRACTION || "0.015",
+);
 
 // =====================================================================
 // Helpers
@@ -280,18 +319,25 @@ async function main() {
 
   console.log("PHASE 2: OPEN ORCA POSITION");
 
+  // Align the on-chain CL range to the emulator's linear [p_l, p_u]
+  // corridor derived from DEFAULT_TEMPLATE.widthBps. Asymmetric tick
+  // offsets because tick-space is log-price.
+  const { below: tickOffsetBelow, above: tickOffsetAbove } =
+    tickOffsetsFromWidthBps(DEFAULT_TEMPLATE.widthBps);
   const lowerTick = alignTick(
-    wp.tickCurrentIndex - TICK_WIDTH,
+    wp.tickCurrentIndex - tickOffsetBelow,
     wp.tickSpacing,
     "down",
   );
   const upperTick = alignTick(
-    wp.tickCurrentIndex + TICK_WIDTH,
+    wp.tickCurrentIndex + tickOffsetAbove,
     wp.tickSpacing,
     "up",
   );
 
-  console.log(`  Tick range:  [${lowerTick}, ${upperTick}]`);
+  console.log(
+    `  Tick range:  [${lowerTick}, ${upperTick}]  (±${DEFAULT_TEMPLATE.widthBps / 100}% linear, aligned to emulator corridor)`,
+  );
 
   const positionMintKp = Keypair.generate();
   const positionMint = positionMintKp.publicKey;
@@ -406,7 +452,7 @@ async function main() {
   // Normalize on-chain liquidity to a scale compatible with the human-readable
   // clPositionValue(S, L, pL, pU) function used by the protocol emulator.
   // unitValue = V(S_0) when L=1; normalizedL = entryValueUsd / unitValue.
-  const { clPositionValue } = await import("../protocol-src/utils/position-value");
+  const { clPositionValue } = await import("../protocol-src/pricing-engine/position-value");
   const pL_usd = entryPrice * (1 - DEFAULT_TEMPLATE.widthBps / 10_000);
   const pU_usd = entryPrice * (1 + DEFAULT_TEMPLATE.widthBps / 10_000);
   const unitValue = clPositionValue(entryPrice, 1.0, pL_usd, pU_usd);
@@ -423,12 +469,26 @@ async function main() {
 
   const protocol = new OffchainLhProtocol();
 
+  // Scale P_floor to a fraction of the actual position value so the
+  // premium stays meaningful at small/large positions alike. This is a
+  // per-run override of the pool config — the governance default in
+  // DEFAULT_POOL_CONFIG.premiumFloorUsdc is NOT modified. Setting
+  // P_FLOOR_FRACTION=0 falls back to the absolute governance default.
+  const scaledPFloorUsdc =
+    P_FLOOR_FRACTION > 0
+      ? Math.max(1, Math.floor(entryValueE6 * P_FLOOR_FRACTION))
+      : DEFAULT_POOL_CONFIG.premiumFloorUsdc;
+  const scaledPFloorUsd = scaledPFloorUsdc / 1_000_000;
+
   // Init pool
   protocol.initPool("admin", {
     ...DEFAULT_POOL_CONFIG,
     uMaxBps: 8000, // 80% utilization for demo
+    premiumFloorUsdc: scaledPFloorUsdc,
   });
-  console.log("  Pool initialized (uMax=80%)");
+  console.log(
+    `  Pool initialized (uMax=80%, P_floor=${(P_FLOOR_FRACTION * 100).toFixed(2)}% = $${scaledPFloorUsd.toFixed(6)})`,
+  );
 
   // RT deposits
   protocol.depositUsdc(rtWallet.publicKey.toBase58(), RT_DEPOSIT_USDC);
@@ -575,32 +635,53 @@ async function main() {
   console.log(`  Final position value: $${finalValueUsd.toFixed(6)}`);
   console.log(`  Position PnL: ${positionPnl >= 0 ? "+" : ""}$${positionPnl.toFixed(6)}`);
 
-  // Estimate accrued LP trading fees (simulated: ~0.5%/day of position value)
-  const tenorDays = TENOR_SECONDS / 86_400;
-  const estimatedFees = Math.floor(entryValueE6 * 0.005 * tenorDays);
+  // Real accrued fees — delegated to the CLM fee-refresher.
+  let feesAccruedUsdc = 0;
+  try {
+    const refresh = await refreshAndReadFees({
+      connection,
+      payer: lpWallet,
+      whirlpool: whirlpoolAddress,
+      positionPda: orcaPositionPda,
+      tickArrayLower,
+      tickArrayUpper,
+      settlementPriceE6,
+    });
+    feesAccruedUsdc = refresh.feesAccruedUsdc;
+    console.log(`  update_fees_and_rewards tx: ${refresh.txSignature.slice(0, 20)}...`);
+    console.log(
+      `  Real accrued fees: ${refresh.feeOwedALamports} lamports (A) + ${refresh.feeOwedBMicroUsdc} μUSDC (B) = $${(feesAccruedUsdc / 1_000_000).toFixed(6)}`,
+    );
+  } catch (e: any) {
+    console.log(
+      `  update_fees_and_rewards failed: ${e.message}. Using 0 fees.`,
+    );
+  }
 
-  // Settle in emulator
+  // Settle in emulator with the REAL fee value
   const settleResult = protocol.settleCertificate(
     "settler",
     positionMintStr,
     settlementPriceE6,
-    estimatedFees,
+    feesAccruedUsdc,
   );
 
   const payoutUsdc = settleResult.payoutUsdc;
   const rtFeeIncome = settleResult.rtFeeIncomeUsdc;
   const outcome =
     settleResult.state === CertificateStatus.Settled
-      ? "PAYOUT TRIGGERED"
-      : "EXPIRED (no payout)";
+      ? payoutUsdc > 0
+        ? "SETTLED — RT PAID LP (downside)"
+        : "SETTLED — LP PAID RT (upside surrendered)"
+      : "EXPIRED (S_T = S_0 exactly)";
 
   console.log(`  Outcome:      ${outcome}`);
-  console.log(`  Payout:       ${formatUsdc(payoutUsdc)} USDC`);
+  console.log(`  Signed payout:${formatUsdc(payoutUsdc)} USDC  (+ = RT→LP, − = LP→RT)`);
   console.log(`  Fee split:    ${formatUsdc(rtFeeIncome)} USDC (RT income)`);
   console.log(`  Cert state:   ${settleResult.state}`);
 
   // Compute PnL breakdown
-  const feesUsd = estimatedFees / 1_000_000;
+  const feesUsd = feesAccruedUsdc / 1_000_000;
   const payoutUsd = payoutUsdc / 1_000_000;
   const premiumUsd = premiumPaid / 1_000_000;
   const feeSplitUsd = rtFeeIncome / 1_000_000;
@@ -629,12 +710,37 @@ async function main() {
   console.log(`  -- RT PnL --`);
   console.log(`    Premium income:  +$${(premiumUsd * (1 - protocolFeeBps / 10_000)).toFixed(6)}`);
   console.log(`    Fee split:       +$${feeSplitUsd.toFixed(6)}`);
-  console.log(`    Payout outflow:  -$${payoutUsd.toFixed(6)}`);
+  console.log(`    Payout outflow:  ${-payoutUsd >= 0 ? "+" : ""}$${(-payoutUsd).toFixed(6)}`);
   console.log(`    NET:             ${rtPnl >= 0 ? "+" : ""}$${rtPnl.toFixed(6)}`);
   console.log();
 
   // ═══════════════════════════════════════════════════════════════════
-  // Phase 6: Cleanup
+  // Theorem 2.2 (Value Neutrality) — automatic check
+  // ═══════════════════════════════════════════════════════════════════
+  //   LP_hedged + RT  =  Unhedged − φ · P
+  // ═══════════════════════════════════════════════════════════════════
+
+  console.log("THEOREM 2.2 CHECK (Value Neutrality):");
+  const phi = protocolFeeBps / 10_000;
+  const expectedLeakage = phi * premiumUsd;
+  const observedLeakage = lpUnhedgedPnl - (lpHedgedPnl + rtPnl);
+  const residual = observedLeakage - expectedLeakage;
+  const tolerance = 1e-4; // $0.0001 absolute
+  console.log(`  LP_hedged + RT     = ${(lpHedgedPnl + rtPnl).toFixed(9)}`);
+  console.log(`  Unhedged − φ·P     = ${(lpUnhedgedPnl - expectedLeakage).toFixed(9)}`);
+  console.log(`  Residual           = ${residual.toFixed(9)}  (tolerance $${tolerance})`);
+  if (Math.abs(residual) > tolerance) {
+    console.error(
+      `  ✗ FAIL: Theorem 2.2 residual exceeds tolerance — value-neutrality identity violated.`,
+    );
+    process.exitCode = 2;
+  } else {
+    console.log("  ✓ PASS: LP_hedged + RT = Unhedged − φ·P holds.");
+  }
+  console.log();
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Phase 6: Cleanup (emulator)
   // ═══════════════════════════════════════════════════════════════════
 
   console.log("PHASE 6: CLEANUP");
@@ -655,6 +761,45 @@ async function main() {
     }
   } catch (e: any) {
     console.log(`  RT withdrawal: ${e.message}`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Phase 6.5: Close the Orca position on-chain (reclaim capital)
+  // ═══════════════════════════════════════════════════════════════════
+
+  console.log();
+  console.log("PHASE 6.5: CLOSE ORCA POSITION ON-CHAIN");
+  try {
+    const close = await autoClosePosition({
+      connection,
+      lpWallet,
+      whirlpoolAddress,
+      positionPda: orcaPositionPda,
+      positionMint,
+      ownerPositionAta,
+      wsolAta,
+      lpUsdcAta,
+      tickArrayLower,
+      tickArrayUpper,
+      sqrtPriceLower,
+      sqrtPriceUpper,
+      slippageBps: POSITION_CLOSE_SLIPPAGE_BPS,
+    });
+    if (close.skipped) {
+      console.log("  Position already empty — skipping on-chain close.");
+    } else {
+      console.log(`  Position closed! Tx: ${close.txSignature!.slice(0, 20)}...`);
+      console.log(
+        `  LP post-close balance: ${formatSol(close.postCloseLpSolLamports!)} SOL | ${formatUsdc(close.postCloseLpUsdcMicro!)} USDC`,
+      );
+    }
+  } catch (e: any) {
+    console.log(
+      `  Close-position failed: ${e.message}. Position NFT remains live on-chain — you can close it manually in Orca UI.`,
+    );
+    if (e.logs) {
+      for (const line of e.logs.slice(0, 8)) console.log("    ", line);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -680,9 +825,6 @@ async function main() {
   console.log(`  LP unhedged PnL: ${lpUnhedgedPnl >= 0 ? "+" : ""}$${lpUnhedgedPnl.toFixed(6)}`);
   console.log(`  Hedge benefit:   ${hedgeBenefit >= 0 ? "+" : ""}$${hedgeBenefit.toFixed(6)}`);
   console.log(`  RT PnL:          ${rtPnl >= 0 ? "+" : ""}$${rtPnl.toFixed(6)}`);
-  console.log();
-  console.log(`  NOTE: The Orca position NFT is still live on-chain.`);
-  console.log(`  You can close it manually or leave it to accrue fees.`);
   console.log();
   console.log("  Demo complete.");
 }

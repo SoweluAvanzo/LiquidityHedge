@@ -1,24 +1,24 @@
 # Liquidity Hedge Protocol
 
-A corridor hedge certificate protocol for concentrated liquidity positions on Orca Whirlpools (SOL/USDC). The LP buys a certificate whose payoff exactly replicates the impermanent loss within the position's price range, transferring bounded downside risk to a Risk Taker (RT) who underwrites a USDC protection pool.
+A Liquidity Hedge certificate protocol for concentrated liquidity positions on Orca Whirlpools (SOL/USDC). The LP buys a bilateral certificate whose signed swap payoff exactly replicates the position's mark-to-market difference within the active range `[p_l, p_u]`, transferring that variability to a Risk Taker (RT) who underwrites a USDC protection pool.
 
 ## How It Works
 
 1. **LP opens** a concentrated liquidity position on Orca Whirlpools (SOL/USDC).
 2. **RT deposits** USDC into the protection pool, receiving NAV-based pool shares.
-3. **LP locks** the position and **buys** a corridor hedge certificate.
+3. **LP locks** the position and **buys** a Liquidity Hedge certificate.
 4. The premium is computed as: `Premium = max(P_floor, FV · m_vol − y · E[F])`.
 5. On expiry, **anyone can settle** the certificate (permissionless).
-6. If price dropped, the corridor payoff compensates the LP's impermanent loss, capped at the natural cap.
+6. The signed swap payoff is disbursed: if price dropped, the pool pays the LP (capped at `Cap_down`); if price rose, the LP surrenders the upside to the pool (capped at `Cap_up`, settled physically from the escrowed position's proceeds).
 7. The RT receives the premium plus a share of LP trading fees.
 
-### Corridor Payoff
+### Liquidity Hedge Payoff (signed swap on V(·))
 
 ```
-Π(S_T) = min(Cap, max(0, V(S_0) − V(max(S_T, B))))
+Π(S_T) = V(S_0) − V(clamp(S_T, p_l, p_u))
 ```
 
-where `V(S)` is the concentrated liquidity position value function, `B` is the barrier (= lower bound of the position range), and `Cap = V(S_0) − V(B)` is the natural cap.
+where `V(S)` is the concentrated liquidity position value function and `clamp(x, a, b) = min(max(x, a), b)`. The payoff is bounded in `[−Cap_up, +Cap_down]` where `Cap_down = V(S_0) − V(p_l)` and `Cap_up = V(p_u) − V(S_0)`. By concavity of `V`, `Cap_up < Cap_down` — the convexity wedge that makes `FV > 0`.
 
 ### Premium Formula
 
@@ -35,7 +35,7 @@ Premium = max(P_floor, FV · m_vol − y · E[F])
 
 ### Key Result (Theorem 2.2)
 
-The corridor hedge is a **value-neutral redistribution**: `LP_PnL + RT_PnL = Unhedged_PnL − protocolFee`. The two-sided breakeven yield equals the unhedged breakeven yield plus a negligible protocol fee wedge (~0.3 bps/day). At any fee yield where unhedged LPing is profitable, the protocol can be parameterized so both LP and RT are also profitable.
+The Liquidity Hedge is a **value-neutral redistribution**: `LP_PnL + RT_PnL = Unhedged_PnL − protocolFee`. The proof depends only on the additive structure of the cash flows, not on the sign or shape of `Π`, so it holds verbatim for the signed swap. The two-sided breakeven yield equals the unhedged breakeven yield plus a negligible protocol fee wedge (0.0–0.2 bps/day under the swap). At any fee yield where unhedged LPing is profitable, the protocol can be parameterized so both LP and RT are also profitable.
 
 ## Repository Structure
 
@@ -48,7 +48,7 @@ LiquidityHedge/
 │   │   ├── utils/                     #     CL math, position valuation
 │   │   ├── state/                     #     In-memory state store
 │   │   └── audit/                     #     Structured audit logging
-│   ├── tests/                         #   133 tests (unit, integration, scenarios, invariants)
+│   ├── tests/                         #   139 tests (unit, integration, scenarios, invariants)
 │   ├── scripts/                       #   Backtest (Birdeye data) + live Orca test
 │   └── docs/                          #   8 scientific documentation files
 ├── DLT2026_Paper_A-6.pdf             # Academic paper
@@ -62,7 +62,7 @@ LiquidityHedge/
 cd lh-protocol
 yarn install
 
-# Run all 133 tests
+# Run all 139 tests
 yarn test
 
 # Backtest with real Birdeye SOL/USDC prices (requires BIRDEYE_API_KEY)
@@ -73,13 +73,15 @@ yarn live-test
 yarn live-orca
 ```
 
-## Empirical Results (56 weeks of real SOL/USDC data)
+## Empirical Results (56 weeks of real SOL/USDC data, signed-swap payoff)
 
-| Width | Volatility Reduction | Max Drawdown Reduction | Two-Sided Breakeven | Hedge Cost |
-|-------|---------------------|------------------------|--------------------|--------------------|
-| ±5% | 27% | 23% | 0.416%/day | 0.1 bps/day |
-| ±7.5% | 41% | 55% | 0.363%/day | 0.3 bps/day |
-| ±10% | **55%** | **79%** | **0.318%/day** | **0.3 bps/day** |
+| Width | Volatility Reduction (medium) | Max Drawdown Reduction (medium) | Two-Sided Breakeven | Hedge Cost |
+|-------|-------------------------------|---------------------------------|--------------------|--------------------|
+| ±5% | 30% | −4% ¹ | 0.486%/day | 0.0 bps/day |
+| ±7.5% | 43% | 28% | 0.426%/day | 0.1 bps/day |
+| ±10% | **55%** | **55%** | **0.373%/day** | **0.2 bps/day** |
+
+¹ *At narrow width the swap's symmetric upside give-up can increase drawdown in up-trending windows — this sample (2025-03 → 2026-04) was mildly up-biased. The hedge's benefit is concentrated at ±10%, where it beats unhedged by +\$2,692 to +\$4,280 over 56 weeks across all fee tiers (see `lh-protocol/docs/08_empirical_results.md` §8.3.3).*
 
 ## Documentation
 

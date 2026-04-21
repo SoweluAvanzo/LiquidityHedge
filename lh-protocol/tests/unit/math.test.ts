@@ -1,11 +1,14 @@
 import { expect } from "chai";
+import { PublicKey } from "@solana/web3.js";
 import { integerSqrt, tickToSqrtPriceX64, sqrtPriceX64ToPrice } from "../../protocol-src/utils/math";
 import {
   clPositionValue,
   estimateTokenAmounts,
   naturalCap,
-  corridorPayoff,
-} from "../../protocol-src/utils/position-value";
+  naturalCapUp,
+  lhPayoff,
+} from "../../protocol-src/pricing-engine/position-value";
+import { decodePositionAccount } from "../../protocol-src/market-data/decoder";
 import { Q64 } from "../../protocol-src/types";
 
 describe("CL Math Utilities", () => {
@@ -120,42 +123,141 @@ describe("CL Math Utilities", () => {
     });
   });
 
-  // ── Corridor payoff ───────────────────────────────────────
+  // ── Liquidity Hedge (signed swap) payoff ──────────────────
 
-  describe("corridorPayoff", () => {
+  describe("lhPayoff (signed swap on V(·))", () => {
     const L = 10_000;
     const pL = 135;
     const pU = 165;
     const S0 = 150;
-    const cap = naturalCap(S0, L, pL, pU);
+    const capDown = naturalCap(S0, L, pL, pU);
+    const capUp = naturalCapUp(S0, L, pL, pU);
 
-    it("payoff = 0 when settlement >= entry", () => {
-      expect(corridorPayoff(160, S0, L, pL, pU, cap)).to.equal(0);
-      expect(corridorPayoff(S0, S0, L, pL, pU, cap)).to.equal(0);
+    it("payoff = 0 exactly at entry", () => {
+      expect(lhPayoff(S0, S0, L, pL, pU)).to.be.closeTo(0, 1e-9);
     });
 
-    it("0 < payoff < cap for partial loss (barrier < ST < entry)", () => {
-      const payout = corridorPayoff(142, S0, L, pL, pU, cap);
-      expect(payout).to.be.greaterThan(0);
-      expect(payout).to.be.lessThan(cap);
+    it("payoff > 0 below entry (RT owes LP)", () => {
+      expect(lhPayoff(142, S0, L, pL, pU)).to.be.greaterThan(0);
+      expect(lhPayoff(140, S0, L, pL, pU)).to.be.greaterThan(0);
     });
 
-    it("payoff = cap when ST <= barrier", () => {
-      const payoutAtBarrier = corridorPayoff(pL, S0, L, pL, pU, cap);
-      expect(payoutAtBarrier).to.be.closeTo(cap, 0.01);
-
-      const payoutBelowBarrier = corridorPayoff(100, S0, L, pL, pU, cap);
-      expect(payoutBelowBarrier).to.be.closeTo(cap, 0.01);
+    it("payoff < 0 above entry (LP owes RT)", () => {
+      expect(lhPayoff(158, S0, L, pL, pU)).to.be.lessThan(0);
+      expect(lhPayoff(160, S0, L, pL, pU)).to.be.lessThan(0);
     });
 
-    it("payoff is monotonically increasing as price drops", () => {
-      const prices = [149, 146, 143, 140, 137, 135];
-      let prevPayout = 0;
+    it("payoff = +Cap_down at and below lower bound", () => {
+      expect(lhPayoff(pL, S0, L, pL, pU)).to.be.closeTo(capDown, 0.01);
+      expect(lhPayoff(100, S0, L, pL, pU)).to.be.closeTo(capDown, 0.01);
+      expect(lhPayoff(50, S0, L, pL, pU)).to.be.closeTo(capDown, 0.01);
+    });
+
+    it("payoff = -Cap_up at and above upper bound", () => {
+      expect(lhPayoff(pU, S0, L, pL, pU)).to.be.closeTo(-capUp, 0.01);
+      expect(lhPayoff(200, S0, L, pL, pU)).to.be.closeTo(-capUp, 0.01);
+      expect(lhPayoff(500, S0, L, pL, pU)).to.be.closeTo(-capUp, 0.01);
+    });
+
+    it("payoff is monotonically non-increasing in S_T", () => {
+      const prices = [100, 120, 135, 140, 145, 150, 155, 160, 165, 180];
+      let prev = Infinity;
       for (const p of prices) {
-        const payout = corridorPayoff(p, S0, L, pL, pU, cap);
-        expect(payout).to.be.greaterThanOrEqual(prevPayout);
-        prevPayout = payout;
+        const payout = lhPayoff(p, S0, L, pL, pU);
+        expect(payout).to.be.lessThanOrEqual(prev + 1e-9);
+        prev = payout;
       }
+    });
+
+    it("Cap_up < Cap_down by concavity of V (symmetric width)", () => {
+      expect(capUp).to.be.greaterThan(0);
+      expect(capDown).to.be.greaterThan(capUp);
+    });
+
+    it("exact IL replication within [p_l, p_u]: Π = V(S_0) − V(S_T)", () => {
+      for (const s of [136, 140, 148, 150, 155, 162]) {
+        const expected =
+          clPositionValue(S0, L, pL, pU) - clPositionValue(s, L, pL, pU);
+        expect(lhPayoff(s, S0, L, pL, pU)).to.be.closeTo(expected, 1e-9);
+      }
+    });
+  });
+
+  // ── Position account decoding (fee_owed_a/b offsets) ──────
+
+  describe("decodePositionAccount", () => {
+    // Synthetic 216-byte position buffer built to verify offsets exactly
+    // match Orca's on-chain layout:
+    //   0-7    discriminator
+    //   8-39   whirlpool (Pubkey)
+    //   40-71  position_mint (Pubkey)
+    //   72-87  liquidity (u128 LE)
+    //   88-91  tick_lower i32
+    //   92-95  tick_upper i32
+    //   96-111 fee_growth_checkpoint_a (u128, ignored)
+    //   112-119 fee_owed_a (u64 LE)
+    //   120-135 fee_growth_checkpoint_b (u128, ignored)
+    //   136-143 fee_owed_b (u64 LE)
+    //   144-215 reward_infos
+    function buildPositionBuf(args: {
+      liquidity: bigint;
+      tickLower: number;
+      tickUpper: number;
+      feeOwedA: bigint;
+      feeOwedB: bigint;
+    }): Buffer {
+      const buf = Buffer.alloc(216);
+      // Orca's Position discriminator
+      Buffer.from([170, 188, 143, 228, 122, 64, 247, 208]).copy(buf, 0);
+      // whirlpool + position_mint: placeholder zeroed pubkeys
+      PublicKey.default.toBuffer().copy(buf, 8);
+      PublicKey.default.toBuffer().copy(buf, 40);
+      // liquidity u128 LE
+      let liq = args.liquidity;
+      for (let i = 0; i < 16; i++) {
+        buf[72 + i] = Number(liq & 0xffn);
+        liq >>= 8n;
+      }
+      buf.writeInt32LE(args.tickLower, 88);
+      buf.writeInt32LE(args.tickUpper, 92);
+      buf.writeBigUInt64LE(args.feeOwedA, 112);
+      buf.writeBigUInt64LE(args.feeOwedB, 136);
+      return buf;
+    }
+
+    it("round-trips liquidity / ticks / fees through decode", () => {
+      const buf = buildPositionBuf({
+        liquidity: 123_456_789_012n,
+        tickLower: -25688,
+        tickUpper: -23680,
+        feeOwedA: 42_000_000n, // 0.042 SOL in lamports
+        feeOwedB: 17_500_000n, // $17.50 in micro-USDC
+      });
+      const decoded = decodePositionAccount(buf);
+      expect(decoded.liquidity).to.equal(123_456_789_012n);
+      expect(decoded.tickLowerIndex).to.equal(-25688);
+      expect(decoded.tickUpperIndex).to.equal(-23680);
+      expect(decoded.feeOwedA).to.equal(42_000_000n);
+      expect(decoded.feeOwedB).to.equal(17_500_000n);
+    });
+
+    it("handles zero fees (fresh position, before any update_fees_and_rewards)", () => {
+      const buf = buildPositionBuf({
+        liquidity: 1n,
+        tickLower: 0,
+        tickUpper: 4,
+        feeOwedA: 0n,
+        feeOwedB: 0n,
+      });
+      const decoded = decodePositionAccount(buf);
+      expect(decoded.feeOwedA).to.equal(0n);
+      expect(decoded.feeOwedB).to.equal(0n);
+    });
+
+    it("rejects a truncated position buffer (< 144 bytes)", () => {
+      const short = Buffer.alloc(96);
+      Buffer.from([170, 188, 143, 228, 122, 64, 247, 208]).copy(short, 0);
+      expect(() => decodePositionAccount(short)).to.throw(/too short/);
     });
   });
 

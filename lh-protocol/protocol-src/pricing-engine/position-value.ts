@@ -4,7 +4,7 @@
  * Implements the three-regime CL position value function V(S) and
  * derived quantities: token amounts, USD valuation, natural cap.
  *
- * The CL value function is the mathematical foundation of the corridor
+ * The CL value function is the mathematical foundation of the Liquidity Hedge
  * payoff. It is a piecewise function of the spot price S with three
  * regimes determined by the position's price bounds [p_l, p_u].
  *
@@ -160,27 +160,54 @@ export function positionValueE6(
 }
 
 // ---------------------------------------------------------------------------
-// Natural cap: maximum corridor payout
+// Natural caps: maximum RT and LP liabilities under the Liquidity Hedge swap
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the natural cap of a corridor certificate.
+ * Compute the downside cap of the Liquidity Hedge (maximum RT liability).
  *
- * naturalCap = V(S_0) - V(B)
+ *   Cap_down = V(S_0) - V(p_l)
  *
- * where B = p_l (the lower bound of the CL position range).
- * This is the maximum impermanent loss within the concentrated range.
+ * Reached when the settlement price falls to or below the lower bound.
+ * This is the maximum USDC the RT pool can owe the LP for a single
+ * certificate, and is therefore the quantity the pool underwrites.
  *
  * @param S0  - Entry price (human-readable)
  * @param L   - Liquidity parameter
- * @param pL  - Lower price bound = barrier price
+ * @param pL  - Lower price bound
  * @param pU  - Upper price bound
- * @returns Natural cap in token B units (USD)
+ * @returns Downside cap in token B units (USD)
  */
 export function naturalCap(S0: number, L: number, pL: number, pU: number): number {
   const v0 = clPositionValue(S0, L, pL, pU);
-  const vBarrier = clPositionValue(pL, L, pL, pU);
-  return Math.max(0, v0 - vBarrier);
+  const vLower = clPositionValue(pL, L, pL, pU);
+  return Math.max(0, v0 - vLower);
+}
+
+/**
+ * Compute the upside cap of the Liquidity Hedge (maximum LP give-up).
+ *
+ *   Cap_up = V(p_u) - V(S_0)
+ *
+ * Reached when the settlement price rises to or above the upper bound.
+ * At that point the LP's position is fully token B (USDC) worth V(p_u),
+ * and the LP surrenders V(p_u) - V(S_0) to the RT out of those proceeds.
+ *
+ * By concavity of V on [p_l, p_u], Cap_up < Cap_down for symmetric
+ * widths — the upside give-up is strictly smaller than the downside
+ * protection, which is precisely the convexity adjustment priced into
+ * the hedge.
+ *
+ * @param S0  - Entry price (human-readable)
+ * @param L   - Liquidity parameter
+ * @param pL  - Lower price bound
+ * @param pU  - Upper price bound
+ * @returns Upside cap in token B units (USD), always >= 0
+ */
+export function naturalCapUp(S0: number, L: number, pL: number, pU: number): number {
+  const v0 = clPositionValue(S0, L, pL, pU);
+  const vUpper = clPositionValue(pU, L, pL, pU);
+  return Math.max(0, vUpper - v0);
 }
 
 /**
@@ -247,44 +274,47 @@ export function estimateLiquidity(
 }
 
 // ---------------------------------------------------------------------------
-// Corridor payoff Π(S_T)
+// Liquidity Hedge payoff Π(S_T) — signed swap on V(·)
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the corridor payoff at settlement.
+ * Compute the Liquidity Hedge payoff at settlement.
  *
- * Π(S_T) = min(Cap, max(0, V(S_0) - V(max(S_T, B))))
+ *   Π(S_T) = V(S_0) - V(clamp(S_T, p_l, p_u))
  *
- * where B = p_l (barrier equals lower range bound).
+ * This is a signed swap on the CL value function V(·): the LP exchanges
+ * their position's value variability for a locked-in V(S_0) over the
+ * active range [p_l, p_u]. Positive payoff ⇒ RT owes the LP; negative
+ * payoff ⇒ LP owes the RT (settled physically from the escrowed
+ * position's proceeds, which always cover the owed amount).
  *
- * Properties:
- *   - If S_T >= S_0: Π = 0 (no loss)
- *   - If B <= S_T < S_0: Π = V(S_0) - V(S_T), capped at Cap (partial loss)
- *   - If S_T < B: Π = Cap (barrier floors the effective price)
+ * Piecewise:
+ *   - S_T < p_l:            Π = V(S_0) - V(p_l) = +Cap_down  (RT pays max)
+ *   - p_l <= S_T <= p_u:    Π = V(S_0) - V(S_T)              (exact IL replication)
+ *   - S_T > p_u:            Π = V(S_0) - V(p_u) = -Cap_up    (LP pays max)
+ *
+ * Bounds: -Cap_up <= Π(S_T) <= Cap_down for all S_T > 0.
+ * Monotonicity: Π is non-increasing in S_T.
+ * Sign: Π >= 0 iff S_T <= S_0.
  *
  * @param settlementPrice - Settlement price (human-readable)
  * @param entryPrice      - Entry price S_0 (human-readable)
  * @param L               - Liquidity parameter
- * @param pL              - Lower bound = barrier
- * @param pU              - Upper bound
- * @param cap             - Natural cap (pre-computed)
- * @returns Payout in token B units (USD)
+ * @param pL              - Lower price bound
+ * @param pU              - Upper price bound
+ * @returns Signed payoff in token B units (USD)
  */
-export function corridorPayoff(
+export function lhPayoff(
   settlementPrice: number,
   entryPrice: number,
   L: number,
   pL: number,
   pU: number,
-  cap: number,
 ): number {
-  if (settlementPrice >= entryPrice) return 0;
-
-  const effectivePrice = Math.max(settlementPrice, pL);
+  const clampedST = Math.max(pL, Math.min(pU, settlementPrice));
   const entryValue = clPositionValue(entryPrice, L, pL, pU);
-  const settleValue = clPositionValue(effectivePrice, L, pL, pU);
-  const loss = Math.max(0, entryValue - settleValue);
-  return Math.min(loss, cap);
+  const settleValue = clPositionValue(clampedST, L, pL, pU);
+  return entryValue - settleValue;
 }
 
 // ---------------------------------------------------------------------------
