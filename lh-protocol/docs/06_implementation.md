@@ -43,29 +43,86 @@ The on-chain program is organized into instruction modules:
 | `certificates/` | `buy_certificate`, `settle_certificate` | Certificate lifecycle |
 | `pricing/` | `compute_quote`, `update_regime_snapshot`, `create_template` | Pricing engine |
 
-### 6.1.2 Off-Chain Emulator
+### 6.1.2 Off-Chain Emulator — Component-Oriented Layout
 
 **Stack**: TypeScript (Node 22), `ts-node`, Mocha/Chai test framework.
 
-The emulator uses in-memory state with optional JSON persistence (`StateStore`) and append-only audit logging (`AuditLogger`). The source is organized as:
+The emulator is organized as six named components plus two cross-cutting layers. Each component owns a single responsibility from §4's protocol flow, and the boundaries are chosen so that future migration to Anchor moves whole sub-trees rather than excavating from a monolith.
 
-```
+| Component | Directory | Responsibility |
+|---|---|---|
+| **Market Data Service** | `market-data/` | External data adapters (Birdeye OHLCV, future: Pyth, Deribit, Kamino) + Orca account decoders + CL math primitives |
+| **Protocol Manager** → Orchestrator | `orchestrator/` | `OffchainLhProtocol` class (flow composer) + `ILhProtocol` facade for external callers |
+| Orchestrator → **Certificate Lifecycle Manager** | `orchestrator/lifecycle/` | Time-driven flows: monitor loop, fee refresh, settlement with Theorem 2.2 assertion, Orca auto-close |
+| **Protocol Manager** → Risk Analyser | `risk-analyser/` | Produces `RegimeSnapshot` (σ, IV/RV, stress, severity) from Market Data Service |
+| **Pricing Engine** | `pricing-engine/` | Consumes `RegimeSnapshot + Position → QuoteResult` (FV quadrature, m_vol, P_floor, utilization guard, CL position-value math) |
+| **Position Escrow** | `position-escrow/` | Orca instruction builders (open / increase / decrease / collect_fees / close) — the Anchor-port target |
+| **Protection Pool Manager** | `pool-manager/` | RT deposit/withdraw, NAV share accounting, payout claims, fee-split distribution |
+| **External Interface** (cross-cutting) | `external-interface/` | `ILhProtocol` — the public TS surface; HTTP API can plug in here later |
+| **Event/Audit** (cross-cutting) | `event-audit/` | `StateStore` (JSON persistence), `AuditLogger` (JSONL), typed `ProtocolEvent` schemas (1:1 with future on-chain Anchor events) |
+
+Source tree:
+
+```text
 protocol-src/
-  types.ts              - Type definitions, constants, scaling factors
-  interface.ts          - ILhProtocol interface definition
-  index.ts              - OffchainLhProtocol class (facade)
-  config/templates.ts   - Template and pool configuration defaults
-  state/store.ts        - In-memory state store with JSON persistence
-  audit/logger.ts       - JSONL audit logger
-  operations/
-    pool.ts             - Deposit, withdraw, NAV logic
-    certificates.ts     - Buy and settle certificate
-    pricing.ts          - Fair value, heuristic, premium computation
-    regime.ts           - Regime snapshot, severity calibration
+  external-interface/
+    ilh-protocol.ts               ILhProtocol type + param shapes
+  orchestrator/
+    index.ts                      OffchainLhProtocol class + facade re-exports
+    certificates.ts               buy + settle flow composition
+    lifecycle/                    Certificate Lifecycle Manager
+      index.ts                    barrel
+      monitor.ts                  watchUntilExpiry()
+      fee-refresher.ts            refreshAndReadFees() — real fee_owed via update_fees_and_rewards
+      settle.ts                   settleAndAssert() — wraps settle with Theorem 2.2 check
+      autoclose.ts                autoClosePosition() — decrease + collect + close + unwrap (atomic)
+  risk-analyser/
+    regime.ts                     updateRegime, severity calibration, IV/RV (scaffolded)
+  pricing-engine/
+    pricing.ts                    computeGaussHermiteFV, computePremium, computeHeuristicFV, computeQuote
+    position-value.ts             V(S), lhPayoff (signed swap), naturalCap, naturalCapUp
+  position-escrow/
+    orca-adapter.ts               Orca ix builders: open/increase/decrease/collect_fees/close + WSOL wrap/unwrap
+  pool-manager/
+    pool.ts                       initPool, depositUsdc, withdrawUsdc, availableHeadroom
+  market-data/
+    birdeye-adapter.ts            OHLCV fetch + volatility computation
+    decoder.ts                    Whirlpool + Position account decoders + CL math (sqrtPrice, ticks, estimateLiquidity)
+  event-audit/
+    store.ts                      StateStore (JSON persistence)
+    logger.ts                     AuditLogger (JSONL append-only)
+    events.ts                     Typed ProtocolEvent union + type guards (9 event types)
+  types/
+    constants.ts                  PPM / BPS / Q64 / DEFAULT_* governance
+    pool.ts                       PoolState
+    position.ts                   PositionStatus + PositionState
+    certificate.ts                CertificateStatus + CertificateState + TemplateConfig + QuoteResult
+    regime.ts                     RegimeSnapshot
+    index.ts                      barrel
+  config/
+    chain.ts                      Program IDs + token mints + PDA derivation
+    templates.ts                  DEFAULT_POOL_CONFIG + DEFAULT_TEMPLATE + computeBarrierFromWidth
   utils/
-    math.ts             - Integer sqrt, tick/price conversions
-    position-value.ts   - CL value function, corridor payoff, token amounts
+    math.ts                       Integer sqrt, tick/price conversions
+  index.ts                        Barrel facade: export * from "./orchestrator"
 ```
+
+The `OffchainLhProtocol` orchestrator additionally exposes `getEvents(): ProtocolEvent[]` — a typed, filterable event stream parallel to the AuditLogger's JSONL output. When the on-chain Anchor program ships, each event type has a 1:1 Rust counterpart in `programs/lh-core/src/events.rs`, so observers and dashboards share a vocabulary across the off-chain/on-chain boundary.
+
+### 6.1.3 Future on-chain / off-chain split
+
+Each component has a clear deployment target under the hybrid-devnet plan:
+
+| Component | Where it runs in this PoC | Target under hybrid deployment |
+|---|---|---|
+| External Interface | TS import | Express API over mainnet/devnet RPC |
+| Orchestrator + CLM | Node.js process | Node.js service + standalone lifecycle daemon (= `operator-service` on `offchain-emulator` branch) |
+| Risk Analyser | Node.js process | Separate daemon posting `update_regime_snapshot` every \~10 min |
+| Pricing Engine | Node.js process | Split: off-chain quadrature for quote; on-chain heuristic for enforcement |
+| Position Escrow | In-memory flag | Mainnet Anchor program (`lh-escrow`, \~\$14 recoverable rent) |
+| Pool Manager | In-memory | Devnet Anchor PDAs + mainnet custodial vault wallet |
+| Market Data Service | Node.js process | Same (separate daemon) |
+| Event/Audit | JSONL | On-chain Anchor events + JSONL query mirror |
 
 ## 6.2 State Accounts
 
@@ -264,7 +321,7 @@ The test helpers (`tests/helpers.ts`) provide factory functions for creating tes
 **Running tests:**
 
 ```bash
-cd lh-protocol && yarn test            # all 133 tests
+cd lh-protocol && yarn test            # all 148 tests
 cd lh-protocol && yarn test:unit       # unit tests only
 ```
 

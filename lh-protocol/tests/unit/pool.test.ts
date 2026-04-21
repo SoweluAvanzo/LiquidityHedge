@@ -6,8 +6,8 @@ import {
   sharePrice,
   utilization,
   availableHeadroom,
-} from "../../protocol-src/operations/pool";
-import { StateStore } from "../../protocol-src/state/store";
+} from "../../protocol-src/pool-manager/pool";
+import { StateStore } from "../../protocol-src/event-audit/store";
 import { DEFAULT_POOL_CONFIG } from "../../protocol-src/config/templates";
 import { makePool } from "../helpers";
 

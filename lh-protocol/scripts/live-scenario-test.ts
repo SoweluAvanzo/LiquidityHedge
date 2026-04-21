@@ -2,7 +2,7 @@
  * Live Scenario Test — Multi-Width, Multi-Yield Historical Backtest
  *
  * Fetches real weekly SOL/USDC closing prices from the Birdeye API
- * and runs the corridor hedge across a matrix of:
+ * and runs the Liquidity Hedge across a matrix of:
  *   - Position widths: ±5%, ±7.5%, ±10%
  *   - Daily fee yield tiers: low (0.10%), medium (0.25%), high (0.45%)
  *
@@ -33,14 +33,14 @@ import {
 import {
   clPositionValue,
   naturalCap,
-} from "../protocol-src/utils/position-value";
+} from "../protocol-src/pricing-engine/position-value";
 import {
   fetchWeeklyPrices,
   fetchOHLCV,
   computeVolatility,
   OHLCVCandle,
   VolatilityResult,
-} from "../protocol-src/clients/birdeye";
+} from "../protocol-src/market-data/birdeye-adapter";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -494,7 +494,7 @@ async function main(): Promise<void> {
 
   console.log("\nInterpretation:");
   console.log("- 'Hedged LP Breakeven': the minimum daily fee yield an LP needs to");
-  console.log("  break even when paying for corridor hedge protection.");
+  console.log("  break even when paying for Liquidity Hedge protection.");
   console.log("- 'Unhedged LP Breakeven': the minimum daily fee yield to break even");
   console.log("  without any hedge (purely from IL + fees).");
   console.log("- 'Hedge Premium Cost': additional yield needed to cover the hedge cost,");

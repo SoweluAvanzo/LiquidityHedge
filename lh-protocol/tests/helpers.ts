@@ -21,7 +21,7 @@ import {
   DEFAULT_U_MAX_BPS,
   DEFAULT_SEVERITY_PPM,
 } from "../protocol-src/types";
-import { StateStore } from "../protocol-src/state/store";
+import { StateStore } from "../protocol-src/event-audit/store";
 import { OffchainLhProtocol } from "../protocol-src/index";
 import { DEFAULT_TEMPLATE, DEFAULT_POOL_CONFIG } from "../protocol-src/config/templates";
 

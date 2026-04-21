@@ -196,115 +196,125 @@ Empirical limitations for SOL include fat tails, volatility clustering, and occa
 - The stress flag and adverse selection charge (Section 5), which provide explicit regime-dependent adjustments.
 - The premium floor `P_floor` (Section 3), which sets a governance-determined minimum regardless of model output.
 
-## 2.3 The Corridor Payoff
+## 2.3 The Liquidity Hedge Payoff
 
 ### 2.3.1 Formal Definition
 
-**Definition 2.2** (Corridor Payoff). For a CL position with entry price `S_0 in (p_l, p_u)`, liquidity `L`, price bounds `[p_l, p_u]`, and natural cap `Cap = V(S_0) - V(p_l)`:
+**Definition 2.2** (Liquidity Hedge Payoff). For a CL position with entry price `S_0 in (p_l, p_u)` and liquidity `L`, the **Liquidity Hedge payoff** at settlement price `S_T > 0` is the signed swap
 
 ```
-PI(S_T) = min(Cap, max(0, V(S_0) - V(max(S_T, B))))
+PI(S_T) = V(S_0) - V(clamp(S_T, p_l, p_u))
 ```
 
-where `B = p_l` is the barrier price, equal to the lower bound of the CL position.
+where `clamp(x, a, b) = min(max(x, a), b)`. This is a bilateral payoff: positive values are paid by the RT pool to the LP (downside realized); negative values are paid by the LP to the RT pool (upside surrendered).
 
 ### 2.3.2 Piecewise Expansion
 
-Expanding the definition over the three price regimes:
+Expanding over the three price regimes defined by the CL range `[p_l, p_u]`:
 
 ```
-PI(S_T) = 0,                         if S_T >= S_0   (no loss)
-PI(S_T) = V(S_0) - V(S_T),           if B <= S_T < S_0   (partial loss)
-PI(S_T) = Cap = V(S_0) - V(B),       if S_T < B   (maximum loss)
+PI(S_T) = +Cap_down  = V(S_0) - V(p_l),             if S_T <= p_l        (max downside)
+PI(S_T) = V(S_0) - V(S_T),                          if p_l <= S_T <= p_u (exact IL replication, signed)
+PI(S_T) = -Cap_up    = -(V(p_u) - V(S_0)),          if S_T >= p_u        (max upside give-up)
 ```
 
-In the partial loss regime (`B <= S_T < S_0`), substituting the Regime II value function:
+Inside the active range, substituting the Regime II value function gives
 
 ```
-PI(S_T) = V(S_0) - V(S_T)
-        = L * (2*sqrt(S_0) - S_0/sqrt(p_u) - sqrt(p_l))
-        - L * (2*sqrt(S_T) - S_T/sqrt(p_u) - sqrt(p_l))
-        = L * (2*(sqrt(S_0) - sqrt(S_T)) - (S_0 - S_T)/sqrt(p_u))
+PI(S_T) = L * (2*(sqrt(S_0) - sqrt(S_T)) - (S_0 - S_T)/sqrt(p_u))
 ```
 
-This is a non-linear function of `S_T`, reflecting the concavity of the CL value function.
+which is concave in `S_T` and equals the signed impermanent loss of the CL position at every interior point. Outside `[p_l, p_u]` the payoff saturates at the two natural caps defined below.
 
-### 2.3.3 Properties of the Corridor Payoff
+### 2.3.3 Natural Caps
 
-**Proposition 2.1.** The corridor payoff `PI(S_T)` has the following properties:
+**Definition 2.3** (Natural Caps).
 
-(i) **Non-negativity**: `PI(S_T) >= 0` for all `S_T > 0`.
+```
+Cap_down = V(S_0) - V(p_l)    (maximum RT liability)
+Cap_up   = V(p_u) - V(S_0)    (maximum LP give-up, always covered by the escrowed position)
+```
 
-(ii) **Boundedness**: `PI(S_T) <= Cap = V(S_0) - V(B)` for all `S_T > 0`.
+Both caps are non-negative and are intrinsic to the CL geometry — no cover ratio or external parameter is needed.
 
-(iii) **Monotonicity**: `PI` is non-increasing in `S_T` for `S_T in [B, S_0]`.
+**Proposition 2.1** (Concavity wedge). *For any symmetric range `p_l = S_0(1 - w)`, `p_u = S_0(1 + w)` with `w in (0, 1)`:*
 
-(iv) **Exact IL replication**: For `S_T in [B, S_0]`, `PI(S_T) = V(S_0) - V(S_T)`, which equals the impermanent loss of the CL position.
+```
+Cap_up  <  Cap_down
+```
+
+*Proof.* `V(S)` is concave on `[p_l, p_u]` (`V'' < 0`, §2.1.2, Theorem 2.1). The chord from `(p_l, V(p_l))` to `(p_u, V(p_u))` lies strictly below the curve at the interior point `S_0`, so
+
+```
+V(S_0) > (V(p_l) + V(p_u)) / 2  ⟹  V(S_0) - V(p_l) > V(p_u) - V(S_0).
+```
+
+□
+
+This is the **convexity adjustment** that makes the hedge positively priced: the RT takes on a larger downside cap than the upside cap they collect, and charges the LP a premium equal to the risk-neutral expectation of the signed payoff (Section 3).
+
+**Example.** For `S_0 = 150`, `p_l = 135`, `p_u = 165`, `L = 50`:
+
+```
+V(150) = 60.00,  V(135) = 55.48,  V(165) = 61.30
+
+Cap_down = 60.00 − 55.48 = 4.52 USDC
+Cap_up   = 61.30 − 60.00 = 1.30 USDC
+```
+
+The upside give-up is ~3.5× smaller than the downside protection — a direct consequence of the concavity of `V`.
+
+### 2.3.4 Properties of the Liquidity Hedge Payoff
+
+**Proposition 2.2.** The Liquidity Hedge payoff `PI(S_T)` has the following properties:
+
+(i) **Boundedness**: `-Cap_up <= PI(S_T) <= Cap_down` for all `S_T > 0`.
+
+(ii) **Sign**: `PI(S_T) >= 0` iff `S_T <= S_0`, and `PI(S_T) <= 0` iff `S_T >= S_0`.
+
+(iii) **Monotonicity**: `PI` is non-increasing on `(0, infinity)` (strictly decreasing on `(p_l, p_u)`, constant outside).
+
+(iv) **Exact IL replication**: For `S_T in [p_l, p_u]`, `PI(S_T) = V(S_0) - V(S_T)`, which *is* the signed impermanent loss of the CL position.
 
 (v) **Continuity**: `PI` is continuous on `(0, infinity)`.
 
 *Proof.*
 
-(i) Follows from `max(0, ...)` in the definition.
+(i) At the extremes of the clamp, `V(clamp(S_T, p_l, p_u)) in [V(p_l), V(p_u)]`, so `PI in [V(S_0) - V(p_u), V(S_0) - V(p_l)] = [-Cap_up, Cap_down]`.
 
-(ii) In the partial loss regime, `PI = V(S_0) - V(S_T) <= V(S_0) - V(B) = Cap` since `V` is non-decreasing on `[B, S_0]` (Theorem 2.1) and `S_T >= B`. In the max-loss regime, `PI = Cap` by definition.
+(ii) `V` is strictly increasing on `(p_l, p_u)` (Theorem 2.1) and constant outside. Hence `V(clamp(S_T, p_l, p_u)) >= V(S_0)` iff `S_T >= S_0`, giving the claim.
 
-(iii) `dPI/dS_T = -dV/dS_T = -L * (1/sqrt(S_T) - 1/sqrt(p_u)) < 0` for `S_T in (B, S_0) subset (p_l, p_u)`.
+(iii) `dPI/dS_T = -V'(clamp(S_T, p_l, p_u)) * 1_{p_l < S_T < p_u} <= 0` and is strictly negative in the open interior.
 
-(iv) By construction: for `B <= S_T < S_0`, the `max` operation yields `V(S_0) - V(S_T)`, and the `min` with `Cap` does not bind since `V(S_T) >= V(B)` implies `V(S_0) - V(S_T) <= Cap`.
+(iv) By construction: for `S_T in [p_l, p_u]` the clamp is the identity, so `PI(S_T) = V(S_0) - V(S_T)`.
 
-(v) Continuity follows from the continuity of `V(S)` (proven in Section 2.1.2) and the continuity of `max` and `min` operations. QED.
+(v) `V` is continuous and the clamp is continuous, so the composition is continuous. QED.
 
-### 2.3.4 Natural Cap Derivation
+### 2.3.5 Settlement from Position Proceeds
 
-**Definition 2.3** (Natural Cap). The natural cap is the maximum possible corridor payoff:
+When `PI(S_T) < 0` the LP owes the RT pool `|PI(S_T)| <= Cap_up`. This is settled **physically** from the LP's escrowed Orca position:
 
-```
-Cap = V(S_0) - V(B) = V(S_0) - V(p_l)
-```
+- At `S_T > p_u` the CL position is fully token B (USDC) worth `V(p_u)`. The LP's proceeds trivially cover the owed `Cap_up = V(p_u) - V(S_0)`, leaving the LP with exactly `V(S_0)`.
+- At `S_0 < S_T < p_u` the position is a mix of token A and token B with USD value `V(S_T) > V(S_0)`. The owed amount `V(S_T) - V(S_0)` is at most the USDC leg of the mixed position.
 
-Since `S_0 in (p_l, p_u)` and `B = p_l`, using the value function:
+No LP collateral, allowance, or liquidation machinery is required: the escrow is self-sufficient by the CL geometry.
 
-```
-V(S_0) = L * (2*sqrt(S_0) - S_0/sqrt(p_u) - sqrt(p_l))           [Regime II]
-V(B)   = V(p_l) = L * (sqrt(p_l) - p_l/sqrt(p_u))                 [boundary of I/II]
-```
+### 2.3.6 Comparison with Alternative Payoffs
 
-Therefore:
-
-```
-Cap = L * (2*sqrt(S_0) - S_0/sqrt(p_u) - sqrt(p_l)) 
-    - L * (sqrt(p_l) - p_l/sqrt(p_u))
-    = L * (2*sqrt(S_0) - S_0/sqrt(p_u) - 2*sqrt(p_l) + p_l/sqrt(p_u))
-    = L * (2*(sqrt(S_0) - sqrt(p_l)) - (S_0 - p_l)/sqrt(p_u))
-```
-
-**Example.** For `S_0 = 150`, `p_l = 135` (`-10%`), `p_u = 165` (`+10%`), `L = 50`:
-
-```
-sqrt(150) = 12.247, sqrt(135) = 11.619, sqrt(165) = 12.845
-
-V(150) = 50 * (2*12.247 - 150/12.845 - 11.619) = 50 * (24.495 - 11.676 - 11.619) = 50 * 1.200 = 60.00
-V(135) = 50 * (11.619 - 135/12.845) = 50 * (11.619 - 10.510) = 50 * 1.110 = 55.48
-
-Cap = 60.00 - 55.48 = 4.52 USDC
-```
-
-The natural cap ensures full coverage: no separate cover ratio parameter is needed because the payoff is bounded by construction at the IL incurred when the price reaches the lower bound of the position.
-
-### 2.3.5 Comparison with Alternative Payoffs
-
-| Feature | Corridor Certificate | Put Spread | Perpetual Delta Hedge |
-|---------|---------------------|------------|----------------------|
-| Basis risk | Zero (exact IL match) | Non-zero (linear vs concave) | Gamma error |
-| Max liability | `Cap` (known at issuance) | Strike difference | Unbounded (funding) |
-| Parameters | Derived from CL position | Independent strikes | Continuous rebalancing |
-| Operational cost | One-time premium | One-time premium | Ongoing funding + margin |
-| Settlement | Single cash payment | Option exercise | Continuous |
+| Feature | Liquidity Hedge (swap) | Put Spread | Perpetual Delta Hedge |
+|---------|------------------------|------------|----------------------|
+| Payoff shape vs. IL | Exact match in `[p_l, p_u]` | Chord (over-hedges interior) | Gamma error |
+| Left tail (`S_T < p_l`) | Capped at `+Cap_down` | Capped at `K_1 − K_2` | Unbounded (funding cost) |
+| Right tail (`S_T > p_u`) | Capped at `−Cap_up` (LP pays RT) | Zero | Unbounded |
+| Max RT liability | `Cap_down` (known at issuance) | Strike diff | Unbounded |
+| Operational cost | One premium + physical settle | One premium | Continuous rebalancing |
+| LP keeps upside above `S_0`? | No (surrendered to RT) | Yes | Yes (at cost of funding) |
 
 ## 2.4 Value-Neutrality Theorem
 
-The corridor hedge certificate is a *pure redistribution mechanism*: it transfers impermanent loss risk from LP to RT without creating or destroying economic value. This section formalizes this property and derives its consequences for two-sided viability.
+The Liquidity Hedge certificate is a *pure redistribution mechanism*: it transfers the CL position's full mark-to-market variability within `[p_l, p_u]` from LP to RT without creating or destroying economic value. This section formalizes this property and derives its consequences for two-sided viability.
+
+The theorem and its proof are independent of the sign of `Π_w` — they depend only on the additive structure of the cash flows. They therefore hold verbatim for the signed swap payoff introduced in §2.3 (Definition 2.2), with `Π_w` now potentially negative (LP pays RT) for settlements above `S_0`.
 
 ### 2.4.1 Per-Week PnL Decomposition
 
@@ -314,8 +324,8 @@ For a single hedge cycle (one week), define:
 |--------|-----------|
 | `ΔV_w` | CL position PnL: `V(S_{w+1}) - V(S_w)` |
 | `F_w` | LP trading fees earned during week `w` |
-| `P_w` | Premium paid by the LP for the corridor certificate |
-| `Π_w` | Corridor payoff received by the LP at settlement |
+| `P_w` | Premium paid by the LP for the Liquidity Hedge certificate |
+| `Π_w` | Signed Liquidity Hedge payoff at settlement (Definition 2.2): positive ⇒ RT→LP, negative ⇒ LP→RT |
 | `y` | Fee-split rate: fraction of LP fees transferred to RT |
 | `φ` | Protocol fee rate: `protocolFeeBps / BPS` (e.g., 0.015) |
 
@@ -402,17 +412,17 @@ r* − r_u = φ Σ_w P_w / (7 · Σ_w V_w)
 φ = 0  ⟹  r* = r_u
 ```
 
-*The corridor hedge is a zero-cost redistribution: it reduces the LP's PnL volatility without raising the minimum fee yield needed for profitability.*
+*The Liquidity Hedge is a zero-cost redistribution: it collapses the LP's PnL to `V(S_0) − P_w + (1 − y) F_w` inside the active range without raising the minimum fee yield needed for profitability.*
 
 ### 2.4.5 Magnitude of the Protocol Fee Wedge
 
-At the default protocol fee of `φ = 0.015` (1.5%), for a ±10% position with `V_0 ≈ $11,000` and average weekly premium `P̄ ≈ $193`:
+At the default protocol fee of `φ = 0.015` (1.5%), the wedge scales with the average premium `P̄`. Under the signed-swap payoff (Definition 2.2), the backtest in §8.5 observed `P̄ ≈ \$129/wk` at the joint-breakeven configuration for a ±10% position with `V_0 ≈ \$11,000`, giving a theoretical wedge of
 
 ```
-r* − r_u = 0.015 × 193 / (7 × 11,000) ≈ 0.000038 = 0.38 bps/day
+r* − r_u  ≈  0.015 × 129 / (7 × 11,000)  ≈  0.25 bps/day
 ```
 
-This is consistent with the empirical simulation result of 0.3 bps/day (see Section 8.4). The protocol fee introduces a wedge of approximately 1% of the premium-to-position ratio, which is economically negligible.
+matching the observed 0.2–0.3 bps/day in §8.5.3. Under the earlier capped-put baseline the corresponding `P̄ ≈ \$193/wk` gave a theoretical 0.38 bps/day wedge. The swap's smaller `P̄` therefore makes the hedge even closer to free in aggregate, because less premium flows through the treasury fee.
 
 ### 2.4.6 Implications
 
@@ -422,7 +432,7 @@ This is consistent with the empirical simulation result of 0.3 bps/day (see Sect
 
 3. **Viability is yield-determined.** The protocol is two-sided viable at any fee yield where the unhedged LP is profitable. No novel economic surplus is required — the same surplus that makes unhedged LPing viable also makes hedged LPing viable.
 
-4. **The protocol fee is the only friction.** In the limit `φ → 0`, the corridor hedge is a Pareto improvement: the LP's risk decreases while neither party's expected return changes.
+4. **The protocol fee is the only friction.** In the limit `φ → 0`, the Liquidity Hedge is a Pareto improvement: the LP's risk decreases while neither party's expected return changes.
 
 ## 2.5 References for This Section
 

@@ -18,7 +18,8 @@ import {
   DEFAULT_U_MAX_BPS,
   clPositionValue,
   naturalCap,
-  corridorPayoff,
+  naturalCapUp,
+  lhPayoff,
 } from "../../protocol-src/index";
 import {
   DEFAULT_POOL_CONFIG,
@@ -45,8 +46,8 @@ const PU = 165;
 
 describe("Economic Invariants", () => {
 
-  // ── Invariant 1: Payout in [0, cap] ────────────────────────
-  it("Payout in [0, cap] for any settlement price", () => {
+  // ── Invariant 1: Payout in [-Cap_up, +Cap_down] ───────────
+  it("Signed payout in [-Cap_up, +Cap_down] for any settlement price", () => {
     const rng = createRng(99);
 
     for (let i = 0; i < 50; i++) {
@@ -90,13 +91,18 @@ describe("Economic Invariants", () => {
         cert.expiryTs,
       );
 
+      // Compute upper cap in micro-USDC for this certificate
+      const pU = 150 * (1 + DEFAULT_TEMPLATE.widthBps / BPS);
+      const pL = 150 * (1 - DEFAULT_TEMPLATE.widthBps / BPS);
+      const capUpUsdc = Math.floor(naturalCapUp(150, 50, pL, pU) * 1_000_000);
+
       expect(result.payoutUsdc).to.be.greaterThanOrEqual(
-        0,
-        `Price=$${ST.toFixed(2)}: payout must be >= 0`,
+        -capUpUsdc - 1, // −1 rounding tolerance
+        `Price=$${ST.toFixed(2)}: payout must be >= -Cap_up (${-capUpUsdc})`,
       );
       expect(result.payoutUsdc).to.be.lessThanOrEqual(
-        cert.capUsdc + 1, // +1 for rounding tolerance
-        `Price=$${ST.toFixed(2)}: payout must be <= cap`,
+        cert.capUsdc + 1, // +1 rounding tolerance
+        `Price=$${ST.toFixed(2)}: payout must be <= Cap_down (${cert.capUsdc})`,
       );
     }
   });

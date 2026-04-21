@@ -20,7 +20,7 @@ import {
   REGIME_MAX_AGE_S,
   DEFAULT_SEVERITY_PPM,
 } from "../types";
-import { StateStore } from "../state/store";
+import { StateStore } from "../event-audit/store";
 import { integerSqrt } from "../utils/math";
 
 // ---------------------------------------------------------------------------
@@ -144,18 +144,27 @@ export function resolveEffectiveMarkup(
 // ---------------------------------------------------------------------------
 
 /**
- * Calibrate severity so the heuristic FV approximates the true FV.
+ * Calibrate severity so the heuristic FV approximates the true FV
+ * of the signed Liquidity Hedge swap payoff.
  *
  * The heuristic proxy computes:
- *   E[Payout] = Cap * p_hit * severity / PPM^2
+ *   E[Payout] = Cap_down * p_hit * severity / PPM^2
  *
  * We want E[Payout] ≈ FV_target, where FV_target is the expected
- * payout from GBM/GH quadrature. Solving for severity:
+ * swap payoff under risk-neutral GBM.
  *
- *   severity = (FV_target - C_cap - C_adv - C_rep) * PPM^2 / (Cap * p_hit)
+ * Since the swap is a capped-put minus mirror-capped-call on V(·),
+ * and by concavity of V the two legs partially cancel, we use a
+ * geometric proxy that is roughly half of the put-equivalent:
  *
- * Since we don't have the exact GH FV here, we use a proxy:
- *   FV_target ≈ Cap * p_hit * (width/2) / PPM (geometric approximation)
+ *   FV_target ≈ (1/2) · Cap_down · p_hit · (width/2) / PPM
+ *
+ * The factor 1/2 is a conservative bootstrap — the feedback loop
+ * (Section 5.5.3) pulls severity toward the Simpson/GH quadrature
+ * truth within a few regime updates.
+ *
+ * Solving for severity:
+ *   severity = (FV_target - C_cap - C_adv - C_rep) * PPM^2 / (Cap_down * p_hit)
  *
  * The severity is clamped to [1, PPM] (0.0001% to 100%).
  */
@@ -199,8 +208,11 @@ export function calibrateSeverityForPool(
     (100n * 86_400n);
   const nonSeverityCosts = capitalCharge + adverse + replication;
 
-  // Target FV: geometric proxy ≈ Cap * p_hit * (width/2) / PPM
-  const fairValueProxy = (cap * pHitPpm * (widthPpm / 2n)) / PPM_BI / PPM_BI;
+  // Target FV for swap: geometric proxy ≈ (1/2) · Cap_down · p_hit · (width/2) / PPM
+  // (the 1/2 accounts for the upside-giveup leg that partially offsets the
+  // downside protection; feedback correction fine-tunes)
+  const fairValueProxy =
+    (cap * pHitPpm * (widthPpm / 2n)) / PPM_BI / PPM_BI / 2n;
   const ePayoutTarget =
     Number(fairValueProxy) - Number(nonSeverityCosts);
 

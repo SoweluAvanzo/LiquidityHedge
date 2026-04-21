@@ -146,7 +146,7 @@ This ensures pricing reflects current market conditions. The off-chain risk serv
 
 ### 5.5.1 Role of Severity
 
-The severity parameter (`severityPpm`) controls the expected payout magnitude in the heuristic FV proxy. It answers: "Given that the price enters the corridor, what fraction of the cap is the expected payout?"
+The severity parameter (`severityPpm`) controls the expected payout magnitude in the heuristic FV proxy. It answers: "Given that the price enters the active range `[p_l, p_u]`, what fraction of `Cap_down` is the expected net payout?"
 
 ```
 E[Payout] = Cap * p_hit * severity / PPM^2
@@ -171,7 +171,7 @@ function calibrateSeverityForPool(sigma, template, pool, stress, carry):
   C_rep = cap_ref * carry * tenor / BPS / (100 * 86400)
   non_severity = C_cap + C_adv + C_rep
   
-  // Geometric FV proxy: average payoff in the corridor
+  // Geometric FV proxy: average swap payoff in the active range
   FV_target = cap_ref * p_hit * (width/2) / PPM
   
   // Solve for severity
@@ -181,7 +181,7 @@ function calibrateSeverityForPool(sigma, template, pool, stress, carry):
   return clamp(severity, 1, PPM)
 ```
 
-The calibration uses a scale-invariant reference cap ($100) so the severity depends only on volatility, width, tenor, and pool utilization -- not on the absolute size of any particular certificate.
+The calibration uses a scale-invariant reference cap (\$100) so the severity depends only on volatility, width, tenor, and pool utilization -- not on the absolute size of any particular certificate.
 
 ### 5.5.3 Feedback Loop
 

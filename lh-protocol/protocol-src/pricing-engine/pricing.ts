@@ -6,7 +6,7 @@
  *   Premium = max(P_floor, FV · m_vol − y · E[F])
  *
  * where:
- *   FV      = fair value of the corridor payoff (risk-neutral expectation)
+ *   FV      = fair value of the signed Liquidity Hedge payoff (risk-neutral expectation)
  *   m_vol   = max(markupFloor, IV/RV) — volatility markup
  *   y       = fee-split rate
  *   E[F]    = expected LP trading fees over the tenor
@@ -36,9 +36,9 @@ import {
 import { integerSqrt } from "../utils/math";
 import {
   clPositionValue,
-  corridorPayoff,
+  lhPayoff,
   naturalCap,
-} from "../utils/position-value";
+} from "./position-value";
 import { computeBarrierFromWidth } from "../config/templates";
 
 // ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ const Z_BOUND = 6.0;
  *
  * Premium = max(P_floor, FV * m_vol - y * E[F])
  *
- * @param fairValueUsdc    - Fair value of corridor payoff (micro-USDC)
+ * @param fairValueUsdc    - Fair value of the Liquidity Hedge payoff (micro-USDC)
  * @param effectiveMarkup  - Volatility markup m_vol
  * @param feeDiscountUsdc  - Fee discount y * E[F] (micro-USDC)
  * @param premiumFloorUsdc - Governance minimum P_floor (micro-USDC)
@@ -121,32 +121,28 @@ export function computeFeeDiscount(
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the fair value of the corridor payoff via Gauss-Hermite quadrature.
+ * Compute the fair value of the Liquidity Hedge payoff via Simpson's rule
+ * over the risk-neutral GBM density.
  *
- * Under risk-neutral GBM:
+ * Under risk-neutral GBM (r = 0):
  *   S_T = S_0 * exp(-σ²/2 * T + σ * √T * Z),  Z ~ N(0,1)
  *
- * FV = E[Π(S_T)] = (1/√π) * Σ w_i * Π(S_T(x_i))
+ *   FV = E_Q[Π(S_T)] = ∫ Π(S_T(z)) · φ(z) dz from -6 to +6
  *
- * where x_i, w_i are Gauss-Hermite nodes/weights and:
- *   S_T(x_i) = S_0 * exp(-σ²/2 * T + σ * √T * x_i * √2)
+ * where Π is the signed swap payoff `lhPayoff`. Even though the
+ * integrand is signed (positive for S_T < S_0, negative for S_T > S_0),
+ * the integral is guaranteed positive because V(·) is concave on
+ * [p_l, p_u] and Jensen's inequality gives E[V(S_T)] < V(S_0).
  *
- * The √2 factor converts from the physicist's Hermite convention
- * (weight exp(-x²)) to the probabilist's (weight exp(-x²/2)).
- *
- * Uses composite Simpson's rule over the standard normal distribution,
- * which is numerically stable for any number of points (unlike Hermite
- * polynomial root-finding which overflows for n > ~60).
- *
- * The integral is: FV = ∫ Π(S_T(z)) · φ(z) dz from -6 to +6
- * where S_T(z) = S_0 · exp(-σ²/2 · T + σ · √T · z)
+ * Uses composite Simpson's rule, which is numerically stable for any
+ * number of points (unlike Hermite polynomial root-finding which
+ * overflows for n > ~60).
  *
  * @param S0       - Entry price (human-readable, e.g. 150.0)
  * @param sigma    - Annualized volatility (e.g. 0.65)
  * @param L        - Liquidity parameter
- * @param pL       - Lower price bound = barrier
+ * @param pL       - Lower price bound
  * @param pU       - Upper price bound
- * @param cap      - Natural cap (pre-computed)
  * @param tenor    - Tenor in years (e.g. 7/365)
  * @param nPoints  - Number of Simpson sub-intervals (default 200, must be even)
  * @returns Fair value in token B units (USD, human-readable)
@@ -157,7 +153,6 @@ export function computeGaussHermiteFV(
   L: number,
   pL: number,
   pU: number,
-  cap: number,
   tenor: number = 7 / 365,
   nPoints: number = SIMPSON_N,
 ): number {
@@ -167,14 +162,12 @@ export function computeGaussHermiteFV(
   const vol = sigma * Math.sqrt(tenor);
   const h = (2 * Z_BOUND) / nPoints;
 
-  // Evaluate integrand: payoff(S_T(z)) * normalPdf(z)
   function integrand(z: number): number {
     const ST = S0 * Math.exp(drift + vol * z);
-    const payoff = corridorPayoff(ST, S0, L, pL, pU, cap);
+    const payoff = lhPayoff(ST, S0, L, pL, pU);
     return payoff * normalPdf(z);
   }
 
-  // Composite Simpson's rule: ∫f dx ≈ (h/3)[f(a) + 4f(a+h) + 2f(a+2h) + ... + f(b)]
   let sum = integrand(-Z_BOUND) + integrand(Z_BOUND);
   for (let i = 1; i < nPoints; i++) {
     const z = -Z_BOUND + i * h;
@@ -194,17 +187,15 @@ export function computeGaussHermiteFV_E6(
   L: number,
   pL_E6: number,
   pU_E6: number,
-  capUsdc: number,
   tenorSeconds: number,
 ): number {
   const S0 = entryPriceE6 / 1_000_000;
   const sigma = sigmaPpm / PPM;
   const pL = pL_E6 / 1_000_000;
   const pU = pU_E6 / 1_000_000;
-  const cap = capUsdc / 1_000_000;
   const tenor = tenorSeconds / SECONDS_PER_YEAR;
 
-  const fv = computeGaussHermiteFV(S0, sigma, L, pL, pU, cap, tenor);
+  const fv = computeGaussHermiteFV(S0, sigma, L, pL, pU, tenor);
   return Math.floor(fv * 1_000_000);
 }
 
@@ -313,7 +304,7 @@ export interface QuoteParams {
 }
 
 /**
- * Compute a full quote for a corridor certificate.
+ * Compute a full quote for a Liquidity Hedge certificate.
  *
  * Combines all pricing components:
  *   1. Compute natural cap from CL position

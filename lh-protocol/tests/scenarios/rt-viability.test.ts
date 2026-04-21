@@ -9,7 +9,7 @@
  *
  * to ensure non-negative expected RT returns.
  *
- * Monte Carlo analysis of the corridor payoff at sigma=65%, +/-10%
+ * Monte Carlo analysis of the signed Liquidity Hedge payoff at sigma=65%, +/-10%
  * width, 7-day tenor shows E[Payout] ~ $1.27. Setting P_floor = $1.50
  * provides ~18% margin above fair value, ensuring RT profitability.
  *

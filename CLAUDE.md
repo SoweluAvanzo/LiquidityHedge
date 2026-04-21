@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Liquidity Hedge Protocol — a corridor hedge certificate for concentrated liquidity positions on Orca Whirlpools (SOL/USDC). The LP buys a certificate whose payoff exactly replicates impermanent loss within the position's price range, transferring bounded downside risk to a Risk Taker (RT) who underwrites a USDC protection pool.
+Liquidity Hedge Protocol — a Liquidity Hedge certificate for concentrated liquidity positions on Orca Whirlpools (SOL/USDC). The LP buys a certificate whose signed swap payoff exactly replicates the position's mark-to-market variability within the active range `[p_l, p_u]`, transferring bounded bilateral risk to a Risk Taker (RT) who underwrites a USDC protection pool.
 
 The canonical premium formula is:
 ```
@@ -17,7 +17,7 @@ The full specification is in `liquidity_hedge_protocol_poc(1).md`. The academic 
 
 - **Off-chain emulator:** TypeScript (Node 22), `@solana/web3.js` v1.x, `@solana/spl-token` v0.4
 - **Live integration:** Orca Whirlpools (raw instruction builders), Birdeye OHLCV API
-- **Testing:** Mocha + Chai (133 tests)
+- **Testing:** Mocha + Chai (139 tests)
 - **Target deployment:** Anchor 0.31.1, Solana (Agave) 3.1.12
 
 ## Build & Test Commands
@@ -26,7 +26,7 @@ All commands run from `lh-protocol/` subdirectory:
 
 ```bash
 yarn install                          # install dependencies
-yarn test                             # run all 133 tests
+yarn test                             # run all 139 tests
 yarn test:unit                        # unit tests only (pricing, pool, certificates, math, regime)
 yarn test:integration                 # full lifecycle, multi-certificate, edge cases
 yarn test:scenarios                   # hedge effectiveness, RT viability, fee-split analysis
@@ -61,8 +61,8 @@ Eight files covering mathematical foundations, pricing methodology, protocol mec
 
 ## Key Design Decisions
 
-- **Barrier = lower bound of CL position range** — no separate barrier parameter; the corridor covers the full concentrated range
-- **No cover ratio** — full corridor coverage always
+- **Barrier = lower bound of CL position range** — no separate barrier parameter; the hedge covers the full concentrated range `[p_l, p_u]`
+- **No cover ratio** — full coverage always within the active range
 - **P_floor is a governance parameter** — not derived from a formula
 - **m_vol = max(markupFloor, IV/RV)** — variance risk premium from option markets
 - **Fee split** — RT receives y% of LP trading fees at settlement (premium discount at purchase)
@@ -80,13 +80,19 @@ Premium = max(P_floor, FV · m_vol − y · E[F])
 - `E[F]` = expected LP trading fees over tenor
 - `P_floor` = governance minimum (e.g. 1% of position value)
 
-## Corridor Payoff
+## Liquidity Hedge Payoff (signed swap)
 
 ```
-Π(S_T) = min(Cap, max(0, V(S_0) − V(max(S_T, B))))
+Π(S_T) = V(S_0) − V(clamp(S_T, p_l, p_u))
 ```
 
-where V(S) is the CL position value function (3-piece piecewise), B = p_l (barrier = lower price bound), Cap = V(S_0) − V(B).
+where V(S) is the CL position value function (3-piece piecewise) and `clamp(x, a, b) = min(max(x, a), b)`. The payoff is signed:
+
+- `S_T < p_l`:          Π = +Cap_down = V(S_0) − V(p_l)       (RT pays LP the maximum)
+- `p_l ≤ S_T ≤ p_u`:    Π = V(S_0) − V(S_T)                   (exact signed IL)
+- `S_T > p_u`:          Π = −Cap_up   = −(V(p_u) − V(S_0))    (LP pays RT the maximum, covered by the escrowed position)
+
+By concavity of V, `Cap_up < Cap_down` (convexity wedge). When `Π < 0` the LP's obligation is settled physically from the escrowed position proceeds.
 
 ## State Machines
 

@@ -109,15 +109,15 @@ describe("Full Lifecycle Integration", () => {
   });
 
   // -------------------------------------------------------------------
-  // 2. Price up -> expired, RT keeps premium
+  // 2. Price up -> settled with LP→RT upside give-up (swap semantics)
   // -------------------------------------------------------------------
 
-  it("Full lifecycle: price up -> expired, RT keeps premium", () => {
+  it("Full lifecycle: price up -> LP surrenders upside to pool", () => {
     const { protocol, buyResult } = fullSetupAndBuy();
 
     const poolAfterBuy = protocol.getPoolState()!;
 
-    // Settle at $160 (above entry $150 -> no payout)
+    // Settle at $160 (above entry $150 -> payout is negative: LP → pool)
     const feesAccrued = 3_000_000; // $3 LP fees
     const settleResult = protocol.settleCertificate(
       "settler",
@@ -127,24 +127,28 @@ describe("Full Lifecycle Integration", () => {
       buyResult.expiryTs,
     );
 
-    expect(settleResult.payoutUsdc).to.equal(0);
-    expect(settleResult.state).to.equal(CertificateStatus.Expired);
+    expect(settleResult.payoutUsdc).to.be.lessThan(0);
+    expect(settleResult.state).to.equal(CertificateStatus.Settled);
     expect(settleResult.rtFeeIncomeUsdc).to.equal(
       Math.floor(0.1 * feesAccrued),
     );
 
-    // Pool reserves: initial + premiumToPool + feeSplit (no payout deducted)
+    // Pool reserves: initial + premiumToPool − payoutUsdc (negative ⇒ gain)
+    //                + feeSplit
     const poolAfterSettle = protocol.getPoolState()!;
     const premiumToPool =
       buyResult.premiumUsdc - buyResult.protocolFeeUsdc;
     const expectedReserves =
-      100_000_000 + premiumToPool + settleResult.rtFeeIncomeUsdc;
+      100_000_000 +
+      premiumToPool -
+      settleResult.payoutUsdc + // subtracting a negative = adding
+      settleResult.rtFeeIncomeUsdc;
     expect(poolAfterSettle.reservesUsdc).to.equal(expectedReserves);
 
     // ActiveCap should be back to 0
     expect(poolAfterSettle.activeCapUsdc).to.equal(0);
 
-    // RT can withdraw everything
+    // RT can withdraw more than deposit (premium + upside + fee split)
     const rtShares = protocol.getStore().getShares("rt-wallet-1");
     const withdrawResult = protocol.withdrawUsdc("rt-wallet-1", rtShares);
     expect(withdrawResult.usdcReturned).to.be.greaterThan(100_000_000);

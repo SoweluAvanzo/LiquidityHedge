@@ -82,7 +82,7 @@ With `uMaxBps = 3000` (30%), this means the pool must retain at least `activeCap
 minReserves = ceil(30_000_000 * 10_000 / 3_000) = 100_000_000 ($100)
 ```
 
-The pool must maintain at least $100 in reserves while $30 of certificates are active.
+The pool must maintain at least \$100 in reserves while \$30 of certificates are active.
 
 ## 4.2 Certificate Lifecycle
 
@@ -111,9 +111,11 @@ The certificate lifecycle follows a deterministic state machine:
              +---------+ +---------+
 ```
 
-- **ACTIVE (1)**: Protection is in force. The position NFT is locked, the pool's `activeCapUsdc` includes this certificate's cap.
-- **SETTLED (2)**: Terminal price `S_T < S_0`, payout > 0 disbursed to LP.
-- **EXPIRED (3)**: Terminal price `S_T >= S_0`, payout = 0. Premium was pure profit for the RT pool.
+- **ACTIVE (1)**: Protection is in force. The position NFT is locked, the pool's `activeCapUsdc` includes this certificate's `Cap_down` reservation.
+- **SETTLED (2)**: Any non-zero signed swap payoff at expiry.
+  - `S_T < S_0` ⇒ `Π > 0` ⇒ RT pays LP (up to `+Cap_down`).
+  - `S_T > S_0` ⇒ `Π < 0` ⇒ LP pays RT from escrowed position proceeds (up to `−Cap_up`).
+- **EXPIRED (3)**: The measure-zero event `S_T = S_0` exactly, where `Π = 0`. In practice virtually all settlements under GBM reach `SETTLED`.
 
 ### 4.2.2 Buy Flow
 
@@ -164,33 +166,38 @@ The `settleCertificate` operation is **permissionless** -- any account can trigg
    - Certificate must exist and be ACTIVE
    - Current time must be >= expiryTs
 
-2. COMPUTE corridor payoff:
-   effective_price = max(S_T, barrier)
-   payout = min(Cap, max(0, V(S_0) - V(effective_price)))
+2. COMPUTE signed Liquidity Hedge payoff:
+   clamped_price = clamp(S_T, p_l, p_u)
+   payout_signed = V(S_0) − V(clamped_price)        // ∈ [−Cap_up, +Cap_down]
 
 3. COMPUTE fee split:
    rtFeeIncome = floor(feeSplitRate * feesAccruedUsdc)
 
 4. DETERMINE final state:
-   if payout > 0: state = SETTLED
-   else:          state = EXPIRED
+   if payout_signed != 0: state = SETTLED           // almost always true
+   else:                  state = EXPIRED           // measure-zero: S_T = S_0
 
 5. UPDATE state:
    certificate.state = finalState
    certificate.settlementPriceE6 = S_T
-   certificate.payoutUsdc = payout
+   certificate.payoutUsdc = payout_signed           // signed
    certificate.rtFeeIncomeUsdc = rtFeeIncome
-   pool.reservesUsdc -= payout
+   pool.reservesUsdc -= payout_signed               // negative payout ⇒ reserves grow
    pool.reservesUsdc += rtFeeIncome
-   pool.activeCapUsdc -= Cap
+   pool.activeCapUsdc -= Cap_down                   // releases the downside reservation
    position.protectedBy = null
+
+   When payout_signed < 0 the LP owes the pool; the obligation is
+   covered physically from the escrowed position's proceeds (the CL
+   geometry guarantees V(S_T) >= V(S_0) + |payout_signed| whenever
+   S_T > S_0, so no external LP collateral is needed).
 ```
 
 ## 4.3 Position Escrow
 
 ### 4.3.1 NFT Custody
 
-The LP's Orca Whirlpool position is represented by an NFT. To purchase a corridor certificate, the LP must first escrow this NFT in the protocol:
+The LP's Orca Whirlpool position is represented by an NFT. To purchase a Liquidity Hedge certificate, the LP must first escrow this NFT in the protocol:
 
 1. **Register**: The LP calls `registerLockedPosition`, transferring the position NFT to the protocol's escrow vault. The position enters `LOCKED` status.
 2. **Protection**: The position's `protectedBy` field is set when a certificate is purchased, preventing release during the protection period.
@@ -208,7 +215,7 @@ registerLockedPosition         releasePosition
    +--------+                  +----------+
 ```
 
-**Invariant**: A position with `protectedBy != null` cannot be released. This prevents the LP from withdrawing the position while the RT is exposed to the corridor payoff.
+**Invariant**: A position with `protectedBy != null` cannot be released. This prevents the LP from withdrawing the position while the RT is exposed to the Liquidity Hedge payoff (and while the position is the collateral backing any potential LP→RT give-up).
 
 ## 4.4 Fee Split Mechanism
 
@@ -217,7 +224,7 @@ registerLockedPosition         releasePosition
 The fee split aligns incentives between LP and RT:
 
 - **LP perspective**: The fee discount `y * E[F]` reduces the upfront premium, making the hedge cheaper. The LP keeps `(1 - y) * F` of their trading fees.
-- **RT perspective**: At settlement, the RT pool receives `y * feesAccrued`, providing income even when the certificate expires without payout. This transforms the RT's risk from pure insurance writing to a blended insurance + fee-sharing model.
+- **RT perspective**: At settlement, the RT pool receives `y * feesAccrued` on top of the signed swap PnL, providing a third income stream (alongside the premium and the LP's upside give-up when `S_T > S_0`). This makes the RT's total return a blend of variance-risk premium, convexity wedge, and fee sharing — not pure insurance writing.
 
 ### 4.4.2 Timing
 
@@ -232,11 +239,11 @@ The fee split operates at two points:
 The RT's net profit/loss on a single certificate is:
 
 ```
-RT_PnL = premiumToPool - payout + rtFeeIncome
-       = (Premium - protocolFee) - PI(S_T) + y * feesAccrued
+RT_PnL = premiumToPool − PI(S_T) + rtFeeIncome
+       = (Premium − protocolFee) − PI(S_T) + y · feesAccrued
 ```
 
-The RT is profitable when `premiumToPool + rtFeeIncome > payout`.
+Under the signed swap `PI(S_T)` is negative when `S_T > S_0`, so the RT *gains* from the LP's upside give-up in addition to collecting the premium. The RT is profitable whenever `premiumToPool + rtFeeIncome − PI(S_T) > 0`; by Theorem 2.2 this holds *on average* whenever the premium is priced at or above the risk-neutral FV of the swap.
 
 ## 4.5 Protocol Fee
 
@@ -246,7 +253,7 @@ A fraction of each premium is directed to the protocol treasury:
 protocolFee = floor(Premium * protocolFeeBps / BPS)
 ```
 
-With the default `protocolFeeBps = 150` (1.5%), a $1.00 premium generates $0.015 for the treasury. The protocol fee is deducted before the premium flows to the pool, so:
+With the default `protocolFeeBps = 150` (1.5%), a \$1.00 premium generates \$0.015 for the treasury. The protocol fee is deducted before the premium flows to the pool, so:
 
 ```
 premiumToPool = Premium - protocolFee
@@ -255,10 +262,10 @@ premiumToPool = Premium - protocolFee
 ## 4.6 Worked Example: Full Lifecycle
 
 **Setup:**
-- RT deposits $100 USDC into the pool.
+- RT deposits \$100 USDC into the pool.
 - LP opens a CL position at `S_0 = $150`, range `[$135, $165]`, liquidity `L = 50`.
-- LP registers the position and purchases a 7-day corridor certificate.
-- After 7 days, `S_T = $142` and LP accrued $0.80 in fees.
+- LP registers the position and purchases a 7-day Liquidity Hedge certificate.
+- After 7 days, `S_T = $142` and LP accrued \$0.80 in fees.
 
 **Step 1: RT Deposit**
 
@@ -272,61 +279,90 @@ Share price: 1.000000
 **Step 2: Certificate Purchase**
 
 ```
-Cap = V(150) - V(135) = 60.00 - 55.48 = $4.52
-Utilization headroom: floor(100M * 3000 / 10000) - 0 = $30.00 > $4.52 (OK)
+Cap_down = V(150) − V(135) = 60.00 − 55.48 = \$4.52
+Cap_up   = V(165) − V(150) = 61.30 − 60.00 = \$1.30
+Utilization headroom: floor(100M * 3000 / 10000) − 0 = \$30.00 > \$4.52 (OK)
 
-Premium = $0.659 (from Section 3.5 worked example)
-Protocol fee = $0.010
-Premium to pool = $0.650
+Premium     = \$0.389 (Liquidity Hedge swap — from Section 3.5 worked example)
+Protocol fee = \$0.006
+Premium to pool = \$0.383
 
 After purchase:
-  reservesUsdc = 100,649,509
-  totalShares = 100,000,000
-  activeCapUsdc = 4,520,000
-  Share price: 1.006495
+  reservesUsdc = 100,383,559
+  totalShares  = 100,000,000
+  activeCapUsdc = 4,520,000   (reserves against Cap_down only)
+  Share price: 1.003836
 ```
 
-**Step 3: Settlement at S_T = $142**
+**Step 3: Settlement at S_T = \$142 (within range, below S_0)**
 
 ```
-effective_price = max(142, 135) = 142
-V(142) = 50 * (2*sqrt(142) - 142/sqrt(165) - sqrt(135))
-       = 50 * (2*11.916 - 11.053 - 11.619)
-       = 50 * 1.160 = $58.01
+clamp(142, 135, 165) = 142
+V(142) = 50 * (2·sqrt(142) − 142/sqrt(165) − sqrt(135))
+       = 50 * (2·11.916 − 11.053 − 11.619)
+       = 50 * 1.160 = \$58.01
 
-payout = V(150) - V(142) = 60.00 - 58.01 = $1.99
+payout_signed = V(150) − V(142) = 60.00 − 58.01 = +\$1.99   (RT pays LP)
 
-Fee split: rtFeeIncome = 0.10 * 800,000 = 80,000 micro-USDC ($0.08)
+Fee split: rtFeeIncome = 0.10 * 800,000 = 80,000 micro-USDC (\$0.08)
 
 After settlement:
-  reservesUsdc = 100,649,509 - 1,990,000 + 80,000 = 98,739,509
+  reservesUsdc = 100,383,559 − 1,990,000 + 80,000 = 98,473,559
   activeCapUsdc = 0
-  totalShares = 100,000,000
-  Share price: 0.987395
+  totalShares   = 100,000,000
+  Share price: 0.984736
 ```
 
 **RT P&L:**
 
 ```
-premiumToPool = $0.650
-payout = -$1.990
-rtFeeIncome = +$0.080
-Net = 0.650 - 1.990 + 0.080 = -$1.260
+premiumToPool = +\$0.383
+payout_signed = −\$1.990
+rtFeeIncome   = +\$0.080
+Net = 0.383 − 1.990 + 0.080 = −\$1.527
 
-Share price change: 1.006495 -> 0.987395 = -1.90%
+Share price change: 1.003836 → 0.984736 = −1.90%
 ```
 
-In this scenario the RT lost money on the certificate because SOL dropped 5.3%. Over many certificates with `sigma = 65%` and `width = +/-10%`, backtesting shows the RT achieves positive expected returns with a Sharpe ratio of approximately 0.245.
+In this realization the RT loses on the certificate because SOL dropped 5.3% — but under the signed-swap design the RT also collects the upside give-up when `S_T > S_0`, so across many certificates with `sigma = 65%` and `width = +/-10%` the expected RT P&L converges to the variance risk premium plus the fee-split contribution (Theorem 2.2 guarantees the LP+RT sum equals the unhedged PnL minus the treasury fee).
 
 **LP P&L:**
 
 ```
-Position IL = V(150) - V(142) = $1.99
-Certificate payout = +$1.99
-Fee income retained = (1 - 0.10) * $0.80 = $0.72
-Premium paid = -$0.659
+Position IL        = V(150) − V(142)    = \$1.99    (loss, signed negative in PnL)
+Certificate payout = +\$1.99             (RT paid LP — exact IL replication)
+Fee income retained = (1 − 0.10) * \$0.80 = \$0.72
+Premium paid        = −\$0.389
 
-Net = -1.99 + 1.99 + 0.72 - 0.659 = +$0.061
+Net = −1.99 + 1.99 + 0.72 − 0.389 = +\$0.331
 ```
 
-The LP's IL is fully offset by the certificate payout, and the LP retains 90% of fee income minus the premium cost.
+The LP's IL is fully offset by the certificate payout; the LP retains 90% of fee income minus the (now smaller) premium cost. Note that under the swap the LP's premium is ~40% lower than the capped-put equivalent, because the swap's fair value is smaller (`FV_swap = FV_put − FV_call_spread`).
+
+**Alternative Step 3: Settlement at S_T = \$158 (within range, above S_0)**
+
+```
+clamp(158, 135, 165) = 158
+V(158) = 50 * (2·sqrt(158) − 158/sqrt(165) − sqrt(135))
+       ≈ \$60.84
+
+payout_signed = V(150) − V(158) = 60.00 − 60.84 = −\$0.84   (LP pays RT)
+
+Physical settlement: the position (now worth V(158) ≈ \$60.84) yields \$0.84
+to the RT pool, leaving the LP with exactly V(S_0) = \$60.00.
+
+RT P&L on this path:
+  premiumToPool  = +\$0.383
+  payout_signed  = +\$0.84 (RT receives from LP)
+  rtFeeIncome    = +\$0.080
+  Net            = 0.383 + 0.840 + 0.080 = +\$1.303
+
+LP P&L on this path:
+  Position value at expiry = \$60.84
+  Payout surrendered       = −\$0.84
+  Fee income retained      = +\$0.72
+  Premium paid             = −\$0.389
+  Net vs. entry value      = (60.84 − 60.00) − 0.84 + 0.72 − 0.389 = +\$0.331
+```
+
+Both realizations (down and up) leave the **LP at the same locked net outcome** `V(S_0) − Premium + (1 − y)·F`, which is the defining property of the Liquidity Hedge swap.

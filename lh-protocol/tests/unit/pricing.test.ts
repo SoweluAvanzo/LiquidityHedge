@@ -4,9 +4,9 @@ import {
   computeFeeDiscount,
   computeHeuristicFV,
   computeGaussHermiteFV,
-} from "../../protocol-src/operations/pricing";
-import { resolveEffectiveMarkup } from "../../protocol-src/operations/regime";
-import { naturalCap } from "../../protocol-src/utils/position-value";
+} from "../../protocol-src/pricing-engine/pricing";
+import { resolveEffectiveMarkup } from "../../protocol-src/risk-analyser/regime";
+import { naturalCap } from "../../protocol-src/pricing-engine/position-value";
 import { makePool, makeTemplate, makeRegime } from "../helpers";
 
 describe("Pricing Engine", () => {
@@ -168,32 +168,32 @@ describe("Pricing Engine", () => {
 
   // ── Gauss-Hermite quadrature FV ───────────────────────────
 
-  describe("computeGaussHermiteFV", () => {
+  describe("computeGaussHermiteFV (swap FV = E_Q[V(S_0) − V(clamp(S_T))])", () => {
     const L = 10_000;
     const pL = 135;
     const pU = 165;
     const S0 = 150;
-    const cap = naturalCap(S0, L, pL, pU);
+    const capDown = naturalCap(S0, L, pL, pU);
 
-    it("FV > 0 for realistic volatility", () => {
-      const fv = computeGaussHermiteFV(S0, 0.65, L, pL, pU, cap);
+    it("FV > 0 for realistic volatility (Jensen on concave V)", () => {
+      const fv = computeGaussHermiteFV(S0, 0.65, L, pL, pU);
       expect(fv).to.be.greaterThan(0);
     });
 
-    it("FV increases with volatility", () => {
-      const fv1 = computeGaussHermiteFV(S0, 0.40, L, pL, pU, cap);
-      const fv2 = computeGaussHermiteFV(S0, 0.80, L, pL, pU, cap);
+    it("FV increases with volatility (more convexity exploited)", () => {
+      const fv1 = computeGaussHermiteFV(S0, 0.40, L, pL, pU);
+      const fv2 = computeGaussHermiteFV(S0, 0.80, L, pL, pU);
       expect(fv2).to.be.greaterThan(fv1);
     });
 
-    it("FV <= cap (bounded by maximum payout)", () => {
-      const fv = computeGaussHermiteFV(S0, 1.50, L, pL, pU, cap);
-      expect(fv).to.be.lessThanOrEqual(cap + 0.01);
+    it("FV <= Cap_down (bounded by downside leg)", () => {
+      const fv = computeGaussHermiteFV(S0, 1.50, L, pL, pU);
+      expect(fv).to.be.lessThanOrEqual(capDown + 0.01);
     });
 
     it("FV approaches 0 as volatility approaches 0", () => {
-      const fvHigh = computeGaussHermiteFV(S0, 0.65, L, pL, pU, cap);
-      const fvLow = computeGaussHermiteFV(S0, 0.05, L, pL, pU, cap);
+      const fvHigh = computeGaussHermiteFV(S0, 0.65, L, pL, pU);
+      const fvLow = computeGaussHermiteFV(S0, 0.05, L, pL, pU);
       expect(fvLow).to.be.lessThan(fvHigh * 0.1);
     });
   });

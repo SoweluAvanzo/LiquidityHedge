@@ -47,7 +47,7 @@ export const DEFAULT_POOL_CONFIG: PoolInitConfig = {
 };
 
 // ---------------------------------------------------------------------------
-// Product template: +/-10% corridor, 7-day tenor
+// Product template: +/-10% range, 7-day tenor
 // ---------------------------------------------------------------------------
 
 /**
@@ -56,7 +56,7 @@ export const DEFAULT_POOL_CONFIG: PoolInitConfig = {
  * Width: +/-10% (widthBps = 1000)
  *   - The LP opens a CL position from p_l = S_0*0.90 to p_u = S_0*1.10
  *   - The barrier equals p_l = S_0 * 0.90
- *   - The corridor covers the full concentrated liquidity range
+ *   - The Liquidity Hedge covers the full concentrated liquidity range [p_l, p_u]
  *
  * Tenor: 7 days (604800 seconds)
  *   - Weekly rolling hedge, renewable at expiry
@@ -97,7 +97,7 @@ export const BOOTSTRAP_SEVERITY_PPM = DEFAULT_SEVERITY_PPM; // 380,000
  *
  * The barrier always coincides with the lower bound of the LP's
  * concentrated liquidity position range. This is a core design choice:
- * the corridor certificate hedges exactly the IL within the CL range.
+ * the Liquidity Hedge certificate replicates exactly the CL position's IL within the range.
  *
  * Example:
  *   S_0 = $150.00 (150_000_000 in e6)

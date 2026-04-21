@@ -179,7 +179,7 @@ describe("Multi-Certificate Integration", () => {
     expect(pos1.protectedBy).to.be.null;
     expect(pos2.protectedBy).to.not.be.null;
 
-    // Settle cert 2 at expiry with price up (expired)
+    // Settle cert 2 at expiry with price up: LP surrenders upside (payout < 0)
     const settle2 = protocol.settleCertificate(
       "settler",
       "pos-mint-2",
@@ -187,8 +187,8 @@ describe("Multi-Certificate Integration", () => {
       2_000_000,
       buy2.expiryTs,
     );
-    expect(settle2.state).to.equal(CertificateStatus.Expired);
-    expect(settle2.payoutUsdc).to.equal(0);
+    expect(settle2.state).to.equal(CertificateStatus.Settled);
+    expect(settle2.payoutUsdc).to.be.lessThan(0);
 
     // Pool activeCapUsdc should be 0 now
     const poolFinal = protocol.getPoolState()!;
@@ -226,7 +226,7 @@ describe("Multi-Certificate Integration", () => {
       buy1.expiryTs,
     );
 
-    // Settle cert 2: price up (payout = 0)
+    // Settle cert 2: price up (payout < 0, LP surrenders upside to pool)
     const fees2 = 2_500_000;
     const settle2 = protocol.settleCertificate(
       "settler",
@@ -238,13 +238,14 @@ describe("Multi-Certificate Integration", () => {
 
     const finalPool = protocol.getPoolState()!;
 
-    // Expected reserves:
+    // Expected reserves (signed: subtracting a negative settle2.payoutUsdc
+    // correctly adds the upside give-up to the pool):
     //   initial
     //   + premiumToPool1 + premiumToPool2  (from cert purchases)
-    //   - settle1.payoutUsdc              (payout for cert 1)
-    //   + settle1.rtFeeIncomeUsdc         (fee split from cert 1)
-    //   + settle2.rtFeeIncomeUsdc         (fee split from cert 2)
-    //   - settle2.payoutUsdc              (0, expired)
+    //   - settle1.payoutUsdc               (RT pays LP: positive payout)
+    //   + settle1.rtFeeIncomeUsdc          (fee split from cert 1)
+    //   - settle2.payoutUsdc               (LP pays RT: negative payout → gain)
+    //   + settle2.rtFeeIncomeUsdc          (fee split from cert 2)
     const expectedReserves =
       initialReserves +
       premiumToPool1 +

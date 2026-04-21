@@ -13,7 +13,7 @@
 
 import { BPS, PoolState } from "../types";
 import { PoolInitConfig } from "../config/templates";
-import { StateStore } from "../state/store";
+import { StateStore } from "../event-audit/store";
 
 // ---------------------------------------------------------------------------
 // Pool initialization

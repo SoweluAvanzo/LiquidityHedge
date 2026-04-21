@@ -1,5 +1,7 @@
 # Liquidity Hedge Protocol — Live Core PoC Specification
 
+> **⚠ Historical spec.** This document describes the original **capped-put** design (payoff `min(Cap, max(0, V(S_0) − V(max(S_T, p_l))))`). The current implementation uses the **signed-swap** payoff `Π = V(S_0) − V(clamp(S_T, p_l, p_u))`, which is bilateral and replicates IL exactly on both sides of `S_0` within the active range. See `lh-protocol/docs/02_mathematical_foundations.md` §2.3 for the current formal definition and `lh-protocol/docs/04_protocol_mechanism.md` for the current settlement flow. The rest of this document — architecture, PDAs, fee structure, governance parameters — remains accurate.
+
 ## 1. Purpose
 
 This document specifies the **live core** of the Liquidity Hedge protocol: a smart-contract-based system that lets a liquidity provider (LP) open a **real Orca Whirlpool position** on **SOL/USDC**, lock the position while covered, buy an **NFT hedge certificate**, and transfer the downside risk of the position to a **risk taker** (RT) that supplies underwriting capital to a protection pool.

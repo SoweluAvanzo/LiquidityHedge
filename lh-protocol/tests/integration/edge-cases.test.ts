@@ -88,7 +88,7 @@ describe("Edge Cases Integration", () => {
   // 3. Zero fees accrued -> fee split = 0
   // -------------------------------------------------------------------
 
-  it("Zero fees accrued -> fee split = 0", () => {
+  it("Zero fees accrued -> fee split = 0 (swap still settles at ST=S_0)", () => {
     const { protocol } = setupTestProtocol();
 
     const buyResult = protocol.buyCertificate("lp-wallet-1", {
@@ -98,11 +98,12 @@ describe("Edge Cases Integration", () => {
 
     const reservesBeforeSettle = protocol.getPoolState()!.reservesUsdc;
 
-    // Settle with zero fees accrued
+    // Settle at exactly S_T = S_0 so the signed swap payoff is zero.
+    // Combined with zero fees, the pool should not move.
     const settleResult = protocol.settleCertificate(
       "settler",
       "pos-mint-1",
-      160_000_000, // Price up -> expired, no payout
+      150_000_000,
       0, // Zero fees
       buyResult.expiryTs,
     );
