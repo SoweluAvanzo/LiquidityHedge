@@ -111,7 +111,12 @@ Premium = max(P_floor, FV * m_vol - y * E[F])
 
 is detailed in Section 3.
 
-**PoC scope note on parameter inputs.** Three of the pricing inputs — `ivRvRatio` (source for `m_vol` above the floor), the RT carry rate (used in the on-chain heuristic proxy's replication cost), and the expected daily fee rate (used to size `y·E[F]`) — are configured as **governance parameters** in this PoC rather than pulled from live oracles. A production deployment would wire them to Deribit DVOL / Binance / Bybit (for IV), Kamino / Marinade / validator APIs (for RT opportunity cost), and on-chain swap-event aggregation (for per-pool realized fees). **The structural claims of this paper are independent of these specific values** — Theorem 2.2 (§2.4) depends only on the additive structure of the cash flows, and §8.8 empirically verifies that the joint-breakeven wedge remains below 0.65 bps/day across a 360-row sensitivity grid spanning realistic ranges for all three inputs. The live demonstration script (`live-orca-test.ts`) does use real on-chain `fee_owed_a/b` values from the Orca position account as the true `feesAccrued` at settlement.
+**PoC scope note on parameter inputs.** Two of the three pricing inputs flagged in earlier drafts are now **driven by live market data** in the `live-orca-test.ts` demonstration:
+
+- `ivRvRatio` (source for `m_vol` above the floor) is measured from **Binance's ATM SOL options feed** (`/eapi/v1/mark`) via `binance-iv-adapter.ts`; it is no longer a governance constant in the live path.
+- The expected daily fee rate (used to size `y·E[F]`) is derived from **Birdeye pool volume + TVL** via `orca-volume-adapter.ts`, composed with an on-chain concentration factor `c(width)` read from `whirlpool.liquidity`.
+
+The remaining configured input is the RT carry rate (opportunity cost; placeholder value `5 bps/day`). A production deployment would wire it to Kamino / Marinade / validator APIs. **The structural claims of this paper are independent of all three inputs** — Theorem 2.2 (§2.4) depends only on the additive structure of the cash flows, and §8.8 empirically verifies that the joint-breakeven wedge remains below 0.65 bps/day across a 360-row sensitivity grid spanning realistic ranges for all three. The historical backtest in §8 uses a static `ivRvRatio = 1.08` because the Binance IV feed has no history before ~2024 and the backtest window extends earlier; the live demo's IV is real.
 
 ## 1.6 Product Specification: Liquidity Hedge Certificate
 

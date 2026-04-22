@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12">
+  <rect width="900" height="420" fill="#ffffff"/>
+  <text x="450" y="26" text-anchor="middle" font-size="17" font-weight="600" fill="#111827">Mean-based ratios at high-fee tier</text>
+  <line x1="80" y1="335.5707133748618" x2="870" y2="335.5707133748618" stroke="#e5e7eb"/>
+  <text x="72" y="339.5707133748618" text-anchor="end" fill="#6b7280">-1.0</text>
+  <line x1="80" y1="270.28535668743086" x2="870" y2="270.28535668743086" stroke="#e5e7eb"/>
+  <text x="72" y="274.28535668743086" text-anchor="end" fill="#6b7280">-0.50</text>
+  <line x1="80" y1="205" x2="870" y2="205" stroke="#e5e7eb"/>
+  <text x="72" y="209" text-anchor="end" fill="#6b7280">0.00</text>
+  <line x1="80" y1="139.71464331256908" x2="870" y2="139.71464331256908" stroke="#e5e7eb"/>
+  <text x="72" y="143.71464331256908" text-anchor="end" fill="#6b7280">0.50</text>
+  <line x1="80" y1="74.42928662513819" x2="870" y2="74.42928662513819" stroke="#e5e7eb"/>
+  <text x="72" y="78.42928662513819" text-anchor="end" fill="#6b7280">1.0</text>
+  <text x="25" y="205" transform="rotate(-90 25 205)" text-anchor="middle" fill="#374151">Δ ratio (hedged − unhedged)</text>
+  <line x1="80" y1="205" x2="870" y2="205" stroke="#374151" stroke-width="1.5"/>
+  <rect x="105.71888888888888" y="205" width="62.673333333333325" height="9.978296601679943" fill="#fca5a5" rx="2"/>
+  <text x="137.05555555555554" y="228.97829660167994" text-anchor="middle" fill="#111827" font-weight="500">-0.076</text>
+  <rect x="180.32999999999998" y="205" width="62.673333333333325" height="0.5540812560911377" fill="#fb923c" rx="2"/>
+  <text x="211.66666666666663" y="219.55408125609114" text-anchor="middle" fill="#111827" font-weight="500">-0.004</text>
+  <rect x="254.9411111111111" y="197.45005213611" width="62.673333333333325" height="7.549947863889997" fill="#9333ea" rx="2"/>
+  <text x="286.27777777777777" y="191.45005213611" text-anchor="middle" fill="#111827" font-weight="500">+0.058</text>
+  <text x="211.66666666666666" y="362" text-anchor="middle" font-weight="500" fill="#111827"><tspan x="211.66666666666666" dy="0">Sharpe Δ</tspan><tspan x="211.66666666666666" dy="14">(hedged − unhedged)</tspan></text>
+  <rect x="369.0522222222222" y="205" width="62.673333333333325" height="10.328442392675896" fill="#fca5a5" rx="2"/>
+  <text x="400.38888888888886" y="229.3284423926759" text-anchor="middle" fill="#111827" font-weight="500">-0.079</text>
+  <rect x="443.6633333333333" y="205" width="62.673333333333325" height="1.328543854752752" fill="#fb923c" rx="2"/>
+  <text x="474.99999999999994" y="220.32854385475275" text-anchor="middle" fill="#111827" font-weight="500">-0.010</text>
+  <rect x="518.2744444444444" y="198.17764662414697" width="62.673333333333325" height="6.822353375853027" fill="#9333ea" rx="2"/>
+  <text x="549.6111111111111" y="192.17764662414697" text-anchor="middle" fill="#111827" font-weight="500">+0.052</text>
+  <text x="475" y="362" text-anchor="middle" font-weight="500" fill="#111827"><tspan x="475" dy="0">Sortino Δ</tspan><tspan x="475" dy="14">(hedged − unhedged)</tspan></text>
+  <rect x="632.3855555555555" y="205" width="62.673333333333325" height="46.40873579195315" fill="#fca5a5" rx="2"/>
+  <text x="663.7222222222222" y="265.4087357919532" text-anchor="middle" fill="#111827" font-weight="500">-0.355</text>
+  <rect x="706.9966666666666" y="199.60771471025276" width="62.673333333333325" height="5.392285289747235" fill="#fb923c" rx="2"/>
+  <text x="738.3333333333333" y="193.60771471025276" text-anchor="middle" fill="#111827" font-weight="500">+0.041</text>
+  <rect x="781.6077777777776" y="82.2727272727273" width="62.673333333333325" height="122.7272727272727" fill="#9333ea" rx="2"/>
+  <text x="812.9444444444443" y="76.2727272727273" text-anchor="middle" fill="#111827" font-weight="500">+0.940</text>
+  <text x="738.3333333333333" y="362" text-anchor="middle" font-weight="500" fill="#111827"><tspan x="738.3333333333333" dy="0">Calmar Δ</tspan><tspan x="738.3333333333333" dy="14">(hedged − unhedged)</tspan></text>
+  <rect x="180" y="380" width="14" height="14" fill="#fca5a5" rx="2"/>
+  <text x="200" y="391" fill="#111827">±5% range</text>
+  <rect x="360" y="380" width="14" height="14" fill="#fb923c" rx="2"/>
+  <text x="380" y="391" fill="#111827">±7.5% range</text>
+  <rect x="540" y="380" width="14" height="14" fill="#9333ea" rx="2"/>
+  <text x="560" y="391" fill="#111827">±10% range</text>
+</svg>

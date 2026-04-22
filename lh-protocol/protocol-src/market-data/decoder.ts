@@ -45,6 +45,13 @@ export interface WhirlpoolData {
   tokenVaultA: PublicKey;
   tokenVaultB: PublicKey;
   feeRate: number;
+  /** Total in-range liquidity at the current tick (u128). This is the
+   *  denominator for concentration-factor calculations. */
+  liquidity: bigint;
+  /** Cumulative fee growth per unit of in-range liquidity, token A (Q64.64 u128). */
+  feeGrowthGlobalA: bigint;
+  /** Cumulative fee growth per unit of in-range liquidity, token B (Q64.64 u128). */
+  feeGrowthGlobalB: bigint;
 }
 
 /** Decoded on-chain Orca Position account data. */
@@ -54,8 +61,12 @@ export interface PositionData {
   liquidity: bigint;
   tickLowerIndex: number;
   tickUpperIndex: number;
+  /** Position's last-recorded fee_growth_inside snapshot, token A (Q64.64 u128). */
+  feeGrowthCheckpointA: bigint;
   /** Accrued fees owed to the position in token A (lamports). Non-zero only after update_fees_and_rewards or decrease_liquidity has run. */
   feeOwedA: bigint;
+  /** Position's last-recorded fee_growth_inside snapshot, token B (Q64.64 u128). */
+  feeGrowthCheckpointB: bigint;
   /** Accrued fees owed to the position in token B (micro-USDC). Same staleness rule as above. */
   feeOwedB: bigint;
 }
@@ -81,14 +92,15 @@ export interface PositionData {
  *   ...
  *   101-132: token_mint_a (Pubkey)
  *   133-164: token_vault_a (Pubkey)
- *   ...
+ *   165-180: fee_growth_global_a (u128 LE)
  *   181-212: token_mint_b (Pubkey)
  *   213-244: token_vault_b (Pubkey)
+ *   245-260: fee_growth_global_b (u128 LE)
  */
 export function decodeWhirlpoolAccount(data: Buffer): WhirlpoolData {
-  if (data.length < 245) {
+  if (data.length < 261) {
     throw new Error(
-      `Whirlpool account data too short: ${data.length} < 245`,
+      `Whirlpool account data too short: ${data.length} < 261`,
     );
   }
 
@@ -100,6 +112,8 @@ export function decodeWhirlpoolAccount(data: Buffer): WhirlpoolData {
   const tickSpacing = data.readUInt16LE(41);
   const feeRate = data.readUInt16LE(45);
 
+  const liquidity = readU128LE(data, 49);
+
   const sqrtPriceBuf = data.subarray(65, 81);
   const sqrtPrice =
     BigInt("0x" + Buffer.from(sqrtPriceBuf).reverse().toString("hex"));
@@ -108,8 +122,10 @@ export function decodeWhirlpoolAccount(data: Buffer): WhirlpoolData {
 
   const tokenMintA = new PublicKey(data.subarray(101, 133));
   const tokenVaultA = new PublicKey(data.subarray(133, 165));
+  const feeGrowthGlobalA = readU128LE(data, 165);
   const tokenMintB = new PublicKey(data.subarray(181, 213));
   const tokenVaultB = new PublicKey(data.subarray(213, 245));
+  const feeGrowthGlobalB = readU128LE(data, 245);
 
   return {
     tickSpacing,
@@ -120,6 +136,9 @@ export function decodeWhirlpoolAccount(data: Buffer): WhirlpoolData {
     tokenVaultA,
     tokenVaultB,
     feeRate,
+    liquidity,
+    feeGrowthGlobalA,
+    feeGrowthGlobalB,
   };
 }
 
@@ -161,7 +180,9 @@ export function decodePositionAccount(data: Buffer): PositionData {
   const tickLowerIndex = data.readInt32LE(88);
   const tickUpperIndex = data.readInt32LE(92);
 
+  const feeGrowthCheckpointA = readU128LE(data, 96);
   const feeOwedA = data.readBigUInt64LE(112);
+  const feeGrowthCheckpointB = readU128LE(data, 120);
   const feeOwedB = data.readBigUInt64LE(136);
 
   return {
@@ -170,9 +191,83 @@ export function decodePositionAccount(data: Buffer): PositionData {
     liquidity,
     tickLowerIndex,
     tickUpperIndex,
+    feeGrowthCheckpointA,
     feeOwedA,
+    feeGrowthCheckpointB,
     feeOwedB,
   };
+}
+
+// ---------------------------------------------------------------------------
+// TickArray decoder (fee_growth_outside per tick)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single Tick inside a TickArray — only the fields needed for fee-growth math.
+ * Whirlpool Tick layout (113 bytes):
+ *   0:       initialized (bool)
+ *   1-16:    liquidity_net (i128)
+ *   17-32:   liquidity_gross (u128)
+ *   33-48:   fee_growth_outside_a (u128 LE)
+ *   49-64:   fee_growth_outside_b (u128 LE)
+ *   65-112:  reward_growths_outside: [u128; 3]
+ */
+const TICK_SIZE_BYTES = 113;
+const TICKS_PER_ARRAY = 88;
+
+/**
+ * Read the `fee_growth_outside_{a,b}` for a specific tick from a TickArray account.
+ *
+ * Orca TickArray layout:
+ *   0-7:     discriminator
+ *   8-11:    start_tick_index (i32 LE)
+ *   12-9955: ticks: [Tick; 88]  (each 113 bytes)
+ *   9956+:   whirlpool (Pubkey)
+ *
+ * @param data             TickArray account bytes
+ * @param tickIndex        Target tick index (must be aligned to tick_spacing)
+ * @param tickArrayStartIx Start tick index of this array (from its account header)
+ * @param tickSpacing      Pool's tick spacing
+ * @returns Tuple of (fee_growth_outside_a, fee_growth_outside_b) as bigint Q64.64
+ * @throws  If tickIndex is outside this array's range
+ */
+export function readTickFeeGrowthOutside(
+  data: Buffer,
+  tickIndex: number,
+  tickArrayStartIx: number,
+  tickSpacing: number,
+): { feeGrowthOutsideA: bigint; feeGrowthOutsideB: bigint } {
+  const arraySpanTicks = TICKS_PER_ARRAY * tickSpacing;
+  if (
+    tickIndex < tickArrayStartIx ||
+    tickIndex >= tickArrayStartIx + arraySpanTicks
+  ) {
+    throw new Error(
+      `Tick ${tickIndex} is outside array [${tickArrayStartIx}, ${
+        tickArrayStartIx + arraySpanTicks
+      })`,
+    );
+  }
+  if ((tickIndex - tickArrayStartIx) % tickSpacing !== 0) {
+    throw new Error(
+      `Tick ${tickIndex} is not aligned to tickSpacing=${tickSpacing}`,
+    );
+  }
+  const arrayPos = (tickIndex - tickArrayStartIx) / tickSpacing;
+  const tickOffset = 8 + 4 + arrayPos * TICK_SIZE_BYTES;
+  const feeGrowthOutsideA = readU128LE(data, tickOffset + 33);
+  const feeGrowthOutsideB = readU128LE(data, tickOffset + 49);
+  return { feeGrowthOutsideA, feeGrowthOutsideB };
+}
+
+// ---------------------------------------------------------------------------
+// Little-endian u128 reader (native BigInt, portable across Node 20+)
+// ---------------------------------------------------------------------------
+
+function readU128LE(data: Buffer, offset: number): bigint {
+  const lo = data.readBigUInt64LE(offset);
+  const hi = data.readBigUInt64LE(offset + 8);
+  return (hi << 64n) | lo;
 }
 
 // ---------------------------------------------------------------------------

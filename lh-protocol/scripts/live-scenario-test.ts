@@ -89,11 +89,17 @@ interface ConfigResult {
   hedgedMean: number;
   hedgedStd: number;
   hedgedSharpe: number;
+  hedgedSortino: number;
+  hedgedCalmar: number;
+  hedgedCVaR5: number;
   hedgedMaxDD: number;
   hedgedCumulative: number;
   unhedgedMean: number;
   unhedgedStd: number;
   unhedgedSharpe: number;
+  unhedgedSortino: number;
+  unhedgedCalmar: number;
+  unhedgedCVaR5: number;
   unhedgedMaxDD: number;
   unhedgedCumulative: number;
   rtCumulative: number;
@@ -124,6 +130,55 @@ const maxDrawdown = (a: number[]) => {
   let cum = 0, peak = 0, dd = 0;
   for (const r of a) { cum += r; if (cum > peak) peak = cum; if (peak - cum > dd) dd = peak - cum; }
   return dd;
+};
+
+/**
+ * Downside deviation (negative-returns-only std) relative to a Minimum
+ * Acceptable Return (default 0). Used in Sortino — unlike σ, it does
+ * not penalise upside dispersion. The hedge caps upside (signed swap
+ * surrenders S_T > p_u) so Sharpe is biased against it while Sortino
+ * is not.
+ */
+const downsideDev = (a: number[], mar: number = 0) => {
+  if (a.length < 2) return 0;
+  const negSq = a
+    .map((x) => Math.min(0, x - mar))
+    .map((d) => d * d);
+  return Math.sqrt(negSq.reduce((s, x) => s + x, 0) / a.length);
+};
+
+/**
+ * Sortino ratio: mean / downside_deviation. Asymmetric — values the
+ * hedge correctly because it removes only downside variance.
+ */
+const sortino = (a: number[], mar: number = 0) => {
+  const dd = downsideDev(a, mar);
+  return dd > 0 ? (mean(a) - mar) / dd : 0;
+};
+
+/**
+ * Calmar ratio: cumulative return / max drawdown. Captures the hedge's
+ * drawdown-protection value directly.
+ */
+const calmar = (a: number[]) => {
+  const cum = a.reduce((s, x) => s + x, 0);
+  const dd = maxDrawdown(a);
+  return dd > 0 ? cum / dd : 0;
+};
+
+/**
+ * Conditional Value-at-Risk (Expected Shortfall) at `alpha` confidence.
+ * Average of the worst `alpha` fraction of returns. Negative = loss.
+ * The hedge bounds max loss at Cap_down, so CVaR should improve.
+ *
+ * Default alpha = 0.05 → CVaR(5%) — average of worst 5% of weekly P&Ls.
+ */
+const cvar = (a: number[], alpha: number = 0.05) => {
+  if (a.length === 0) return 0;
+  const sorted = [...a].sort((x, y) => x - y);
+  const n = Math.max(1, Math.floor(a.length * alpha));
+  const tail = sorted.slice(0, n);
+  return mean(tail);
 };
 
 function formatDate(ts: number): string {
@@ -272,8 +327,10 @@ function summarize(
   return {
     widthLabel, widthBps, feeLabel, feeRate, weeks,
     hedgedMean: mean(h), hedgedStd: std(h), hedgedSharpe: sharpe(h),
+    hedgedSortino: sortino(h), hedgedCalmar: calmar(h), hedgedCVaR5: cvar(h, 0.05),
     hedgedMaxDD: maxDrawdown(h), hedgedCumulative: h.reduce((a, b) => a + b, 0),
     unhedgedMean: mean(u), unhedgedStd: std(u), unhedgedSharpe: sharpe(u),
+    unhedgedSortino: sortino(u), unhedgedCalmar: calmar(u), unhedgedCVaR5: cvar(u, 0.05),
     unhedgedMaxDD: maxDrawdown(u), unhedgedCumulative: u.reduce((a, b) => a + b, 0),
     rtCumulative: rt.reduce((a, b) => a + b, 0), rtMean: mean(rt),
     weeksWithPayout: weeks.filter(w => w.payout > 0).length,
@@ -399,6 +456,50 @@ async function main(): Promise<void> {
     const row = FEE_TIERS.map(fee => {
       const r = allResults.find(x => x.widthBps === width.bps && x.feeRate === fee.rate)!;
       return r.unhedgedSharpe.toFixed(3);
+    });
+    console.log(`| ${width.label.padEnd(5)} | ${row.join(" | ")} |`);
+  }
+
+  // ── Asymmetric-risk metrics (Sortino, Calmar, CVaR) ─────────────────
+  // Sharpe alone is biased against the hedge because it penalises
+  // upside variance (which the signed swap cedes to the RT). The
+  // metrics below decompose downside vs total risk so the hedge's
+  // actual value — asymmetric loss truncation — is visible.
+
+  console.log("\n### Hedge Δ on Sortino ratio (hedged − unhedged, positive = hedge wins)\n");
+  console.log(`| Width | ${FEE_TIERS.map(f => f.label).join(" | ")} |`);
+  console.log(`|-------|${FEE_TIERS.map(() => "---").join("|")}|`);
+  for (const width of WIDTHS) {
+    const row = FEE_TIERS.map(fee => {
+      const r = allResults.find(x => x.widthBps === width.bps && x.feeRate === fee.rate)!;
+      const delta = r.hedgedSortino - r.unhedgedSortino;
+      return `${r.hedgedSortino.toFixed(2)}/${r.unhedgedSortino.toFixed(2)} (${delta >= 0 ? "+" : ""}${delta.toFixed(2)})`;
+    });
+    console.log(`| ${width.label.padEnd(5)} | ${row.join(" | ")} |`);
+  }
+
+  console.log("\n### Hedge Δ on Calmar ratio (hedged − unhedged, positive = hedge wins)\n");
+  console.log(`| Width | ${FEE_TIERS.map(f => f.label).join(" | ")} |`);
+  console.log(`|-------|${FEE_TIERS.map(() => "---").join("|")}|`);
+  for (const width of WIDTHS) {
+    const row = FEE_TIERS.map(fee => {
+      const r = allResults.find(x => x.widthBps === width.bps && x.feeRate === fee.rate)!;
+      const delta = r.hedgedCalmar - r.unhedgedCalmar;
+      return `${r.hedgedCalmar.toFixed(2)}/${r.unhedgedCalmar.toFixed(2)} (${delta >= 0 ? "+" : ""}${delta.toFixed(2)})`;
+    });
+    console.log(`| ${width.label.padEnd(5)} | ${row.join(" | ")} |`);
+  }
+
+  console.log("\n### CVaR(5%) of weekly P&L — avg of worst 5% of weeks ($; less negative = hedge wins)\n");
+  console.log(`| Width | ${FEE_TIERS.map(f => f.label).join(" | ")} |`);
+  console.log(`|-------|${FEE_TIERS.map(() => "---").join("|")}|`);
+  for (const width of WIDTHS) {
+    const row = FEE_TIERS.map(fee => {
+      const r = allResults.find(x => x.widthBps === width.bps && x.feeRate === fee.rate)!;
+      const reductionPct = r.unhedgedCVaR5 < 0
+        ? ((r.hedgedCVaR5 - r.unhedgedCVaR5) / Math.abs(r.unhedgedCVaR5)) * 100
+        : 0;
+      return `$${r.hedgedCVaR5.toFixed(0)}/$${r.unhedgedCVaR5.toFixed(0)} (${reductionPct >= 0 ? "+" : ""}${reductionPct.toFixed(0)}%)`;
     });
     console.log(`| ${width.label.padEnd(5)} | ${row.join(" | ")} |`);
   }
@@ -872,7 +973,217 @@ async function main(): Promise<void> {
   console.log("available from Birdeye. For ground-truth fee data, use live-orca-test.ts.");
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", err);
-  process.exit(1);
-});
+// Only auto-run when invoked directly; allow imports for programmatic reuse
+// (e.g. `generate-summary-charts.ts` runs `main()` or the helpers below).
+if (require.main === module) {
+  main().catch((err) => {
+    console.error("Fatal error:", err);
+    process.exit(1);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Standalone joint-breakeven search — self-contained, exportable
+// ---------------------------------------------------------------------------
+
+interface JointBEResult {
+  minYield: number;
+  bestPfloor: number;
+  bestFeeSplit: number;
+  rtPnl: number;
+  lpPnl: number;
+  avgPremiumPerWeek: number;
+  avgPayoutPerWeek: number;
+}
+
+/**
+ * For fixed (width, feeRate, feeSplit), binary-search for the P_floor
+ * fraction where RT cumulative PnL = 0 over the backtest. Returns the
+ * winning config or null if RT can't break even at any P_floor in [1bp, 10%].
+ */
+function rtBreakevenPfloor(
+  weeklyPrices: { price: number; timestamp: number }[],
+  widthBps: number,
+  feeRate: number,
+  vol: VolatilityResult,
+  feeSplit: number,
+): { pfloor: number; rtCum: number; lpCum: number; avgP: number; avgPayout: number } | null {
+  let lo = 0.0001, hi = 0.10;
+  const maxWeeks = runBacktest(weeklyPrices, widthBps, feeRate, vol, hi, feeSplit);
+  const rtAtMax = maxWeeks.reduce((s, w) => s + w.rtIncome, 0);
+  if (rtAtMax < 0) return null;
+
+  for (let i = 0; i < 35; i++) {
+    const mid = (lo + hi) / 2;
+    const weeks = runBacktest(weeklyPrices, widthBps, feeRate, vol, mid, feeSplit);
+    const rtCum = weeks.reduce((s, w) => s + w.rtIncome, 0);
+    if (Math.abs(rtCum) < 1.0 || (hi - lo) < 5e-5) {
+      return {
+        pfloor: mid,
+        rtCum,
+        lpCum: weeks.reduce((s, w) => s + w.hedgedPnl, 0),
+        avgP: weeks.reduce((s, w) => s + w.premiumPaid, 0) / weeks.length,
+        avgPayout: weeks.reduce((s, w) => s + w.payout, 0) / weeks.length,
+      };
+    }
+    if (rtCum < 0) lo = mid; else hi = mid;
+  }
+  const finalMid = (lo + hi) / 2;
+  const finalWeeks = runBacktest(weeklyPrices, widthBps, feeRate, vol, finalMid, feeSplit);
+  return {
+    pfloor: finalMid,
+    rtCum: finalWeeks.reduce((s, w) => s + w.rtIncome, 0),
+    lpCum: finalWeeks.reduce((s, w) => s + w.hedgedPnl, 0),
+    avgP: finalWeeks.reduce((s, w) => s + w.premiumPaid, 0) / finalWeeks.length,
+    avgPayout: finalWeeks.reduce((s, w) => s + w.payout, 0) / finalWeeks.length,
+  };
+}
+
+/**
+ * Two-sided breakeven: the minimum daily fee yield at which both hedged
+ * LP and RT end with non-negative cumulative PnL, optimised over
+ * P_floor and fee-split. Returns null if not reachable in [5 bp, 1.5%]/day.
+ */
+export function findJointBreakeven(
+  weeklyPrices: { price: number; timestamp: number }[],
+  widthBps: number,
+  vol: VolatilityResult,
+): JointBEResult {
+  const FEESPLIT_GRID = [0.05, 0.10, 0.15, 0.20, 0.25];
+  let yieldLo = 0.0005, yieldHi = 0.015;
+  let best: JointBEResult | null = null;
+
+  for (let i = 0; i < 30; i++) {
+    const yieldMid = (yieldLo + yieldHi) / 2;
+    let bestLpAtYield = -Infinity;
+    let bestConfig: { feeSplit: number; pfloor: number; rtCum: number; lpCum: number; avgP: number; avgPayout: number } | null = null;
+
+    for (const fs of FEESPLIT_GRID) {
+      const res = rtBreakevenPfloor(weeklyPrices, widthBps, yieldMid, vol, fs);
+      if (res && res.lpCum > bestLpAtYield) {
+        bestLpAtYield = res.lpCum;
+        bestConfig = { feeSplit: fs, ...res };
+      }
+    }
+
+    if (!bestConfig || bestLpAtYield < -10) {
+      yieldLo = yieldMid;
+    } else {
+      best = {
+        minYield: yieldMid,
+        bestPfloor: bestConfig.pfloor,
+        bestFeeSplit: bestConfig.feeSplit,
+        rtPnl: bestConfig.rtCum,
+        lpPnl: bestConfig.lpCum,
+        avgPremiumPerWeek: bestConfig.avgP,
+        avgPayoutPerWeek: bestConfig.avgPayout,
+      };
+      yieldHi = yieldMid;
+    }
+  }
+
+  if (!best) {
+    throw new Error(`joint breakeven not found for width ${widthBps}`);
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------------------
+// Programmatic export: run the full backtest and return a structured result
+// for chart generators / summary writers.
+// ---------------------------------------------------------------------------
+
+export interface FullBacktestResult {
+  meta: {
+    weeksUsed: number;
+    dateRange: { from: string; to: string };
+    vol: VolatilityResult;
+  };
+  /** Per (width, fee) cell — all summarised stats */
+  cells: ConfigResult[];
+  /** Two-sided breakeven per width */
+  jointBreakevens: {
+    widthLabel: string;
+    widthBps: number;
+    minYield: number;
+    unhedgedBE: number;
+    hedgeCostBps: number;
+    avgPremiumPerWeek: number;
+    avgPayoutPerWeek: number;
+    lpPnl: number;
+    rtPnl: number;
+  }[];
+}
+
+/**
+ * Run the complete backtest non-interactively and return structured
+ * data. Used by `generate-summary-charts.ts` so the charts always
+ * reflect the same computation the markdown tables do.
+ */
+export async function runFullBacktest(
+  apiKey: string,
+  weeksTarget: number = 52,
+): Promise<FullBacktestResult> {
+  const weeklyPrices = await fetchWeeklyPrices(apiKey, weeksTarget);
+  if (weeklyPrices.length < MIN_WEEKS) {
+    throw new Error(
+      `insufficient weekly prices: ${weeklyPrices.length} < ${MIN_WEEKS}`,
+    );
+  }
+  const candles = await fetchOHLCV(apiKey, 30, "1D");
+  const vol = computeVolatility(candles, "1D");
+
+  const cells: ConfigResult[] = [];
+  for (const width of WIDTHS) {
+    for (const fee of FEE_TIERS) {
+      const weeks = runBacktest(
+        weeklyPrices,
+        width.bps,
+        fee.rate,
+        vol,
+      );
+      cells.push(
+        summarize(weeks, width.label, width.bps, fee.label, fee.rate),
+      );
+    }
+  }
+
+  // Joint breakevens
+  const jointBreakevens: FullBacktestResult["jointBreakevens"] = [];
+  for (const width of WIDTHS) {
+    const joint = findJointBreakeven(weeklyPrices, width.bps, vol);
+    const unhedgedBE = findBreakeven(
+      weeklyPrices,
+      width.bps,
+      vol,
+      "unhedged",
+    );
+    jointBreakevens.push({
+      widthLabel: width.label,
+      widthBps: width.bps,
+      minYield: joint.minYield,
+      unhedgedBE,
+      hedgeCostBps: (joint.minYield - unhedgedBE) * 10_000,
+      avgPremiumPerWeek: joint.avgPremiumPerWeek,
+      avgPayoutPerWeek: joint.avgPayoutPerWeek,
+      lpPnl: joint.lpPnl,
+      rtPnl: joint.rtPnl,
+    });
+  }
+
+  return {
+    meta: {
+      weeksUsed: weeklyPrices.length - 1,
+      dateRange: {
+        from: formatDate(weeklyPrices[0].timestamp),
+        to: formatDate(weeklyPrices[weeklyPrices.length - 1].timestamp),
+      },
+      vol,
+    },
+    cells,
+    jointBreakevens,
+  };
+}
+
+export { WIDTHS, FEE_TIERS, runBacktest, summarize, findBreakeven };
+export type { ConfigResult, WeekResult };

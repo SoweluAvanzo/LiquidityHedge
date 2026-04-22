@@ -11,7 +11,10 @@
     "test:invariants": "npx ts-mocha 'tests/invariants/**/*.test.ts' --timeout 60000 --recursive",
     "live-test": "npx ts-node scripts/live-scenario-test.ts",
     "live-orca": "npx ts-node scripts/live-orca-test.ts",
-    "sensitivity": "npx ts-node scripts/sensitivity-analysis.ts"
+    "live-orca-formula": "npx ts-node scripts/live-orca-formula-test.ts",
+    "sensitivity": "npx ts-node scripts/sensitivity-analysis.ts",
+    "query-pool-yield": "npx ts-node scripts/query-pool-yield.ts",
+    "generate-charts": "npx ts-node scripts/generate-summary-charts.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",

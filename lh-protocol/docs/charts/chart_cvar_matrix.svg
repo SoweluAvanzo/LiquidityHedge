@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12">
+  <rect width="900" height="420" fill="#ffffff"/>
+  <text x="450" y="26" text-anchor="middle" font-size="17" font-weight="600" fill="#111827">CVaR(5%) tail-loss reduction</text>
+  <line x1="80" y1="340" x2="870" y2="340" stroke="#e5e7eb"/>
+  <text x="72" y="344" text-anchor="end" fill="#6b7280">0.00</text>
+  <line x1="80" y1="262.8571428571429" x2="870" y2="262.8571428571429" stroke="#e5e7eb"/>
+  <text x="72" y="266.8571428571429" text-anchor="end" fill="#6b7280">10</text>
+  <line x1="80" y1="185.71428571428572" x2="870" y2="185.71428571428572" stroke="#e5e7eb"/>
+  <text x="72" y="189.71428571428572" text-anchor="end" fill="#6b7280">20</text>
+  <line x1="80" y1="108.57142857142858" x2="870" y2="108.57142857142858" stroke="#e5e7eb"/>
+  <text x="72" y="112.57142857142858" text-anchor="end" fill="#6b7280">30</text>
+  <text x="25" y="205" transform="rotate(-90 25 205)" text-anchor="middle" fill="#374151">Tail-loss reduction (%)</text>
+  <rect x="105.71888888888888" y="258.0855880818078" width="62.673333333333325" height="81.91441191819217" fill="#a7f3d0" rx="2"/>
+  <text x="137.05555555555554" y="252.08558808180783" text-anchor="middle" fill="#111827" font-weight="500">+11%</text>
+  <rect x="180.32999999999998" y="201.44612812840802" width="62.673333333333325" height="138.55387187159198" fill="#34d399" rx="2"/>
+  <text x="211.66666666666663" y="195.44612812840802" text-anchor="middle" fill="#111827" font-weight="500">+18%</text>
+  <rect x="254.9411111111111" y="139.78040636863852" width="62.673333333333325" height="200.21959363136148" fill="#047857" rx="2"/>
+  <text x="286.27777777777777" y="133.78040636863852" text-anchor="middle" fill="#111827" font-weight="500">+26%</text>
+  <text x="211.66666666666666" y="362" text-anchor="middle" font-weight="500" fill="#111827"><tspan x="211.66666666666666" dy="0">Low</tspan><tspan x="211.66666666666666" dy="14">fee tier</tspan></text>
+  <rect x="369.0522222222222" y="257.83813740529257" width="62.673333333333325" height="82.16186259470743" fill="#a7f3d0" rx="2"/>
+  <text x="400.38888888888886" y="251.83813740529257" text-anchor="middle" fill="#111827" font-weight="500">+11%</text>
+  <rect x="443.6633333333333" y="194.70007573879664" width="62.673333333333325" height="145.29992426120336" fill="#34d399" rx="2"/>
+  <text x="474.99999999999994" y="188.70007573879664" text-anchor="middle" fill="#111827" font-weight="500">+19%</text>
+  <rect x="518.2744444444444" y="129.51158901632286" width="62.673333333333325" height="210.48841098367714" fill="#047857" rx="2"/>
+  <text x="549.6111111111111" y="123.51158901632286" text-anchor="middle" fill="#111827" font-weight="500">+27%</text>
+  <text x="475" y="362" text-anchor="middle" font-weight="500" fill="#111827"><tspan x="475" dy="0">Medium</tspan><tspan x="475" dy="14">fee tier</tspan></text>
+  <rect x="632.3855555555555" y="257.4653136327332" width="62.673333333333325" height="82.53468636726677" fill="#a7f3d0" rx="2"/>
+  <text x="663.7222222222222" y="251.46531363273323" text-anchor="middle" fill="#111827" font-weight="500">+11%</text>
+  <rect x="706.9966666666666" y="188.99235683544094" width="62.673333333333325" height="151.00764316455906" fill="#34d399" rx="2"/>
+  <text x="738.3333333333333" y="182.99235683544094" text-anchor="middle" fill="#111827" font-weight="500">+20%</text>
+  <rect x="781.6077777777776" y="116.87209305925074" width="62.673333333333325" height="223.12790694074926" fill="#047857" rx="2"/>
+  <text x="812.9444444444443" y="110.87209305925074" text-anchor="middle" fill="#111827" font-weight="500">+29%</text>
+  <text x="738.3333333333333" y="362" text-anchor="middle" font-weight="500" fill="#111827"><tspan x="738.3333333333333" dy="0">High</tspan><tspan x="738.3333333333333" dy="14">fee tier</tspan></text>
+  <rect x="180" y="380" width="14" height="14" fill="#a7f3d0" rx="2"/>
+  <text x="200" y="391" fill="#111827">±5% range</text>
+  <rect x="360" y="380" width="14" height="14" fill="#34d399" rx="2"/>
+  <text x="380" y="391" fill="#111827">±7.5% range</text>
+  <rect x="540" y="380" width="14" height="14" fill="#047857" rx="2"/>
+  <text x="560" y="391" fill="#111827">±10% range</text>
+</svg>
