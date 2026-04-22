@@ -78,6 +78,10 @@ import {
   fetchOHLCV,
   computeVolatility,
 } from "../protocol-src/market-data/birdeye-adapter";
+import {
+  fetchPoolOverview,
+  estimatePositionDailyYield,
+} from "../protocol-src/market-data/orca-volume-adapter";
 
 // ── Protocol emulator ───────────────────────────────────────────────
 import {
@@ -130,6 +134,26 @@ const POSITION_CLOSE_SLIPPAGE_BPS = 50; // 0.5% slippage tolerance on decrease
  */
 const P_FLOOR_FRACTION = parseFloat(
   process.env.P_FLOOR_FRACTION || "0.015",
+);
+
+/**
+ * Override for DEFAULT_TEMPLATE.widthBps. Lets us A/B-test the same flow
+ * at ±5% or ±15% without editing the template. Default = template default.
+ */
+const WIDTH_BPS_OVERRIDE = parseInt(
+  process.env.WIDTH_BPS_OVERRIDE || String(DEFAULT_TEMPLATE.widthBps),
+  10,
+);
+
+/**
+ * Override for the pool's `markupFloor` governance parameter. Default
+ * is `DEFAULT_POOL_CONFIG.markupFloor` (1.05). Setting below 1.0 means
+ * the RT is willing to price below fair value when IV/RV indicates a
+ * quiet regime — USE WITH CAUTION: RT's expected profit is no longer
+ * guaranteed to be positive.
+ */
+const MARKUP_FLOOR_OVERRIDE = parseFloat(
+  process.env.MARKUP_FLOOR || String(DEFAULT_POOL_CONFIG.markupFloor),
 );
 
 // =====================================================================
@@ -284,7 +308,10 @@ async function main() {
   console.log(`  Current SOL price: $${entryPrice.toFixed(4)}`);
   console.log(`  Tick current:      ${wp.tickCurrentIndex}`);
   console.log(`  Tick spacing:      ${wp.tickSpacing}`);
-  console.log(`  Fee rate:          ${wp.feeRate / 100}%`);
+  // Whirlpool fee_rate is stored as parts per million (1_000_000 = 100%);
+  // for the SOL/USDC 0.04% pool on-chain value is 400.
+  const feeTierDecimal = wp.feeRate / 1_000_000;
+  console.log(`  Fee rate:          ${(feeTierDecimal * 100).toFixed(3)}%  (on-chain u16 = ${wp.feeRate})`);
 
   // Birdeye volatility
   let sigmaPpm = 650_000;  // default 65% annualized
@@ -311,6 +338,51 @@ async function main() {
   } else {
     console.log("  No BIRDEYE_API_KEY set, using default vol (65%).");
   }
+
+  // Measurement-driven expectedDailyFee: replaces the hardcoded
+  // DEFAULT_EXPECTED_DAILY_FEE = 0.5%/day governance constant by
+  //   r_position = (vol_24h × fee_tier / TVL) × inRangeFraction
+  // where inRangeFraction adjusts for the template's width under GBM at σ.
+  //
+  // Fallback path (no API key or fetch failure) keeps the script runnable
+  // on the governance default so local runs without Birdeye still work.
+  let expectedDailyFee = DEFAULT_POOL_CONFIG.expectedDailyFee;
+  let feeYieldSource = "governance default (0.5%/day)";
+  if (birdeyeKey) {
+    try {
+      console.log("  Fetching Birdeye pool overview for fee-yield estimate...");
+      const overview = await fetchPoolOverview(
+        birdeyeKey,
+        whirlpoolAddress.toBase58(),
+        feeTierDecimal,
+      );
+      const est = estimatePositionDailyYield(
+        overview,
+        WIDTH_BPS_OVERRIDE,
+        sigmaPpm / 1_000_000,
+        DEFAULT_TEMPLATE.tenorSeconds,
+      );
+      expectedDailyFee = est.positionDailyYield;
+      feeYieldSource =
+        `Birdeye (TVL=$${(overview.liquidityUsd / 1e6).toFixed(2)}M, ` +
+        `vol24h=$${(overview.volume24hUsd / 1e6).toFixed(2)}M, ` +
+        `fee=${(overview.feeTier * 100).toFixed(3)}%, ` +
+        `inRangeFrac=${est.inRangeFraction.toFixed(3)})`;
+      console.log(
+        `  r_pool:        ${(est.poolDailyYield * 100).toFixed(4)}%/day`,
+      );
+      console.log(
+        `  inRangeFrac:   ${est.inRangeFraction.toFixed(4)}  (±${WIDTH_BPS_OVERRIDE / 100}%, σ=${(sigmaPpm / 10_000).toFixed(1)}%, T=${(DEFAULT_TEMPLATE.tenorSeconds / 86_400).toFixed(1)}d)`,
+      );
+      console.log(
+        `  r_position:    ${(expectedDailyFee * 100).toFixed(4)}%/day  (measurement-driven)`,
+      );
+    } catch (e: any) {
+      console.log(
+        `  Pool-overview fetch failed: ${e.message}. Falling back to governance default.`,
+      );
+    }
+  }
   console.log();
 
   // ═══════════════════════════════════════════════════════════════════
@@ -323,7 +395,7 @@ async function main() {
   // corridor derived from DEFAULT_TEMPLATE.widthBps. Asymmetric tick
   // offsets because tick-space is log-price.
   const { below: tickOffsetBelow, above: tickOffsetAbove } =
-    tickOffsetsFromWidthBps(DEFAULT_TEMPLATE.widthBps);
+    tickOffsetsFromWidthBps(WIDTH_BPS_OVERRIDE);
   const lowerTick = alignTick(
     wp.tickCurrentIndex - tickOffsetBelow,
     wp.tickSpacing,
@@ -336,7 +408,7 @@ async function main() {
   );
 
   console.log(
-    `  Tick range:  [${lowerTick}, ${upperTick}]  (±${DEFAULT_TEMPLATE.widthBps / 100}% linear, aligned to emulator corridor)`,
+    `  Tick range:  [${lowerTick}, ${upperTick}]  (±${WIDTH_BPS_OVERRIDE / 100}% linear, aligned to emulator corridor)`,
   );
 
   const positionMintKp = Keypair.generate();
@@ -453,12 +525,70 @@ async function main() {
   // clPositionValue(S, L, pL, pU) function used by the protocol emulator.
   // unitValue = V(S_0) when L=1; normalizedL = entryValueUsd / unitValue.
   const { clPositionValue } = await import("../protocol-src/pricing-engine/position-value");
-  const pL_usd = entryPrice * (1 - DEFAULT_TEMPLATE.widthBps / 10_000);
-  const pU_usd = entryPrice * (1 + DEFAULT_TEMPLATE.widthBps / 10_000);
+  const pL_usd = entryPrice * (1 - WIDTH_BPS_OVERRIDE / 10_000);
+  const pU_usd = entryPrice * (1 + WIDTH_BPS_OVERRIDE / 10_000);
   const unitValue = clPositionValue(entryPrice, 1.0, pL_usd, pU_usd);
   const normalizedL = unitValue > 0 ? entryValueUsd / unitValue : 1;
   console.log(`  On-chain L:     ${posData.liquidity.toString()}`);
   console.log(`  Normalized L:   ${normalizedL.toFixed(2)} (for emulator CL math)`);
+
+  // ─── Concentration-factor measurement ────────────────────────────
+  // Re-read the whirlpool AFTER the position is open so L_active
+  // reflects the state the position will actually earn fees against.
+  // If the measurement is plausible (c in [0.5, 50]), recompute
+  // expectedDailyFee with the measured c. Otherwise fall back to c=1
+  // with a warning — the fallback is intentional and governance-visible.
+  if (birdeyeKey) {
+    try {
+      const wpAfterInfo = await connection.getAccountInfo(whirlpoolAddress);
+      if (wpAfterInfo) {
+        const wpAfter = decodeWhirlpoolAccount(Buffer.from(wpAfterInfo.data));
+        const { computeConcentrationFactor, fetchPoolOverview, estimatePositionDailyYield } =
+          await import("../protocol-src/market-data/orca-volume-adapter");
+        const overviewForC = await fetchPoolOverview(
+          birdeyeKey,
+          whirlpoolAddress.toBase58(),
+          feeTierDecimal,
+        );
+        const c = computeConcentrationFactor({
+          L_position: posData.liquidity,
+          L_active: wpAfter.liquidity,
+          V_position_usd: entryValueUsd,
+          TVL_usd: overviewForC.liquidityUsd,
+        });
+        const shareL = Number(posData.liquidity) / Number(wpAfter.liquidity);
+        const shareV = entryValueUsd / overviewForC.liquidityUsd;
+        console.log(
+          `  c-probe:        L_active=${wpAfter.liquidity} | L-share=${(shareL * 100).toExponential(3)} | V-share=${(shareV * 100).toExponential(3)}`,
+        );
+        const SANITY_MIN = 0.5, SANITY_MAX = 50;
+        if (c === null || c < SANITY_MIN || c > SANITY_MAX) {
+          console.log(
+            `  c-probe:        c=${c === null ? "NULL" : c.toFixed(4)} outside sanity [${SANITY_MIN}, ${SANITY_MAX}] — FALLBACK to c=1`,
+          );
+          // Keep the Phase-1 c=1 estimate unchanged (fallback path).
+        } else {
+          const refined = estimatePositionDailyYield(
+            overviewForC,
+            WIDTH_BPS_OVERRIDE,
+            sigmaPpm / 1_000_000,
+            DEFAULT_TEMPLATE.tenorSeconds,
+            c,
+          );
+          const oldFee = expectedDailyFee;
+          expectedDailyFee = refined.positionDailyYield;
+          feeYieldSource =
+            `Birdeye × on-chain c=${c.toFixed(3)} (TVL=$${(overviewForC.liquidityUsd / 1e6).toFixed(2)}M, ` +
+            `inRangeFrac=${refined.inRangeFraction.toFixed(3)})`;
+          console.log(
+            `  c-probe:        c=${c.toFixed(4)} ✓ plausible — expectedDailyFee updated ${(oldFee * 100).toFixed(4)}%/day → ${(expectedDailyFee * 100).toFixed(4)}%/day`,
+          );
+        }
+      }
+    } catch (e: any) {
+      console.log(`  c-probe failed: ${e.message}. Keeping Phase-1 estimate (c=1).`);
+    }
+  }
   console.log();
 
   // ═══════════════════════════════════════════════════════════════════
@@ -480,15 +610,20 @@ async function main() {
       : DEFAULT_POOL_CONFIG.premiumFloorUsdc;
   const scaledPFloorUsd = scaledPFloorUsdc / 1_000_000;
 
-  // Init pool
+  // Init pool. expectedDailyFee was resolved in Phase 1 from the Birdeye
+  // pool-volume adapter (measurement-driven) or falls back to the
+  // governance default if Birdeye was unavailable.
   protocol.initPool("admin", {
     ...DEFAULT_POOL_CONFIG,
     uMaxBps: 8000, // 80% utilization for demo
     premiumFloorUsdc: scaledPFloorUsdc,
+    expectedDailyFee,
+    markupFloor: MARKUP_FLOOR_OVERRIDE,
   });
   console.log(
-    `  Pool initialized (uMax=80%, P_floor=${(P_FLOOR_FRACTION * 100).toFixed(2)}% = $${scaledPFloorUsd.toFixed(6)})`,
+    `  Pool initialized (uMax=80%, P_floor=${(P_FLOOR_FRACTION * 100).toFixed(2)}% = $${scaledPFloorUsd.toFixed(6)}, expectedDailyFee=${(expectedDailyFee * 100).toFixed(4)}%/day, markupFloor=${MARKUP_FLOOR_OVERRIDE.toFixed(3)})`,
   );
+  console.log(`    fee-yield source: ${feeYieldSource}`);
 
   // RT deposits
   protocol.depositUsdc(rtWallet.publicKey.toBase58(), RT_DEPOSIT_USDC);
@@ -499,19 +634,46 @@ async function main() {
     ...DEFAULT_TEMPLATE,
     templateId: 10,
     tenorSeconds: TENOR_SECONDS,
+    widthBps: WIDTH_BPS_OVERRIDE,
   };
   protocol.createTemplate("admin", demoTemplate);
   console.log(`  Template 10 created (tenor=${TENOR_SECONDS}s)`);
 
-  // Update regime with real Birdeye volatility
+  // Live IV/RV measurement: ATM SOL IV from Binance options / realized σ.
+  // Fallback = 1.0 so that when the feed is unavailable (network, no
+  // matching expiry, illiquid strikes), the markupFloor governance
+  // parameter binds rather than stale assumed data. The fallback being
+  // below the floor makes the incident governance-visible.
+  let ivRvRatio = 1.0;
+  let ivSource = "fallback (1.00 — markupFloor will bind)";
+  try {
+    const { fetchSolAtmImpliedVol, computeIvRvRatio } = await import(
+      "../protocol-src/market-data/binance-iv-adapter"
+    );
+    const iv = await fetchSolAtmImpliedVol(TENOR_SECONDS);
+    if (iv) {
+      const rv = sigmaPpm / 1_000_000;
+      const r = computeIvRvRatio(iv.markIV, rv);
+      ivRvRatio = r.ratio;
+      ivSource =
+        `Binance ${iv.symbol}: IV=${(iv.markIV * 100).toFixed(2)}% vs RV=${(rv * 100).toFixed(2)}%` +
+        ` → IV/RV=${ivRvRatio.toFixed(3)}` +
+        ` (expiry off by ${iv.expiryMismatchDays.toFixed(1)}d, |δ−0.5|=${iv.deltaDistance.toFixed(3)})`;
+    }
+  } catch (e: any) {
+    ivSource = `fetch failed: ${e.message}. Fallback 1.0 → markupFloor binds.`;
+  }
+
+  // Update regime with real measurements
   protocol.updateRegimeSnapshot("risk-svc", {
     sigmaPpm,
     sigma7dPpm,
     stressFlag,
     carryBpsPerDay: 5,
-    ivRvRatio: 1.08,
+    ivRvRatio,
   });
-  console.log(`  Regime updated (sigma=${(sigmaPpm / 10_000).toFixed(1)}%)`);
+  console.log(`  Regime updated (σ=${(sigmaPpm / 10_000).toFixed(1)}%, IV/RV=${ivRvRatio.toFixed(3)})`);
+  console.log(`    IV source: ${ivSource}`);
 
   // Register position in emulator using real on-chain data
   const positionMintStr = positionMint.toBase58();
@@ -635,27 +797,34 @@ async function main() {
   console.log(`  Final position value: $${finalValueUsd.toFixed(6)}`);
   console.log(`  Position PnL: ${positionPnl >= 0 ? "+" : ""}$${positionPnl.toFixed(6)}`);
 
-  // Real accrued fees — delegated to the CLM fee-refresher.
-  let feesAccruedUsdc = 0;
-  try {
-    const refresh = await refreshAndReadFees({
-      connection,
-      payer: lpWallet,
-      whirlpool: whirlpoolAddress,
-      positionPda: orcaPositionPda,
-      tickArrayLower,
-      tickArrayUpper,
-      settlementPriceE6,
-    });
-    feesAccruedUsdc = refresh.feesAccruedUsdc;
-    console.log(`  update_fees_and_rewards tx: ${refresh.txSignature.slice(0, 20)}...`);
-    console.log(
-      `  Real accrued fees: ${refresh.feeOwedALamports} lamports (A) + ${refresh.feeOwedBMicroUsdc} μUSDC (B) = $${(feesAccruedUsdc / 1_000_000).toFixed(6)}`,
-    );
-  } catch (e: any) {
-    console.log(
-      `  update_fees_and_rewards failed: ${e.message}. Using 0 fees.`,
-    );
+  // Real accrued fees — delegated to the CLM fee-refresher. The refresher
+  // tries an off-chain fee-growth replication first (no tx, no latency);
+  // falls back to an on-chain update_fees_and_rewards tx; and finally to 0.
+  const refresh = await refreshAndReadFees({
+    connection,
+    payer: lpWallet,
+    whirlpool: whirlpoolAddress,
+    positionPda: orcaPositionPda,
+    tickArrayLower,
+    tickArrayUpper,
+    tickLowerIndex: lowerTick,
+    tickUpperIndex: upperTick,
+    tickSpacing: wp.tickSpacing,
+    settlementPriceE6,
+  });
+  const feesAccruedUsdc = refresh.feesAccruedUsdc;
+  console.log(`  Fee source:   ${refresh.source}`);
+  if (refresh.txSignature) {
+    console.log(`  Refresh tx:   ${refresh.txSignature.slice(0, 20)}...`);
+  }
+  console.log(
+    `  Accrued fees: ${refresh.feeOwedALamports} lamports (A) + ${refresh.feeOwedBMicroUsdc} μUSDC (B) = $${(feesAccruedUsdc / 1_000_000).toFixed(6)}`,
+  );
+  if (refresh.attempts.offchainError) {
+    console.log(`  [warn] offchain path error: ${refresh.attempts.offchainError}`);
+  }
+  if (refresh.attempts.onchainError) {
+    console.log(`  [warn] onchain path error:  ${refresh.attempts.onchainError}`);
   }
 
   // Settle in emulator with the REAL fee value

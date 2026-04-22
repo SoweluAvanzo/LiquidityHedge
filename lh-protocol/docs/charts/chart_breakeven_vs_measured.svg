@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12">
+  <rect width="900" height="420" fill="#ffffff"/>
+  <text x="450" y="26" text-anchor="middle" font-size="17" font-weight="600" fill="#111827">Two-sided breakeven vs live measured yield</text>
+  <line x1="80" y1="340" x2="870" y2="340" stroke="#e5e7eb"/>
+  <text x="72" y="344" text-anchor="end" fill="#6b7280">0.00</text>
+  <line x1="80" y1="295" x2="870" y2="295" stroke="#e5e7eb"/>
+  <text x="72" y="299" text-anchor="end" fill="#6b7280">0.10</text>
+  <line x1="80" y1="250" x2="870" y2="250" stroke="#e5e7eb"/>
+  <text x="72" y="254" text-anchor="end" fill="#6b7280">0.20</text>
+  <line x1="80" y1="204.99999999999997" x2="870" y2="204.99999999999997" stroke="#e5e7eb"/>
+  <text x="72" y="208.99999999999997" text-anchor="end" fill="#6b7280">0.30</text>
+  <line x1="80" y1="160" x2="870" y2="160" stroke="#e5e7eb"/>
+  <text x="72" y="164" text-anchor="end" fill="#6b7280">0.40</text>
+  <line x1="80" y1="115" x2="870" y2="115" stroke="#e5e7eb"/>
+  <text x="72" y="119" text-anchor="end" fill="#6b7280">0.50</text>
+  <line x1="80" y1="69.99999999999994" x2="870" y2="69.99999999999994" stroke="#e5e7eb"/>
+  <text x="72" y="73.99999999999994" text-anchor="end" fill="#6b7280">0.60</text>
+  <text x="25" y="205" transform="rotate(-90 25 205)" text-anchor="middle" fill="#374151">Daily fee yield (%/day)</text>
+  <rect x="105.71888888888888" y="132.43029502918947" width="62.673333333333325" height="207.56970497081053" fill="#9333ea" rx="2"/>
+  <text x="137.05555555555554" y="126.43029502918947" text-anchor="middle" fill="#111827" font-weight="500">0.46%</text>
+  <rect x="180.32999999999998" y="135.9653198242188" width="62.673333333333325" height="204.0346801757812" fill="#0891b2" rx="2"/>
+  <text x="211.66666666666663" y="129.9653198242188" text-anchor="middle" fill="#111827" font-weight="500">0.45%</text>
+  <rect x="254.9411111111111" y="196.73031610439534" width="62.673333333333325" height="143.26968389560466" fill="#f59e0b" rx="2"/>
+  <text x="286.27777777777777" y="190.73031610439534" text-anchor="middle" fill="#111827" font-weight="500">0.32%</text>
+  <text x="211.66666666666666" y="362" text-anchor="middle" font-weight="500" fill="#111827"><tspan x="211.66666666666666" dy="0">±5%</tspan></text>
+  <rect x="369.0522222222222" y="163.27270724112168" width="62.673333333333325" height="176.72729275887832" fill="#9333ea" rx="2"/>
+  <text x="400.38888888888886" y="157.27270724112168" text-anchor="middle" fill="#111827" font-weight="500">0.39%</text>
+  <rect x="443.6633333333333" y="164.51549072265624" width="62.673333333333325" height="175.48450927734376" fill="#0891b2" rx="2"/>
+  <text x="474.99999999999994" y="158.51549072265624" text-anchor="middle" fill="#111827" font-weight="500">0.39%</text>
+  <rect x="518.2744444444444" y="223.43390759853662" width="62.673333333333325" height="116.56609240146338" fill="#f59e0b" rx="2"/>
+  <text x="549.6111111111111" y="217.43390759853662" text-anchor="middle" fill="#111827" font-weight="500">0.26%</text>
+  <text x="475" y="362" text-anchor="middle" font-weight="500" fill="#111827"><tspan x="475" dy="0">±7.5%</tspan></text>
+  <rect x="632.3855555555555" y="186.11256638308987" width="62.673333333333325" height="153.88743361691013" fill="#9333ea" rx="2"/>
+  <text x="663.7222222222222" y="180.11256638308987" text-anchor="middle" fill="#111827" font-weight="500">0.34%</text>
+  <rect x="706.9966666666666" y="186.91639404296876" width="62.673333333333325" height="153.08360595703124" fill="#0891b2" rx="2"/>
+  <text x="738.3333333333333" y="180.91639404296876" text-anchor="middle" fill="#111827" font-weight="500">0.34%</text>
+  <rect x="781.6077777777776" y="265.564283602778" width="62.673333333333325" height="74.435716397222" fill="#f59e0b" rx="2"/>
+  <text x="812.9444444444443" y="259.564283602778" text-anchor="middle" fill="#111827" font-weight="500">0.17%</text>
+  <text x="738.3333333333333" y="362" text-anchor="middle" font-weight="500" fill="#111827"><tspan x="738.3333333333333" dy="0">±10%</tspan></text>
+  <rect x="180" y="380" width="14" height="14" fill="#9333ea" rx="2"/>
+  <text x="200" y="391" fill="#111827">Two-sided breakeven</text>
+  <rect x="360" y="380" width="14" height="14" fill="#0891b2" rx="2"/>
+  <text x="380" y="391" fill="#111827">Unhedged LP breakeven</text>
+  <rect x="540" y="380" width="14" height="14" fill="#f59e0b" rx="2"/>
+  <text x="560" y="391" fill="#111827">Today's measured r_position</text>
+</svg>

@@ -213,6 +213,28 @@ export interface HeuristicBreakdown {
 }
 
 /**
+ * Check utilization headroom for a new cert with `capUsdc` reserving
+ * capacity. Returns the utilization ratio (PPM) if within limit, or
+ * null if the cert would push u_after above `pool.uMaxBps`.
+ *
+ * Extracted from `computeHeuristicFV` so `computeQuote` can perform
+ * the same check while pricing with the theoretical GH FV.
+ */
+export function checkUtilizationHeadroom(
+  capUsdc: number,
+  pool: PoolState,
+): { uAfterPpm: bigint } | null {
+  const cap = BigInt(capUsdc);
+  const reserves =
+    pool.reservesUsdc > 0 ? BigInt(pool.reservesUsdc) : 1_000_000n;
+  const active = BigInt(pool.activeCapUsdc);
+  const uAfterPpm = ((active + cap) * PPM_BI) / reserves;
+  const uMaxPpm = BigInt(pool.uMaxBps) * 100n;
+  if (uAfterPpm > uMaxPpm) return null;
+  return { uAfterPpm };
+}
+
+/**
  * Compute the heuristic fair-value proxy.
  *
  * This is the on-chain approximation of FV, using integer arithmetic
@@ -225,7 +247,11 @@ export interface HeuristicBreakdown {
  *   C_rep = Cap * carry_bps * tenor_sec / BPS / (100 * 86400)
  *   FV_heuristic = clamp(E[Payout] + C_cap + C_adv + C_rep, 0, ceiling)
  *
- * Returns -1 if utilization would be exceeded.
+ * NOTE: off-chain quoting uses `computeGaussHermiteFV_E6` via
+ * `computeQuote`; this heuristic is retained for the eventual on-chain
+ * Anchor program, which cannot run Simpson quadrature in BPF.
+ *
+ * Returns null if utilization would be exceeded.
  */
 export function computeHeuristicFV(
   capUsdc: number,
@@ -233,15 +259,10 @@ export function computeHeuristicFV(
   pool: PoolState,
   regime: RegimeSnapshot,
 ): HeuristicBreakdown | null {
+  const util = checkUtilizationHeadroom(capUsdc, pool);
+  if (!util) return null;
   const cap = BigInt(capUsdc);
-  const reserves =
-    pool.reservesUsdc > 0 ? BigInt(pool.reservesUsdc) : 1_000_000n;
-  const active = BigInt(pool.activeCapUsdc);
-
-  // Utilization check
-  const uAfterPpm = ((active + cap) * PPM_BI) / reserves;
-  const uMaxPpm = BigInt(pool.uMaxBps) * 100n;
-  if (uAfterPpm > uMaxPpm) return null; // Exceeds max utilization
+  const uAfterPpm = util.uAfterPpm;
 
   // p_hit = min(1, 0.9 * sigma * sqrt(T) / width)
   const sigmaPpm = BigInt(regime.sigmaPpm);
@@ -306,13 +327,22 @@ export interface QuoteParams {
 /**
  * Compute a full quote for a Liquidity Hedge certificate.
  *
- * Combines all pricing components:
- *   1. Compute natural cap from CL position
- *   2. Compute FV via heuristic (with GH available for validation)
- *   3. Compute fee discount
- *   4. Apply canonical formula: Premium = max(P_floor, FV * m_vol - y * E[F])
+ * Off-chain quote path: fair value comes from `computeGaussHermiteFV_E6`,
+ * i.e. Simpson quadrature of the signed-swap payoff under risk-neutral
+ * GBM. This is the **theoretical** fair value the paper defines. The
+ * on-chain-compatible `computeHeuristicFV` proxy is not used here —
+ * it's retained only for the future Anchor deployment, whose BPF
+ * runtime cannot afford Simpson(N=200).
+ *
+ * Pipeline:
+ *   1. Compute natural cap from the CL position
+ *   2. Check utilization headroom (refuse if u_after > u_max)
+ *   3. FV = Gauss-Hermite quadrature on Π(S_T) = V(S_0) − V(clamp(S_T, p_l, p_u))
+ *   4. FeeDiscount = y · E[F] = feeSplitRate · notional · expectedDailyFee · tenorDays
+ *   5. Premium = max(P_floor, FV · m_vol − FeeDiscount)   (canonical formula)
  *
  * @returns QuoteResult with full breakdown, or null if utilization exceeded
+ *          or natural cap is degenerate.
  */
 export function computeQuote(
   params: QuoteParams,
@@ -332,11 +362,24 @@ export function computeQuote(
 
   if (capUsdc <= 0) return null;
 
-  // Heuristic FV
-  const heuristic = computeHeuristicFV(capUsdc, template, pool, regime);
-  if (!heuristic) return null; // Utilization exceeded
+  // Utilization headroom
+  if (!checkUtilizationHeadroom(capUsdc, pool)) return null;
 
-  const fairValueUsdc = heuristic.totalUsdc;
+  // Theoretical fair value — Gauss-Hermite / Simpson quadrature.
+  const pL_E6 = Math.floor(pL * 1_000_000);
+  const pU_E6 = Math.floor(pU * 1_000_000);
+  let fairValueUsdc = computeGaussHermiteFV_E6(
+    entryPriceE6,
+    regime.sigmaPpm,
+    liquidity,
+    pL_E6,
+    pU_E6,
+    template.tenorSeconds,
+  );
+  // Clamp to the template's premium ceiling (same bound the heuristic applies).
+  if (fairValueUsdc > template.premiumCeilingUsdc) {
+    fairValueUsdc = template.premiumCeilingUsdc;
+  }
 
   // Effective markup
   const effectiveMarkup = regime.effectiveMarkup;
