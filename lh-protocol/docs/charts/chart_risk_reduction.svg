@@ -12,13 +12,13 @@
   <line x1="80" y1="100.00000000000001" x2="870" y2="100.00000000000001" stroke="#e5e7eb"/>
   <text x="72" y="104.00000000000001" text-anchor="end" fill="#6b7280">80</text>
   <text x="25" y="205" transform="rotate(-90 25 205)" text-anchor="middle" fill="#374151">Improvement vs unhedged (%)</text>
-  <rect x="105.71888888888888" y="273.10475237603396" width="62.673333333333325" height="66.89524762396604" fill="#a7f3d0" rx="2"/>
-  <text x="137.05555555555554" y="267.10475237603396" text-anchor="middle" fill="#111827" font-weight="500">22%</text>
-  <rect x="180.32999999999998" y="244.25566884373143" width="62.673333333333325" height="95.74433115626857" fill="#34d399" rx="2"/>
-  <text x="211.66666666666663" y="238.25566884373143" text-anchor="middle" fill="#111827" font-weight="500">32%</text>
-  <rect x="254.9411111111111" y="216.17585883519078" width="62.673333333333325" height="123.82414116480922" fill="#047857" rx="2"/>
-  <text x="286.27777777777777" y="210.17585883519078" text-anchor="middle" fill="#111827" font-weight="500">41%</text>
-  <text x="211.66666666666666" y="362" text-anchor="middle" font-weight="500" fill="#111827"><tspan x="211.66666666666666" dy="0">Volatility</tspan><tspan x="211.66666666666666" dy="14">reduction (all fees)</tspan></text>
+  <rect x="105.71888888888888" y="272.8" width="62.673333333333325" height="67.2" fill="#a7f3d0" rx="2"/>
+  <text x="137.05555555555554" y="266.8" text-anchor="middle" fill="#111827" font-weight="500">22%</text>
+  <rect x="180.32999999999998" y="244.0" width="62.673333333333325" height="96.0" fill="#34d399" rx="2"/>
+  <text x="211.66666666666663" y="238.0" text-anchor="middle" fill="#111827" font-weight="500">32%</text>
+  <rect x="254.9411111111111" y="216.1" width="62.673333333333325" height="123.9" fill="#047857" rx="2"/>
+  <text x="286.27777777777777" y="210.1" text-anchor="middle" fill="#111827" font-weight="500">41%</text>
+  <text x="211.66666666666666" y="362" text-anchor="middle" font-weight="500" fill="#111827"><tspan x="211.66666666666666" dy="0">Volatility</tspan><tspan x="211.66666666666666" dy="14">reduction (high fee)</tspan></text>
   <rect x="369.0522222222222" y="295.1930314665607" width="62.673333333333325" height="44.80696853343932" fill="#a7f3d0" rx="2"/>
   <text x="400.38888888888886" y="289.1930314665607" text-anchor="middle" fill="#111827" font-weight="500">15%</text>
   <rect x="443.6633333333333" y="211.47008873212107" width="62.673333333333325" height="128.52991126787893" fill="#34d399" rx="2"/>

@@ -82,7 +82,7 @@ describe("orca-volume-adapter", () => {
 
   describe("inRangeFraction (tenor-averaged)", () => {
     it("fraction ∈ [0, 1] for any input", () => {
-      for (const w of [100, 500, 1000, 2000]) {
+      for (const w of [100, 500, 750, 1000, 2000]) {
         for (const s of [0.3, 0.65, 1.2]) {
           for (const t of [3600, 86400, 7 * 86400]) {
             const f = inRangeFraction(w, s, t);

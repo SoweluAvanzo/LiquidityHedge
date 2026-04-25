@@ -376,8 +376,8 @@ function buildRiskReductionChart(d: ChartData): string {
 
   const groups: Group[] = [
     {
-      name: "Volatility\nreduction (all fees)",
-      bars: pick(d.volReduction, "Medium (0.25%/day)").map(({ w, v }) => ({
+      name: "Volatility\nreduction (high fee)",
+      bars: pick(d.volReduction, "High (0.45%/day)").map(({ w, v }) => ({
         label: w,
         value: v,
         color: widthColors[w],
