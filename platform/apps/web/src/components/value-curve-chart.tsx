@@ -119,11 +119,11 @@ export function ValueCurveChart({
   const hoverY = hover ? y(hover.value) : 0;
 
   return (
-    <div className="relative">
+    <div className="lh-chart">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
-        className="block w-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--chart-series)]"
+        className="lh-chart-svg"
         role="img"
         aria-label={`${pair} position value versus price. Value ranges from ${formatValue(vMin)} to ${formatValue(vMax)} as price moves from ${formatNumber(pMin)} to ${formatNumber(pMax)}. Current price ${formatNumber(price)}. Use arrow keys to inspect points.`}
         tabIndex={0}
@@ -144,15 +144,38 @@ export function ValueCurveChart({
           }
         }}
       >
-        {/* Active range [p_l, p_u]: series-hue wash */}
+        {/* Active range [p_l, p_u]: the range teal, the same colour the
+            landing figure draws the range band in */}
         {bandX2 > bandX1 && (
           <rect
             x={bandX1}
             y={PAD_T}
             width={bandX2 - bandX1}
             height={baselineY - PAD_T}
-            fill="var(--chart-band)"
+            fill="var(--chart-range-wash)"
           />
+        )}
+        {bandX2 > bandX1 && (
+          <g aria-hidden="true">
+            <line
+              x1={bandX1}
+              y1={PAD_T}
+              x2={bandX1}
+              y2={baselineY}
+              stroke="var(--chart-range)"
+              strokeWidth={1}
+              strokeDasharray="4 3"
+            />
+            <line
+              x1={bandX2}
+              y1={PAD_T}
+              x2={bandX2}
+              y2={baselineY}
+              stroke="var(--chart-range)"
+              strokeWidth={1}
+              strokeDasharray="4 3"
+            />
+          </g>
         )}
 
         {/* Baseline: solid hairline, recessive */}
@@ -275,7 +298,7 @@ export function ValueCurveChart({
       {/* Tooltip: value leads (strong), price follows (secondary) */}
       {hover && (
         <div
-          className="pointer-events-none absolute top-1 z-10 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
+          className="lh-chart-tip"
           style={
             hoverX < W / 2
               ? { left: `${((hoverX + 10) / W) * 100}%` }
@@ -287,8 +310,10 @@ export function ValueCurveChart({
             style={{ background: "var(--chart-series)" }}
             aria-hidden="true"
           />
-          <span className="font-semibold">{formatValue(hover.value)}</span>
-          <span className="ml-1.5 text-zinc-500 dark:text-zinc-400">
+          <span className="lh-num" style={{ fontWeight: 600 }}>
+            {formatValue(hover.value)}
+          </span>
+          <span className="lh-chart-tip-key" style={{ marginLeft: "0.4rem" }}>
             at {formatNumber(hover.price)}
           </span>
         </div>

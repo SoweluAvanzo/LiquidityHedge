@@ -96,11 +96,16 @@ export class CertificateLedger {
   }
 
   private commit(event: LedgerEvent): void {
+    // B3: VALIDATE BEFORE APPENDING. Appending first meant a violating
+    // event reached the persisted log, and every subsequent boot replayed
+    // it and threw again — bricking the ledger permanently until a human
+    // hand-edited the file. Asserting first keeps the log always-loadable:
+    // the bad transition is rejected and never persisted.
+    assertInvariants(this.state);
     // Deep-copy: some events carry records that continue to mutate in
     // state (quote status, payment matching). History must be immutable
     // or replay and Merkle anchoring would silently lie.
     this.events.push(structuredClone(event));
-    assertInvariants(this.state); // runtime verification after EVERY transition
   }
 
   // ── Model action: setPause ───────────────────────────────────────
@@ -130,6 +135,33 @@ export class CertificateLedger {
     for (const c of this.state.certs.values()) {
       if (c.status === "active" && c.positionMint === position.positionMint) {
         throw new LedgerError(`position ${position.positionMint} already protected`);
+      }
+    }
+    // A3: bounded ledger growth — the event log cannot be truncated.
+    if (
+      this.config.maxLifetimeQuotes > 0 &&
+      this.state.quotes.size >= this.config.maxLifetimeQuotes
+    ) {
+      throw new LedgerError(
+        `quote ceiling reached (${this.config.maxLifetimeQuotes}) — ledger compaction required`,
+      );
+    }
+    // A2: cap simultaneous open quotes per owner (griefing guard).
+    if (this.config.maxOpenQuotesPerOwner > 0) {
+      let open = 0;
+      for (const q of this.state.quotes.values()) {
+        if (
+          q.status === "open" &&
+          now <= q.validUntilTs &&
+          q.position.ownerWallet === position.ownerWallet
+        ) {
+          open++;
+        }
+      }
+      if (open >= this.config.maxOpenQuotesPerOwner) {
+        throw new LedgerError(
+          `too many open quotes for this owner (${open}) — wait for one to lapse`,
+        );
       }
     }
 
@@ -249,6 +281,12 @@ export class CertificateLedger {
     if (now > quote.validUntilTs) return undefined;
     if (payment.amountUsdc !== quote.totalPayableUsdc) return undefined; // exact only
     if (this.state.certs.has(quote.quoteId)) return undefined; // exactly-once
+    // SECURITY (A1): the payer MUST be the owner of the hedged position.
+    // Payment references are visible to anyone who can see a quote, so
+    // without this an attacker could pay first and have the settlement
+    // (and the position's protection) assigned to them. A mismatched
+    // payer leaves the payment unmatched → refundable.
+    if (payment.senderWallet !== quote.position.ownerWallet) return undefined;
     // FR-H9 per-buyer exposure cap (pilot risk budget per wallet).
     if (this.config.perBuyerCapDownLimitUsdc > 0) {
       let buyerExposure = 0;
@@ -270,7 +308,8 @@ export class CertificateLedger {
     const cert: CertificateRecord = {
       quoteId: quote.quoteId,
       positionMint: quote.position.positionMint,
-      buyerWallet: payment.senderWallet,
+      // Term sheet names the position owner as Buyer; keep them identical.
+      buyerWallet: quote.position.ownerWallet,
       premiumUsdc: quote.premiumUsdc,
       capDownUsdc: quote.capDownUsdc,
       capUpUsdc: quote.capUpUsdc,

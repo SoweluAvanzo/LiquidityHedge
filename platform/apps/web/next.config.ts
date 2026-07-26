@@ -40,12 +40,14 @@ const nextConfig: NextConfig = {
   // Workspace packages ship raw TypeScript (main: src/index.ts) — compile
   // them as part of the app bundle.
   transpilePackages: [
+    "@lh/commerce",
     "@lh/core",
     "@lh/hedge",
     "@lh/market-data",
     "@lh/ops-jobs",
     "@lh/portfolio",
     "@lh/risk-models",
+    "@lh/storage",
   ],
   // Image optimization disabled: no remote images and the `sharp` native
   // build script is declined in the workspace (supply-chain posture).

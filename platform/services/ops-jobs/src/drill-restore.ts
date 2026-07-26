@@ -22,7 +22,7 @@ const config: LedgerConfig = {
   uMaxBps: 3000, protocolFeeBps: 150, premiumFloorUsdc: 1_500_000,
   markupFloor: 1.05, feeSplitRate: 0.1, expectedDailyFee: 0.005,
   tenorSeconds: 604_800, quoteTtlSeconds: 120, regimeMaxAgeSeconds: 900,
-  perBuyerCapDownLimitUsdc: 0,
+  perBuyerCapDownLimitUsdc: 0, maxOpenQuotesPerOwner: 0, maxLifetimeQuotes: 0,
   masterTermsVersion: "drill", masterTermsHash: process.argv[3] ?? sha256Hex("drill"),
   treasuryAddress: "drill",
 };

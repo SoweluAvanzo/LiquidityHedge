@@ -129,11 +129,11 @@ export function FanChart({
   ];
 
   return (
-    <div className="relative">
+    <div className="lh-chart">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
-        className="block w-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--chart-series)]"
+        className="lh-chart-svg"
         role="img"
         aria-label={`Simulated ${yCaption} fan over ${weeks} weeks. Median ends at ${formatUsd(fan.p50[steps - 1])}; 90 percent of paths end between ${formatUsd(fan.p05[steps - 1])} and ${formatUsd(fan.p95[steps - 1])}. Initial value ${formatUsd(initialValue)}. Use arrow keys to inspect steps; full values in the data table below.`}
         tabIndex={0}
@@ -274,29 +274,35 @@ export function FanChart({
       </svg>
 
       {/* Axis caption — states what the y-axis measures (composition-aware) */}
-      <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-        y-axis: {yCaption}, USD · x-axis: weeks
-      </div>
+      <p className="lh-prov" style={{ marginTop: "0.35rem" }}>
+        <span className="lh-prov-item">
+          <span className="lh-prov-key">y-axis</span>
+          {yCaption}, USD
+        </span>
+        <span className="lh-prov-item">
+          <span className="lh-prov-key">x-axis</span>weeks
+        </span>
+      </p>
 
       {/* Tooltip: values lead (strong), quantile labels follow (secondary) */}
       {hover !== null && (
         <div
-          className="pointer-events-none absolute top-1 z-10 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
+          className="lh-chart-tip"
           style={
             hoverX < W / 2
               ? { left: `${((hoverX + 10) / W) * 100}%` }
               : { right: `${((W - hoverX + 10) / W) * 100}%` }
           }
         >
-          <div className="mb-0.5 text-zinc-500 dark:text-zinc-400">
+          <div className="lh-chart-tip-head">
             {weekLabel(hover)} (day {hover})
           </div>
           {TOOLTIP_ROWS.map(({ key, label }) => (
-            <div key={key} className="flex items-baseline justify-between gap-3">
-              <span className="text-zinc-500 dark:text-zinc-400">{label}</span>
+            <div key={key} className="lh-chart-tip-row">
+              <span className="lh-chart-tip-key">{label}</span>
               <span
-                className={key === "p50" ? "font-semibold" : ""}
-                style={{ fontVariantNumeric: "tabular-nums" }}
+                className="lh-num"
+                style={{ fontWeight: key === "p50" ? 600 : 400 }}
               >
                 {formatUsd(fan[key][hover])}
               </span>
@@ -306,33 +312,31 @@ export function FanChart({
       )}
 
       {/* Table twin: every value reachable without hover (weekly rows) */}
-      <details className="mt-2">
-        <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300">
-          Data table (weekly quantiles)
-        </summary>
-        <div className="mt-2 overflow-x-auto">
-          <table className="w-full text-xs" style={{ fontVariantNumeric: "tabular-nums" }}>
+      <details className="lh-disclosure" style={{ marginTop: "0.6rem" }}>
+        <summary>Data table (weekly quantiles)</summary>
+        <div className="lh-disclosure-body" style={{ overflowX: "auto" }}>
+          <table className="lh-table">
             <thead>
-              <tr className="text-left text-zinc-500 dark:text-zinc-400">
-                <th className="py-1 pr-3 font-medium">Week</th>
-                <th className="py-1 pr-3 font-medium">p05</th>
-                <th className="py-1 pr-3 font-medium">p25</th>
-                <th className="py-1 pr-3 font-medium">Median</th>
-                <th className="py-1 pr-3 font-medium">p75</th>
-                <th className="py-1 pr-3 font-medium">p95</th>
+              <tr>
+                <th scope="col">Week</th>
+                <th scope="col">p05</th>
+                <th scope="col">p25</th>
+                <th scope="col">Median</th>
+                <th scope="col">p75</th>
+                <th scope="col">p95</th>
               </tr>
             </thead>
             <tbody>
               {Array.from({ length: Math.floor((steps - 1) / 7) + 1 }, (_, w) => {
                 const i = Math.min(w * 7, steps - 1);
                 return (
-                  <tr key={w} className="border-t border-zinc-100 dark:border-zinc-800">
-                    <td className="py-1 pr-3">{w}</td>
-                    <td className="py-1 pr-3">{formatUsd(fan.p05[i])}</td>
-                    <td className="py-1 pr-3">{formatUsd(fan.p25[i])}</td>
-                    <td className="py-1 pr-3 font-medium">{formatUsd(fan.p50[i])}</td>
-                    <td className="py-1 pr-3">{formatUsd(fan.p75[i])}</td>
-                    <td className="py-1 pr-3">{formatUsd(fan.p95[i])}</td>
+                  <tr key={w}>
+                    <td className="lh-td-num">{w}</td>
+                    <td className="lh-td-num">{formatUsd(fan.p05[i])}</td>
+                    <td className="lh-td-num">{formatUsd(fan.p25[i])}</td>
+                    <td className="lh-td-num">{formatUsd(fan.p50[i])}</td>
+                    <td className="lh-td-num">{formatUsd(fan.p75[i])}</td>
+                    <td className="lh-td-num">{formatUsd(fan.p95[i])}</td>
                   </tr>
                 );
               })}

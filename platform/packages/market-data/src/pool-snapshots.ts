@@ -37,6 +37,44 @@ export interface PoolSnapshot {
   feeGrowthGlobalA: string;
   /** Same for token B. */
   feeGrowthGlobalB: string;
+  /** Pool vault balance, token A native units (u64, stringified).
+   *  Optional: absent in snapshots taken before TVL capture existed. */
+  vaultA?: string;
+  /** Pool vault balance, token B native units. */
+  vaultB?: string;
+}
+
+/**
+ * Exact on-chain TVL at a snapshot, denominated in TOKEN B (the quote
+ * token): vaultB + vaultA × price. Independent of any market-data vendor.
+ *
+ * This is USD only when token B is a USD stablecoin — for e.g. SOL/JitoSOL
+ * the result is in JitoSOL. Callers that aggregate across pools MUST check
+ * the quote token (see `isUsdQuote`) or they will sum incommensurable units.
+ * Returns null for snapshots taken before vault capture existed.
+ */
+export function snapshotTvlQuote(
+  snapshot: PoolSnapshot,
+  decimalsA: number,
+  decimalsB: number,
+): number | null {
+  if (snapshot.vaultA === undefined || snapshot.vaultB === undefined) return null;
+  return (
+    (Number(BigInt(snapshot.vaultA)) / 10 ** decimalsA) * snapshot.price +
+    Number(BigInt(snapshot.vaultB)) / 10 ** decimalsB
+  );
+}
+
+/** USD-pegged quote mints — the only pools whose quote-denominated TVL is USD. */
+const USD_QUOTE_MINTS = new Set([
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC
+  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", // USDT
+  "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA", //  USDS
+  "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH", // USDG
+]);
+
+export function isUsdQuote(quoteMint: string): boolean {
+  return USD_QUOTE_MINTS.has(quoteMint);
 }
 
 /** Wrap-safe delta in mod-2^128 arithmetic (feeGrowth counters wrap). */

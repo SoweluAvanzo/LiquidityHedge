@@ -28,6 +28,8 @@ const CONFIG: LedgerConfig = {
   quoteTtlSeconds: 120,
   regimeMaxAgeSeconds: 900,
   perBuyerCapDownLimitUsdc: 0,
+  maxOpenQuotesPerOwner: 5,
+  maxLifetimeQuotes: 100_000,
   masterTermsVersion: "0.1-draft",
   masterTermsHash: sha256Hex("master-terms-0.1-draft"),
   treasuryAddress: "TREASURYaddr11111111111111111111111111111111",
@@ -107,7 +109,8 @@ describe("@lh/hedge model-based random sequences (bridge to lh_ledger.qnt)", () 
               const res = ledger.observePayment({
                 txSignature: sig,
                 referenceKey: q.referenceKey,
-                senderWallet: "buyer",
+                // A1: only the position owner can activate.
+                senderWallet: q.position.ownerWallet,
                 amountUsdc: amount,
               });
               if (res.activated) activations++;

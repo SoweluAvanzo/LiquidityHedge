@@ -11,10 +11,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import type { PortfolioResponse } from "@/lib/portfolio-api";
+import { apiFetch, errorMessage, retryAtFrom } from "@/lib/api-client";
 import { formatUsd } from "@/lib/format";
+import { RateLimitNotice } from "@/components/ui/rate-limit-notice";
 import { PositionCard } from "@/components/position-card";
 import { SimulateSection } from "@/components/simulate-section";
 import { HedgeTransparencyFooter } from "@/components/hedge-footer";
+
+/**
+ * A real portfolio anyone can open without a wallet — the fastest way to
+ * see what the dashboard actually does. Public address, read-only.
+ */
+const EXAMPLE_OWNER = "6A3JVW6LMuYE1eriipCPWchf1riGqem1cenpCyVMHAXj";
 
 function validatePubkey(input: string): string | null {
   try {
@@ -24,23 +32,31 @@ function validatePubkey(input: string): string | null {
   }
 }
 
-function StatTile({ label, value }: { label: string; value: string }) {
+function Fact({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+}) {
   return (
-    <div className="rounded-lg border border-zinc-200 px-4 py-3 dark:border-zinc-800">
-      <div className="text-xs text-zinc-500 dark:text-zinc-400">{label}</div>
-      <div className="mt-1 text-xl font-semibold tracking-tight">{value}</div>
+    <div className="lh-fact">
+      <span className="lh-fact-label">{label}</span>
+      <p className="lh-fact-value lh-fact-value-lg">{value}</p>
+      {sub && <p className="lh-fact-sub">{sub}</p>}
     </div>
   );
 }
 
 function SummarySkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-hidden="true">
+    <div className="lh-facts lh-facts-4" aria-hidden="true">
       {Array.from({ length: 4 }).map((_, i) => (
-        <div
-          key={i}
-          className="h-[74px] animate-pulse rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900"
-        />
+        <div key={i} className="lh-fact" style={{ height: "4.6rem" }}>
+          <div className="lh-skeleton" style={{ height: "100%" }} />
+        </div>
       ))}
     </div>
   );
@@ -48,20 +64,23 @@ function SummarySkeleton() {
 
 function CardSkeleton() {
   return (
-    <div
-      className="h-72 animate-pulse rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900"
-      aria-hidden="true"
-    />
+    <div className="lh-skeleton" style={{ height: "18rem" }} aria-hidden="true" />
   );
 }
 
-export function PortfolioDashboard({ walletAddress }: { walletAddress: string | null }) {
+export function PortfolioDashboard({
+  walletAddress,
+}: {
+  walletAddress: string | null;
+}) {
   const [watchInput, setWatchInput] = useState("");
   const [watchAddress, setWatchAddress] = useState<string | null>(null);
   const [watchError, setWatchError] = useState<string | null>(null);
 
   const [data, setData] = useState<PortfolioResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Set when the API answered 429; until it passes, asking again is futile.
+  const [retryAtTs, setRetryAtTs] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -78,21 +97,17 @@ export function PortfolioDashboard({ walletAddress }: { walletAddress: string | 
     if (controller.signal.aborted) return;
     setLoading(true);
     setError(null);
+    setRetryAtTs(null);
     try {
-      const res = await fetch(
+      const body = await apiFetch<PortfolioResponse>(
         `/api/portfolio?owner=${encodeURIComponent(ownerKey)}`,
-        { signal: controller.signal, cache: "no-store" },
+        { signal: controller.signal },
       );
-      const body = await res.json();
-      if (!res.ok) {
-        throw new Error(
-          typeof body?.error === "string" ? body.error : `Request failed (${res.status})`,
-        );
-      }
-      setData(body as PortfolioResponse);
+      setData(body);
     } catch (err) {
       if (controller.signal.aborted) return;
-      setError(err instanceof Error ? err.message : "Failed to load portfolio.");
+      setRetryAtTs(retryAtFrom(err));
+      setError(errorMessage(err, "Failed to load portfolio."));
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
@@ -105,6 +120,7 @@ export function PortfolioDashboard({ walletAddress }: { walletAddress: string | 
     setPrevOwner(owner);
     setData(null);
     setError(null);
+    setRetryAtTs(null);
   }
 
   useEffect(() => {
@@ -117,131 +133,213 @@ export function PortfolioDashboard({ walletAddress }: { walletAddress: string | 
     return () => abortRef.current?.abort();
   }, [owner, load]);
 
-  const applyWatch = () => {
-    if (watchInput.trim() === "") {
+  const applyWatch = (raw?: string) => {
+    const value = raw ?? watchInput;
+    if (value.trim() === "") {
       setWatchAddress(null);
       setWatchError(null);
       return;
     }
-    const key = validatePubkey(watchInput);
+    const key = validatePubkey(value);
     if (!key) {
       setWatchError("Not a valid base58 Solana public key.");
       return;
     }
     setWatchError(null);
+    setWatchInput(key);
     setWatchAddress(key);
   };
 
-  const asOfLabel = data ? new Date(data.asOf).toLocaleTimeString() : null;
+  const asOfLabel = data
+    ? new Date(data.asOf).toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      })
+    : null;
   const initialLoading = loading && !data;
   const refreshing = loading && !!data;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="lh-stack">
+      <div className="lh-page-head" style={{ marginBottom: 0 }}>
+        <div>
+          <p className="lh-eyebrow">Dashboard · Orca Whirlpools · Solana</p>
+          <h1 className="lh-h1">Concentrated-liquidity positions.</h1>
+        </div>
+        <p className="lh-note" style={{ maxWidth: "34ch" }}>
+          Read-only. No signature is ever requested and no key or seed phrase
+          is ever asked for.
+        </p>
+      </div>
+
       {/* Watch-address input — read-only watch mode (FR-W3) */}
-      <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-        <label
-          htmlFor="watch-address"
-          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+      <section className="lh-card lh-card-tight" aria-labelledby="watch-label">
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "flex-end",
+            gap: "0.6rem",
+          }}
         >
-          Watch address <span className="font-normal text-zinc-500 dark:text-zinc-400">(read-only watch mode)</span>
-        </label>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <input
-            id="watch-address"
-            type="text"
-            inputMode="text"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Paste any Solana public address to watch it"
-            value={watchInput}
-            onChange={(e) => setWatchInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") applyWatch();
-            }}
-            className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 font-mono text-sm placeholder:font-sans focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:focus:border-zinc-400"
-          />
+          <div className="lh-field" style={{ flex: "1 1 22rem" }}>
+            <label className="lh-label" htmlFor="watch-address" id="watch-label">
+              Watch address{" "}
+              <span className="lh-label-optional">(read-only watch mode)</span>
+            </label>
+            <input
+              id="watch-address"
+              className="lh-input lh-input-mono"
+              type="text"
+              inputMode="text"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Paste any Solana public address to watch it"
+              value={watchInput}
+              aria-invalid={!!watchError}
+              aria-describedby="watch-help"
+              onChange={(e) => setWatchInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applyWatch();
+              }}
+            />
+          </div>
           <button
             type="button"
-            onClick={applyWatch}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            className="lh-btn lh-btn-ghost"
+            onClick={() => applyWatch()}
           >
             Watch
           </button>
           {watchAddress && (
             <button
               type="button"
+              className="lh-btn lh-btn-quiet"
               onClick={() => {
                 setWatchAddress(null);
                 setWatchInput("");
                 setWatchError(null);
               }}
-              className="rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
             >
               Clear
             </button>
           )}
         </div>
         {watchError && (
-          <p className="mt-2 text-sm text-red-600 dark:text-red-400" role="alert">
+          <p className="lh-error-text" role="alert" style={{ marginTop: "0.5rem" }}>
             {watchError}
           </p>
         )}
-        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-          Watching only reads public on-chain data — no signatures are requested.
-          Enter a public address only; never enter a seed phrase or private key.
+        <p className="lh-help" id="watch-help" style={{ marginTop: "0.5rem" }}>
+          Watching only reads public on-chain data — no signature is ever
+          requested. Enter a public address only; never enter a seed phrase or
+          private key.
         </p>
       </section>
 
       {!owner ? (
-        <section className="mx-auto mt-10 max-w-md text-center">
-          <h1 className="text-lg font-semibold tracking-tight">
-            Connect a wallet or watch an address to view positions
-          </h1>
-          <p className="mt-3 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-            This app is read-only: it only reads public on-chain data for the
-            wallet you connect or the address you watch. It never requests
-            transaction signatures and will never ask for your seed phrase or
-            private keys.
+        <section className="lh-card" aria-labelledby="empty-h">
+          <p className="lh-eyebrow">Nothing loaded yet</p>
+          <h2 className="lh-h2" id="empty-h" style={{ marginTop: "0.35rem" }}>
+            Read any Orca Whirlpool position, straight from the chain.
+          </h2>
+          <p className="lh-lead">
+            Paste a public Solana address above, or connect a wallet, and this
+            page reads every Orca Whirlpool position that address owns: its
+            value and token split, its range and whether the price is inside it
+            right now, uncollected fees, the V(S) payoff curve, and a viability
+            index that sets measured fee yield against the breakeven the range
+            needs. It is read-only by construction — it never requests a
+            transaction signature and will never ask for a seed phrase.
           </p>
+
+          <div className="lh-btn-row" style={{ marginTop: "1.5rem" }}>
+            <button
+              type="button"
+              className="lh-btn"
+              onClick={() => applyWatch(EXAMPLE_OWNER)}
+            >
+              View an example portfolio
+            </button>
+            <span className="lh-help">
+              Loads the public address{" "}
+              <span className="lh-num">{EXAMPLE_OWNER}</span> in watch mode. No
+              wallet, no account.
+            </span>
+          </div>
+
+          <ul className="lh-list" style={{ marginTop: "1.75rem" }}>
+            <li>
+              <b>Three independent simulators.</b> Geometric Brownian motion, an
+              empirical bootstrap of historical returns, and historical replay
+              of the path the market actually took.
+            </li>
+            <li>
+              <b>Every model number is labelled.</b> Which estimator produced
+              it, over which window, with which uncertainty band.
+            </li>
+            <li>
+              <b>Server-side RPC.</b>{" "}
+              Chain access runs through this app&rsquo;s own API, so no provider
+              key or endpoint reaches your browser.
+            </li>
+          </ul>
         </section>
       ) : (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-sm text-zinc-600 dark:text-zinc-400">
-              {watchAddress ? "Watching" : "Connected"}:{" "}
-              <span className="break-all font-mono text-xs">{owner}</span>
-            </div>
-            <div className="flex items-center gap-3">
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "0.5rem 1rem",
+            }}
+          >
+            <p className="lh-prov">
+              <span className="lh-prov-key">
+                {watchAddress ? "watching" : "connected"}
+              </span>
+              <span style={{ wordBreak: "break-all" }}>{owner}</span>
+            </p>
+            <div className="lh-btn-row">
               {asOfLabel && (
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                  As of {asOfLabel}
-                </span>
+                <span className="lh-card-meta">as of {asOfLabel}</span>
               )}
               <button
                 type="button"
+                className="lh-btn lh-btn-ghost"
                 onClick={() => owner && load(owner)}
                 disabled={loading}
-                className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
               >
                 {loading ? "Refreshing…" : "Refresh"}
               </button>
             </div>
           </div>
 
-          {error ? (
-            <section className="rounded-lg border border-red-200 bg-red-50 p-6 text-center dark:border-red-900 dark:bg-red-950/40">
-              <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
-              <button
-                type="button"
-                onClick={() => owner && load(owner)}
-                className="mt-3 rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/40"
-              >
-                Retry
-              </button>
+          {retryAtTs !== null ? (
+            <RateLimitNotice
+              retryAtTs={retryAtTs}
+              what="Portfolio reads"
+              onRetry={() => owner && load(owner)}
+            />
+          ) : error ? (
+            <section className="lh-callout" data-tone="alert">
+              <p className="lh-callout-h">Could not load this portfolio</p>
+              <p>{error}</p>
+              <div className="lh-btn-row" style={{ marginTop: "0.85rem" }}>
+                <button
+                  type="button"
+                  className="lh-btn lh-btn-ghost"
+                  onClick={() => owner && load(owner)}
+                >
+                  Try again
+                </button>
+              </div>
             </section>
           ) : initialLoading ? (
-            <div className="flex flex-col gap-6">
+            <div className="lh-stack">
               <SummarySkeleton />
               <CardSkeleton />
               <CardSkeleton />
@@ -250,36 +348,51 @@ export function PortfolioDashboard({ walletAddress }: { walletAddress: string | 
             // On refetch, hold the previous render at reduced opacity —
             // no skeleton flash, no layout jump.
             <div
-              className={`flex flex-col gap-6 transition-opacity ${refreshing ? "opacity-60" : ""}`}
+              className={`lh-stack${refreshing ? " lh-dim" : ""}`}
               aria-busy={refreshing}
             >
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <StatTile
-                  label="Total value (USDC-quoted)"
+              <dl className="lh-facts lh-facts-4">
+                <Fact
+                  label="Total value"
                   value={formatUsd(data.summary.totalValueUsd)}
+                  sub="USDC-quoted positions only"
                 />
-                <StatTile
+                <Fact
                   label="Positions"
                   value={String(data.summary.positionsCount)}
                 />
-                <StatTile
+                <Fact
                   label="In range"
                   value={`${data.summary.inRangeCount} of ${data.summary.positionsCount}`}
+                  sub="price inside [p_l, p_u] right now"
                 />
-                <StatTile
-                  label="Unpriced (non-USDC)"
+                <Fact
+                  label="Unpriced"
                   value={String(data.summary.unpricedCount)}
+                  sub="non-USDC quote — value not converted"
                 />
-              </div>
+              </dl>
 
               {data.positions.length === 0 ? (
-                <section className="rounded-lg border border-dashed border-zinc-300 p-10 text-center dark:border-zinc-700">
-                  <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                    No Orca Whirlpool positions found for this address.
+                <section className="lh-card lh-card-dashed">
+                  <h2 className="lh-h2">No Orca Whirlpool positions here</h2>
+                  <p className="lh-p">
+                    This address owns no Orca Whirlpool position NFTs. Check the
+                    address, or load the example portfolio to see the dashboard
+                    with data in it.
                   </p>
+                  <div className="lh-btn-row" style={{ marginTop: "1rem" }}>
+                    <button
+                      type="button"
+                      className="lh-btn lh-btn-ghost"
+                      onClick={() => applyWatch(EXAMPLE_OWNER)}
+                    >
+                      View an example portfolio
+                    </button>
+                  </div>
                 </section>
               ) : (
-                <div className="flex flex-col gap-4">
+                <div className="lh-stack">
                   {data.positions.map((position) => (
                     <PositionCard
                       key={position.positionAddress}

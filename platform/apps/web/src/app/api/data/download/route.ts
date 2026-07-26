@@ -1,0 +1,197 @@
+/**
+ * GET /api/data/download?orderId=…&token=… — the purchased dataset.
+ *
+ * The token is single-use-scoped, time-limited and stored hashed; access
+ * is checked against the ledger on every request, never against a cookie
+ * or client state. The payload is the consolidated pool-snapshot CSV.
+ */
+import { type NextRequest, NextResponse } from "next/server";
+import { checkLimit, tooManyRequests } from "@/lib/server/rate-limit";
+import { readdirSync, readFileSync, existsSync } from "fs";
+import path from "path";
+import { PoolSnapshot, snapshotTvlQuote, isUsdQuote } from "@lh/market-data";
+import { CommerceUnavailableError, commerceConfig, withOrders } from "@/lib/server/order-ledger";
+import { createPool } from "@lh/storage";
+
+export const dynamic = "force-dynamic";
+
+interface TrackedPoolMeta {
+  address: string;
+  symbolA: string;
+  symbolB: string;
+  decimalsA: number;
+  decimalsB: number;
+  quoteMint: string;
+}
+
+function snapshotDir(): string {
+  return process.env.SNAPSHOT_DIR ?? path.resolve(process.cwd(), "../../.data/pool-snapshots");
+}
+
+function csvCell(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  const raw = typeof v === "object" ? JSON.stringify(v) : String(v);
+  return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
+}
+
+/** Build the consolidated long-format CSV (same shape as the email export). */
+function buildDatasetCsv(dir: string): { csv: string; rows: number } {
+  if (!existsSync(dir)) return { csv: "", rows: 0 };
+  const metaFile = path.join(dir, "tracked-pools.json");
+  const meta = new Map<string, TrackedPoolMeta>();
+  if (existsSync(metaFile)) {
+    try {
+      const parsed = JSON.parse(readFileSync(metaFile, "utf8")) as { pools?: TrackedPoolMeta[] };
+      for (const p of parsed.pools ?? []) meta.set(p.address, p);
+    } catch {
+      /* metadata is optional */
+    }
+  }
+
+  const cols = [
+    "pool", "pair", "t", "iso", "price", "liquidity",
+    "feeGrowthGlobalA", "feeGrowthGlobalB", "vaultA", "vaultB",
+    "decimalsA", "decimalsB", "tvlQuote", "quoteIsUsd",
+  ];
+  const lines: string[] = [cols.join(",")];
+  let rows = 0;
+
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".snapshots.jsonl"))) {
+    const address = f.replace(".snapshots.jsonl", "");
+    const m = meta.get(address);
+    const decA = m?.decimalsA ?? 9;
+    const decB = m?.decimalsB ?? 6;
+    for (const line of readFileSync(path.join(dir, f), "utf8").split("\n")) {
+      if (!line.trim()) continue;
+      let s: PoolSnapshot;
+      try {
+        s = JSON.parse(line) as PoolSnapshot;
+      } catch {
+        continue;
+      }
+      lines.push([
+        address,
+        m ? `${m.symbolA}/${m.symbolB}` : "",
+        s.t,
+        new Date(s.t * 1000).toISOString(),
+        s.price,
+        s.liquidity,
+        s.feeGrowthGlobalA,
+        s.feeGrowthGlobalB,
+        s.vaultA ?? "",
+        s.vaultB ?? "",
+        decA,
+        decB,
+        snapshotTvlQuote(s, decA, decB) ?? "",
+        m ? isUsdQuote(m.quoteMint) : "",
+      ].map(csvCell).join(","));
+      rows++;
+    }
+  }
+  return { csv: lines.join("\n"), rows };
+}
+
+/**
+ * P2: stream the dataset straight out of Postgres with COPY. Constant
+ * memory and no event-loop block — the previous in-memory build would
+ * OOM the container at ~1M rows and hit V8's string limit at ~2.6M.
+ */
+async function streamFromPostgres(dsn: string): Promise<Response | null> {
+  const pool = createPool({ connectionString: dsn, maxConnections: 2 });
+  try {
+    const { rows } = await pool.query(`SELECT count(*)::bigint AS n FROM lh.pool_snapshots`);
+    if (Number(rows[0]?.n ?? 0) === 0) return null;
+
+    // pg-copy-streams ships no types; the surface we use is one function.
+    const { to: copyTo } = await import("pg-copy-streams");
+    const client = await pool.connect();
+    const sql = `COPY (
+        SELECT s.pool,
+               coalesce(p.symbol_a || '/' || p.symbol_b, '') AS pair,
+               s.t,
+               to_char(to_timestamp(s.t) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS iso,
+               s.price, s.liquidity, s.fee_growth_global_a, s.fee_growth_global_b,
+               s.vault_a, s.vault_b, p.decimals_a, p.decimals_b
+          FROM lh.pool_snapshots s
+          LEFT JOIN lh.tracked_pools p ON p.address = s.pool
+         ORDER BY s.pool, s.t
+      ) TO STDOUT WITH (FORMAT csv, HEADER true)`;
+    const source = client.query(
+      copyTo(sql) as unknown as Parameters<typeof client.query>[0],
+    ) as unknown as NodeJS.ReadableStream;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        source.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+        source.on("end", () => {
+          controller.close();
+          client.release();
+          void pool.end();
+        });
+        source.on("error", (err: Error) => {
+          controller.error(err);
+          client.release();
+          void pool.end();
+        });
+      },
+    });
+    return new NextResponse(body as unknown as BodyInit, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="lh-orca-fee-growth-${new Date().toISOString().slice(0, 10)}.csv"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (e) {
+    console.error("[api/data/download] postgres stream failed:", e);
+    await pool.end().catch(() => undefined);
+    return null;
+  }
+}
+
+export async function GET(req: NextRequest) {
+  // A10: cost-tiered rate limit, keyed on the trusted last hop.
+  const limit = checkLimit(req, "download");
+  if (!limit.ok) return tooManyRequests(limit);
+  try {
+    commerceConfig();
+  } catch (e) {
+    if (e instanceof CommerceUnavailableError) {
+      return NextResponse.json({ error: "Data sales are not configured." }, { status: 503 });
+    }
+    throw e;
+  }
+
+  const orderId = req.nextUrl.searchParams.get("orderId") ?? "";
+  const token = req.nextUrl.searchParams.get("token") ?? "";
+  if (!/^[a-f0-9]{4,64}$/i.test(orderId) || token.length < 16 || token.length > 128) {
+    return NextResponse.json({ error: "Invalid download link." }, { status: 400 });
+  }
+
+  const ok = await withOrders((l) => l.checkDownloadToken(orderId, token));
+  if (!ok) {
+    // One message for wrong/expired/unknown — no oracle for probing.
+    return NextResponse.json({ error: "This download link is invalid or has expired." }, { status: 403 });
+  }
+
+  // P0: production data lives in Postgres; the JSONL path remains for dev.
+  const dsn = process.env.DATABASE_URL;
+  if (dsn) {
+    const streamed = await streamFromPostgres(dsn);
+    if (streamed) return streamed;
+  }
+
+  const { csv, rows } = buildDatasetCsv(snapshotDir());
+  if (rows === 0) {
+    return NextResponse.json({ error: "Dataset is not available yet." }, { status: 503 });
+  }
+  return new NextResponse(csv, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="lh-orca-fee-growth-${new Date().toISOString().slice(0, 10)}.csv"`,
+      "Cache-Control": "no-store",
+      "X-Row-Count": String(rows),
+    },
+  });
+}

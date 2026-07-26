@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Hedge transparency footer (Master Terms §9.1: reserve and exposure
+ * Hedge transparency panel (Master Terms §9.1: reserve and exposure
  * figures are published on the Site). Renders only when the ledger has
  * any activity; shows the treasury address, net reserves, active
  * exposure, the runtime invariant status and the paused flag from the
@@ -10,23 +10,8 @@
 
 import { useEffect, useState } from "react";
 import type { HedgeStatusResponse } from "@/lib/hedge-api";
-import { formatUsdc } from "@/lib/hedge-api";
-import { shortenAddress } from "@/lib/format";
+import { formatUsdc, shortenAddress } from "@/lib/format";
 import { StatusBadge } from "@/components/status-badge";
-
-function FooterStat({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="text-xs text-zinc-600 dark:text-zinc-400">
-      {label}:{" "}
-      <span
-        className="font-medium text-zinc-900 dark:text-zinc-100"
-        style={{ fontVariantNumeric: "tabular-nums" }}
-      >
-        {value}
-      </span>
-    </span>
-  );
-}
 
 export function HedgeTransparencyFooter() {
   const [status, setStatus] = useState<HedgeStatusResponse | null>(null);
@@ -54,25 +39,35 @@ export function HedgeTransparencyFooter() {
   if (!status || !status.hasActivity) return null;
 
   return (
-    <footer className="rounded-lg border border-zinc-200 px-4 py-3 dark:border-zinc-800">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-          Hedge transparency
-        </span>
-        <span className="text-xs text-zinc-600 dark:text-zinc-400">
-          Treasury:{" "}
-          <span className="font-mono" title={status.treasuryAddress}>
-            {shortenAddress(status.treasuryAddress)}
+    <section className="lh-card lh-card-tight" aria-labelledby="hedge-transparency-h">
+      <p className="lh-label-block" id="hedge-transparency-h">
+        Hedge transparency
+      </p>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: "0.5rem 1.25rem",
+          marginTop: "0.6rem",
+        }}
+      >
+        <span className="lh-prov">
+          <span className="lh-prov-item">
+            <span className="lh-prov-key">treasury</span>
+            <span title={status.treasuryAddress}>
+              {shortenAddress(status.treasuryAddress)}
+            </span>
+          </span>
+          <span className="lh-prov-item">
+            <span className="lh-prov-key">net reserves</span>
+            {formatUsdc(status.monitor.netReservesUsdc)}
+          </span>
+          <span className="lh-prov-item">
+            <span className="lh-prov-key">active exposure</span>
+            {formatUsdc(status.monitor.activeExposureUsdc)}
           </span>
         </span>
-        <FooterStat
-          label="Net reserves"
-          value={formatUsdc(status.monitor.netReservesUsdc)}
-        />
-        <FooterStat
-          label="Active exposure"
-          value={formatUsdc(status.monitor.activeExposureUsdc)}
-        />
         <StatusBadge
           tone={status.monitor.invariants.ok ? "good" : "critical"}
           label={
@@ -84,11 +79,11 @@ export function HedgeTransparencyFooter() {
           label={status.monitor.paused ? "Quoting paused" : "Quoting live"}
         />
       </div>
-      <p className="mt-1.5 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
-        Figures reported by the ledger&rsquo;s runtime invariant monitor; treasury
-        balances are verifiable on-chain. Informational only — not investment
-        advice.
+      <p className="lh-help" style={{ marginTop: "0.6rem" }}>
+        Figures reported by the ledger&rsquo;s runtime invariant monitor;
+        treasury balances are verifiable on-chain. Informational only — not
+        investment advice.
       </p>
-    </footer>
+    </section>
   );
 }

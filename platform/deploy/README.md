@@ -23,7 +23,7 @@ only Caddy can reach it on the internal network.
 git clone <repo> && cd LiquidityHedge/platform/deploy
 cp .env.example .env && $EDITOR .env       # domain + keys
 docker compose up -d --build
-docker compose --profile jobs run --rm regime-updater   # then add to cron (*/10)
+docker compose --profile jobs run --rm regime-updater   # diagnostic, on demand (NOT on a 10-min cron — see P5)
 ```
 
 Point the domain's DNS at the VPS through Cloudflare (proxied/orange cloud, SSL mode
@@ -38,14 +38,32 @@ Point the domain's DNS at the VPS through Cloudflare (proxied/orange cloud, SSL 
    → restic → offsite (B2); quarterly restore drill per RB-6.
 5. Time sync (chrony) — settlement timestamps depend on it.
 
-## Local smoke test (no TLS, port 8080)
+## Running locally (no TLS, port 8080)
 
 ```bash
-cd platform/deploy
+cd /home/sowelo/Scrivania/LiquidityHedge/platform/deploy
+
+# start (build + run in background)
 docker compose -f docker-compose.yml -f compose.local.yml up -d --build
-curl -i http://localhost:8080/                 # 200, security headers present
-curl -i http://localhost:8080/api/hedge/dev/x  # 403 (blocked at the edge)
+
+# → http://localhost:8080
+
+# status / logs
+docker compose -f docker-compose.yml -f compose.local.yml ps
+docker compose -f docker-compose.yml -f compose.local.yml logs -f web
+
+# stop
 docker compose -f docker-compose.yml -f compose.local.yml down
+
+# stop and also wipe data volumes (event ledger + snapshots)
+docker compose -f docker-compose.yml -f compose.local.yml down -v
+```
+
+Smoke checks:
+
+```bash
+curl -i http://localhost:8080/                 # 200, security headers + CSP present
+curl -i http://localhost:8080/api/hedge/dev/x  # 403 (blocked at the edge)
 ```
 
 ## Known limitations (tracked)

@@ -20,6 +20,8 @@ const CONFIG: LedgerConfig = {
   quoteTtlSeconds: 120,
   regimeMaxAgeSeconds: 900,
   perBuyerCapDownLimitUsdc: 0,
+  maxOpenQuotesPerOwner: 5,
+  maxLifetimeQuotes: 100_000,
   masterTermsVersion: "0.1-draft",
   masterTermsHash: sha256Hex("t"),
   treasuryAddress: "TREASURYaddr11111111111111111111111111111111",
@@ -27,6 +29,7 @@ const CONFIG: LedgerConfig = {
 
 const RUN: RunnerConfig = {
   hotWalletFloatCapUsdc: 50_000_000_000,
+  minRefundUsdc: 100_000, // $0.10 dust floor
   maxDivergenceBps: 100,
   dryRun: false,
 };
@@ -175,7 +178,10 @@ describe("@lh/hedge settlement runner (production money loop)", () => {
     const r = await runSettlementCycle(ledger, ports, RUN, null);
     expect(r.floatShortfallUsdc).to.be.greaterThan(0);
     expect(executed).to.have.length(0); // nothing executed
-    expect(r.settled[0].executedTx).to.equal(null); // recorded for retry
+    // A4: the certificate is NOT settled — it stays due and is retried
+    // once ops tops up the float, instead of being marked settled unpaid.
+    expect(r.settled).to.have.length(0);
+    expect(ledger.dueForSettlement()).to.have.length(1);
   });
 
   it("dryRun plans but never executes", async () => {

@@ -72,7 +72,13 @@ async function ensureSol(conn: Connection, pubkey: PublicKey, minSol: number): P
     try {
       console.log(`  airdrop attempt ${attempt}/5: ${minSol} SOL to ${pubkey.toBase58().slice(0, 8)}…`);
       const sig = await conn.requestAirdrop(pubkey, minSol * LAMPORTS_PER_SOL);
-      await conn.confirmTransaction(sig, "confirmed");
+      await conn.confirmTransaction(sig, "finalized");
+      // Belt and braces: poll until the balance is visible at finalized.
+      for (let i = 0; i < 30; i++) {
+        const bal = await conn.getBalance(pubkey, "finalized");
+        if (bal >= minSol * LAMPORTS_PER_SOL) return;
+        await new Promise((r) => setTimeout(r, 500));
+      }
       return;
     } catch (e: any) {
       console.log(`    faucet refused (${(e.message ?? e).toString().slice(0, 60)})`);
@@ -93,7 +99,7 @@ async function main() {
   console.log("1. Keypairs + airdrops (devnet)");
   const treasury = loadOrCreateKeypair(path.join(dir, "treasury.json"));
   const buyer = loadOrCreateKeypair(path.join(dir, "buyer.json"));
-  await ensureSol(conn, treasury.publicKey, 1);
+  await ensureSol(conn, treasury.publicKey, 2);
   if ((await conn.getBalance(buyer.publicKey)) < 0.1 * LAMPORTS_PER_SOL) {
     const { SystemProgram } = await import("@solana/web3.js");
     await sendAndConfirmTransaction(
@@ -106,7 +112,7 @@ async function main() {
         }),
       ),
       [treasury],
-      { commitment: "confirmed" },
+      { commitment: "finalized" },
     );
     console.log("  buyer funded from treasury (0.3 SOL)");
   }
@@ -163,6 +169,8 @@ async function main() {
     markupFloor: 1.05, feeSplitRate: 0.1, expectedDailyFee: 0.005,
     tenorSeconds: TENOR_S, quoteTtlSeconds: 600, regimeMaxAgeSeconds: 900,
     perBuyerCapDownLimitUsdc: 0,
+    maxOpenQuotesPerOwner: 5,
+    maxLifetimeQuotes: 100_000,
     masterTermsVersion: "0.1-draft", masterTermsHash: sha256Hex("draft"),
     treasuryAddress: treasury.publicKey.toBase58(),
   };
@@ -241,6 +249,7 @@ async function main() {
   };
   const runCfg = {
     hotWalletFloatCapUsdc: 1_000_000_000,
+    minRefundUsdc: 100_000,
     maxDivergenceBps: 100,
     dryRun: false,
   };

@@ -16,6 +16,20 @@ export interface LedgerConfig {
   regimeMaxAgeSeconds: number; // 900
   /** FR-H9 pilot cap: max Σ capDown of active certs per buyer wallet (0 = no cap). */
   perBuyerCapDownLimitUsdc: number;
+  /**
+   * A2 (anti-griefing): max simultaneously-open quotes per position owner.
+   * Quoting is unauthenticated, and an open quote blocks re-quoting that
+   * position, so without a cap an attacker could keep any LP permanently
+   * unable to hedge for the cost of one request every two minutes.
+   */
+  maxOpenQuotesPerOwner: number;
+  /**
+   * A3 (anti-DoS): hard ceiling on lifetime quotes. The event log IS the
+   * ledger and cannot be truncated, so unbounded quoting would grow the
+   * log until boot-replay never completes. Reaching this is an operator
+   * alert, not a normal condition.
+   */
+  maxLifetimeQuotes: number;
   masterTermsVersion: string;
   masterTermsHash: string;
   treasuryAddress: string;

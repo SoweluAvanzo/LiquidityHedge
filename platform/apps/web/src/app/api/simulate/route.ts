@@ -20,6 +20,7 @@
  */
 
 import { type NextRequest, NextResponse } from "next/server";
+import { checkLimit, tooManyRequests } from "@/lib/server/rate-limit";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { fetchPortfolio, type PortfolioPositionView } from "@lh/portfolio";
 import {
@@ -485,6 +486,11 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  // A10: cost-tiered rate limit, keyed on the trusted last hop. (This call
+  // was missing while the import was present — quote and simulate are the
+  // two most expensive routes, so leaving them unguarded defeated the fix.)
+  const limit = checkLimit(request, "simulate");
+  if (!limit.ok) return tooManyRequests(limit);
   let raw: unknown;
   try {
     raw = await request.json();

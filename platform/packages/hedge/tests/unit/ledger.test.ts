@@ -25,6 +25,8 @@ const CONFIG: LedgerConfig = {
   quoteTtlSeconds: 120,
   regimeMaxAgeSeconds: 900,
   perBuyerCapDownLimitUsdc: 0,
+  maxOpenQuotesPerOwner: 5,
+  maxLifetimeQuotes: 100_000,
   masterTermsVersion: "0.1-draft",
   masterTermsHash: sha256Hex("master-terms-0.1-draft"),
   treasuryAddress: "TREASURYaddr11111111111111111111111111111111",
@@ -41,10 +43,14 @@ function makeIds(): IdSource {
   return { quoteId: () => `Q${++q}`, referenceKey: () => `REF${++r}` };
 }
 
-function makePosition(mint = "posMint1", price = 150): HedgedPositionInput {
+function makePosition(
+  mint = "posMint1",
+  price = 150,
+  ownerWallet = "buyerWallet111",
+): HedgedPositionInput {
   return {
     positionMint: mint,
-    ownerWallet: "buyerWallet111",
+    ownerWallet,
     whirlpool: "poolAddr111",
     liquidity: 1_000_000_000_000n,
     tickLower: -20000,
@@ -105,7 +111,7 @@ describe("@lh/hedge CertificateLedger", () => {
     const wrong = ledger.observePayment({
       txSignature: "tx-wrong",
       referenceKey: quote.referenceKey,
-      senderWallet: "w",
+      senderWallet: "buyerWallet111",
       amountUsdc: quote.premiumUsdc,
     });
     expect(wrong.activated).to.equal(undefined);
@@ -114,7 +120,7 @@ describe("@lh/hedge CertificateLedger", () => {
     const ok = ledger.observePayment({
       txSignature: "tx-ok",
       referenceKey: quote.referenceKey,
-      senderWallet: "w",
+      senderWallet: "buyerWallet111",
       amountUsdc: quote.totalPayableUsdc,
     });
     expect(ok.activated).to.not.equal(undefined);
@@ -123,7 +129,7 @@ describe("@lh/hedge CertificateLedger", () => {
     const dup = ledger.observePayment({
       txSignature: "tx-ok",
       referenceKey: quote.referenceKey,
-      senderWallet: "w",
+      senderWallet: "buyerWallet111",
       amountUsdc: quote.totalPayableUsdc,
     });
     expect(dup.accepted).to.equal(false);
@@ -132,7 +138,7 @@ describe("@lh/hedge CertificateLedger", () => {
     const second = ledger.observePayment({
       txSignature: "tx-second",
       referenceKey: quote.referenceKey,
-      senderWallet: "w",
+      senderWallet: "buyerWallet111",
       amountUsdc: quote.totalPayableUsdc,
     });
     expect(second.activated).to.equal(undefined);
@@ -144,6 +150,33 @@ describe("@lh/hedge CertificateLedger", () => {
     expect(() => ledger.refundPayment("tx-ok")).to.throw(LedgerError, /already matched/);
     // Refunding twice is impossible.
     expect(() => ledger.refundPayment("tx-wrong")).to.throw(LedgerError, /already matched/);
+  });
+
+  it("A1: a payment from a NON-OWNER never activates (reference-leak hijack)", () => {
+    const { clock, ledger } = setup();
+    const quote = ledger.issueQuote(makePosition(), market(clock));
+    // The reference is visible to anyone who can read a quote. An attacker
+    // paying the exact amount must NOT obtain the certificate.
+    const attacker = ledger.observePayment({
+      txSignature: "tx-attacker",
+      referenceKey: quote.referenceKey,
+      senderWallet: "attackerWallet",
+      amountUsdc: quote.totalPayableUsdc,
+    });
+    expect(attacker.activated).to.equal(undefined);
+    expect(ledger.getState().certs.size).to.equal(0);
+
+    // The rightful owner can still activate afterwards.
+    const owner = ledger.observePayment({
+      txSignature: "tx-owner",
+      referenceKey: quote.referenceKey,
+      senderWallet: "buyerWallet111",
+      amountUsdc: quote.totalPayableUsdc,
+    });
+    expect(owner.activated).to.not.equal(undefined);
+    expect(owner.activated!.buyerWallet).to.equal("buyerWallet111");
+    // The attacker's funds are unmatched → refundable, never kept.
+    expect(ledger.refundPayment("tx-attacker").to).to.equal("attackerWallet");
   });
 
   it("settlement pays max(0, payoff − feeSplit + collateral) on all three payoff branches", () => {
@@ -271,13 +304,13 @@ describe("@lh/hedge per-buyer exposure cap (FR-H9)", () => {
     const clock = makeClock();
     const capped = { ...CONFIG, perBuyerCapDownLimitUsdc: 3_000_000_000 }; // $3k
     const ledger = new CertificateLedger(capped, clock, makeIds(), RESERVES);
-    const q1 = ledger.issueQuote(makePosition("m1"), market(clock));
+    const q1 = ledger.issueQuote(makePosition("m1", 150, "sameBuyer"), market(clock));
     const r1 = ledger.observePayment({
       txSignature: "t1", referenceKey: q1.referenceKey,
       senderWallet: "sameBuyer", amountUsdc: q1.totalPayableUsdc,
     });
     expect(r1.activated).to.not.equal(undefined); // capDown ≈ $2.8k ≤ $3k
-    const q2 = ledger.issueQuote(makePosition("m2"), market(clock));
+    const q2 = ledger.issueQuote(makePosition("m2", 150, "sameBuyer"), market(clock));
     const r2 = ledger.observePayment({
       txSignature: "t2", referenceKey: q2.referenceKey,
       senderWallet: "sameBuyer", amountUsdc: q2.totalPayableUsdc,
@@ -289,7 +322,7 @@ describe("@lh/hedge per-buyer exposure cap (FR-H9)", () => {
     clock.advance(CONFIG.quoteTtlSeconds + 1);
     expect(ledger.refundPayment("t2").amountUsdc).to.equal(q2.totalPayableUsdc);
     // A different wallet is unaffected.
-    const q3 = ledger.issueQuote(makePosition("m3"), market(clock));
+    const q3 = ledger.issueQuote(makePosition("m3", 150, "otherBuyer"), market(clock));
     const r3 = ledger.observePayment({
       txSignature: "t3", referenceKey: q3.referenceKey,
       senderWallet: "otherBuyer", amountUsdc: q3.totalPayableUsdc,

@@ -65,41 +65,8 @@ export interface HedgeError {
   error: string;
 }
 
-/**
- * µUSDC → "$1.50" with an explicit "$" and 2–6 decimals (FR-L3: money is
- * never shown as a bare number). Adaptive precision: whole-dollar sums
- * get 2 decimals, sub-dollar 4, sub-cent 6.
+/*
+ * Money and countdown formatting live in `@/lib/format` — one module for
+ * the whole app so the hedge panel and the data checkout round identically
+ * (FR-L3: money is never shown as a bare number).
  */
-export function formatUsdc(micro: number): string {
-  const usd = micro / 1e6;
-  const abs = Math.abs(usd);
-  const decimals = abs >= 1 || abs === 0 ? 2 : abs >= 0.01 ? 4 : 6;
-  const magnitude = abs.toLocaleString("en-US", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-  return `${usd < 0 ? "−" : ""}$${magnitude}`;
-}
-
-/** µUSDC → "$12.345678" — full 6-decimal precision (exact-amount payment). */
-export function formatUsdcExact(micro: number): string {
-  const usd = micro / 1e6;
-  const magnitude = Math.abs(usd).toLocaleString("en-US", {
-    minimumFractionDigits: 6,
-    maximumFractionDigits: 6,
-  });
-  return `${usd < 0 ? "−" : ""}$${magnitude}`;
-}
-
-/** Signed variant with an explicit plus sign for gains. */
-export function formatUsdcSigned(micro: number): string {
-  return micro > 0 ? `+${formatUsdc(micro)}` : formatUsdc(micro);
-}
-
-/** Seconds → "m:ss" countdown label (never negative). */
-export function formatCountdown(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  const minutes = Math.floor(s / 60);
-  const rest = s % 60;
-  return `${minutes}:${String(rest).padStart(2, "0")}`;
-}

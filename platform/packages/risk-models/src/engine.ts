@@ -7,7 +7,7 @@
  * bit-identical (FR-S4).
  */
 
-import { positionValueAtPrice } from "@lh/portfolio";
+import { preparePositionValuer } from "@lh/portfolio";
 import { tickToSqrtPriceX64, sqrtPriceX64ToPrice } from "@lh/core/src/market-data/decoder";
 import { PricePaths } from "./model";
 
@@ -159,7 +159,10 @@ export function simulatePortfolio(
     );
     const a = assetIndex.get(pos.assetId)!;
     const s0 = paths.prices[a][0][0];
-    return { a, pL, pU, v0: positionValueAtPrice(pos, s0), s0 };
+    // P4: one prepared valuer per position — the range sqrt-prices are
+    // computed once instead of on every one of millions of calls.
+    const valueAt = preparePositionValuer(pos);
+    return { a, pL, pU, v0: valueAt(s0), s0, valueAt };
   });
 
   const initialValue = meta.reduce((s, m) => s + m.v0, 0);
@@ -186,7 +189,7 @@ export function simulatePortfolio(
         const price = paths.prices[meta[i].a][p][s];
         const inRange = price >= meta[i].pL && price <= meta[i].pU;
         if (!inRange) exited = true;
-        const posValue = positionValueAtPrice(positions[i], price);
+        const posValue = meta[i].valueAt(price);
         value += posValue;
         // Accrue over the interval ENDING at s, using the interval's start
         // state (price/value at s−1) — mirrors the snapshot integrator.
@@ -195,8 +198,7 @@ export function simulatePortfolio(
           const prevPrice = paths.prices[meta[i].a][p][s - 1];
           if (prevPrice >= meta[i].pL && prevPrice <= meta[i].pU) {
             const rate = y.ratePaths ? y.ratePaths[p][s - 1] : y.inRangeDailyRate;
-            accrued[i] +=
-              rate * positionValueAtPrice(positions[i], prevPrice) * dtDays;
+            accrued[i] += rate * meta[i].valueAt(prevPrice) * dtDays;
           }
         }
         totalAccrued += accrued[i];
@@ -220,7 +222,7 @@ export function simulatePortfolio(
             if (!h) continue;
             const price = paths.prices[meta[i].a][p][s];
             const clamped = Math.min(Math.max(price, meta[i].pL), meta[i].pU);
-            const payoff = meta[i].v0 - positionValueAtPrice(positions[i], clamped);
+            const payoff = meta[i].v0 - meta[i].valueAt(clamped);
             const feeSplit = (h.feeSplitRate ?? 0) * accrued[i];
             // Hedge acts on the VALUE component; the fee split reduces the
             // yield component; premium is a cash cost in every composition.

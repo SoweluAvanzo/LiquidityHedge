@@ -19,6 +19,8 @@ const CONFIG: LedgerConfig = {
   quoteTtlSeconds: 120,
   regimeMaxAgeSeconds: 900,
   perBuyerCapDownLimitUsdc: 0,
+  maxOpenQuotesPerOwner: 5,
+  maxLifetimeQuotes: 100_000,
   masterTermsVersion: "0.1-draft",
   masterTermsHash: sha256Hex("master-terms-0.1-draft"),
   treasuryAddress: "TREASURYaddr11111111111111111111111111111111",
@@ -134,5 +136,24 @@ describe("@lh/hedge event-sourced replay (NFR-A1)", () => {
     expect(() =>
       CertificateLedger.fromEvents(CONFIG, clock, makeIds(), events),
     ).to.throw(/I2|I3/);
+  });
+});
+
+describe("@lh/hedge B3: a violating transition never reaches the log", () => {
+  it("state mutation that breaks an invariant is rejected AND not persisted", () => {
+    const clock = { now: () => 1_780_000_000 };
+    const ledger = new CertificateLedger(CONFIG, clock, makeIds(), 100_000_000_000);
+    const before = ledger.getEvents().length;
+
+    // Force a violation the way a bug would: corrupt the audited totals so
+    // conservation (I3) fails, then attempt any further transition.
+    (ledger.getState() as { totalInUsdc: number }).totalInUsdc += 12_345;
+    expect(() => ledger.setPaused(true)).to.throw(/I3/);
+
+    // The event log must be UNCHANGED — otherwise the next boot replays a
+    // poisoned log and the ledger can never load again.
+    expect(ledger.getEvents().length).to.equal(before);
+    const jsonl = ledger.getEvents().map((e) => JSON.stringify(e)).join("\n");
+    expect(jsonl).to.not.match(/PausedSet/);
   });
 });

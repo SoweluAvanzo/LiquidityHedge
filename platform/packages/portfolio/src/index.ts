@@ -3,6 +3,7 @@ export {
   buildPositionView,
   buildValueCurve,
   positionValueAtPrice,
+  preparePositionValuer,
   aggregatePortfolio,
   priceToSqrtPriceX64,
 } from "./views";

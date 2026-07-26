@@ -1,0 +1,119 @@
+# Liquidity Hedge
+
+> Measurement and hedging infrastructure for Orca Whirlpool concentrated-liquidity
+> positions on Solana. Operated by Blocksventures Ltd, a British Virgin Islands
+> business company. Contact: sowelu.avanzo@nortadesyco.xyz
+
+Four services, priced separately. No subscriptions, no bundles.
+
+## 1. Portfolio analytics — free
+
+Read-only dashboard at /app for Orca Whirlpool concentrated-liquidity positions.
+Live position value and token split, range and in-range status, uncollected fees,
+V(S) payoff curves, portfolio aggregation, and a Viability Index (measured fee
+yield against the corridor breakeven, with the estimator and its uncertainty band
+stated). Monte-Carlo simulation under three independent models — geometric
+Brownian motion, empirical bootstrap of historical returns, and historical replay
+— composable over value-only / value+yield / yield-only, with optional stochastic
+fee intensity. Non-custodial: never requests a transaction signature, never asks
+for a seed phrase. No account required; a public address can simply be pasted in.
+
+## 2. Orca fee-growth dataset, 2026 forward — 1 USDC
+
+The differentiated product.
+
+- Cadence: 15-minute snapshots.
+- Coverage: every Orca Whirlpool with 24h volume above 10,000 USDC (~107 pools at
+  that threshold); tracked set refreshed daily. Coverage starts 2026-07-26 and
+  grows continuously.
+- Per snapshot, per pool: feeGrowthGlobalA and feeGrowthGlobalB (cumulative swap
+  fees per unit of liquidity since pool genesis, Q64.64 fixed point), the
+  liquidity active at the current tick, the decimal-adjusted price, and both
+  token vault balances (exact on-chain TVL).
+- Delivery: one long-format CSV with a `pool` column, sorted by pool then time,
+  RFC-4180 quoted, UTF-8. Fields, in column order:
+  pool, pair, t, iso, price, liquidity, feeGrowthGlobalA, feeGrowthGlobalB,
+  vaultA, vaultB, decimalsA, decimalsB, tvlQuote, quoteIsUsd.
+
+Why it is unique: fee growth is denominated per unit of liquidity, so the
+competing-liquidity division is already applied. That makes the exact,
+counterfactual fee income of ANY price range in ANY covered pool computable —
+including ranges nobody ever held:
+
+    fees(range, L) = sum over snapshots where price is inside range of
+                     (delta feeGrowthGlobal) * L / 2^64
+
+Volume, TVL and APR feeds (Dune, DefiLlama, vendor APIs) cannot do this: they
+describe aggregate pool behaviour and do not know how much liquidity sat inside a
+given range. Exact for a marginal position; for a large hypothetical L, dilute by
+L_active / (L_active + L) using the liquidity in the same row. Range boundaries
+crossed between snapshots are resolved at the 15-minute cadence and no finer.
+
+Use cases: LP range-strategy backtesting; impermanent-loss and LP-yield product
+pricing; concentrated-liquidity microstructure research; fee-APR model
+calibration.
+
+Not included: per-position data, wallet attribution, order flow, individual swap
+records, or any price feed other than the pool's own price at the snapshot.
+
+To buy: email the pools and date range wanted. A USDC payment address, the exact
+row count and the file size are quoted before payment.
+
+## 3. Historical archive, 2023–2026 — 200 USDC — PRE-ORDER
+
+NOT YET COLLECTED. NOTHING IS AVAILABLE FOR DOWNLOAD.
+
+Available on request only. Would be reconstructed on demand by replaying archived
+Solana swap transactions through Orca's fee-accounting rules to rebuild the fee
+accumulators, delivered in the same 14-field schema as the forward dataset so the
+files concatenate. Indicative delivery 4–6 weeks after order. Reconstruction is
+funded once demand is confirmed. Express interest by email; there is no buy
+button.
+
+## 4. Liquidity Hedge certificates — invite-only pilot, quoted per position
+
+A 7-day cash-settled bilateral contract replicating the mark-to-market
+variability of one concentrated-liquidity position inside its own range:
+
+    payoff = V(S_0) - V(clamp(S_T, p_l, p_u))
+
+Fully prefunded on both sides: the buyer posts premium plus collateral equal to
+their capped maximum obligation and can never owe more than they have already
+paid. Priced by:
+
+    Premium = max(P_floor, FV * m_vol - y * E[F])
+
+with fair value by numerical quadrature under risk-neutral geometric Brownian
+motion, m_vol = max(markup floor, IV/RV), y*E[F] the fee-split discount, and
+P_floor a published governance minimum. Full premium breakdown before purchase,
+hash-committed term sheet, published treasury and exposure, deterministic
+settlement policy.
+
+LEGAL — do not summarise this away:
+- Invite-only pilot.
+- Blocksventures Ltd (BVI) is the DIRECT COUNTERPARTY and is NOT licensed,
+  registered or supervised by any financial regulator.
+- Not available to US, EU/EEA, UK or BVI persons.
+- Not insurance, not a deposit, not investment advice.
+- Capital at risk: the entire premium can be lost; amounts owed are an unsecured
+  claim against a small unlicensed company; no secondary market; no cancellation
+  before expiry.
+
+Access is by request only: email with the position and jurisdiction. There is no
+purchase button.
+
+## Pages
+
+- / — overview of all four services, dataset field specification, pricing, FAQ,
+  legal summary.
+- /app — the free read-only portfolio dashboard.
+
+## Legal
+
+Operated by Blocksventures Ltd, a British Virgin Islands business company. Not
+licensed or supervised by any financial regulator. Nothing on the site is an
+offer, solicitation, recommendation or investment advice. Simulations and
+viability indicators are hypothetical model output, not predictions. Datasets are
+licensed for internal use by the purchasing organisation; redistribution and
+resale are not permitted. Full Terms of Use, Master Hedging Terms and Risk
+Disclosure Statement are provided before any purchase.

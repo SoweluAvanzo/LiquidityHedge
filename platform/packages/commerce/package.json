@@ -1,0 +1,25 @@
+{
+  "name": "@lh/commerce",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Order ledger and Solana Pay payment verification for the data products. Same exactly-once discipline as the certificate ledger: orders are fulfilled only on finalized, verified on-chain payments — never on client assertions.",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "ts-mocha 'tests/**/*.test.ts' --timeout 60000 --recursive",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@solana/spl-token": "^0.4.0",
+    "@solana/web3.js": "^1.95.0"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "chai": "^4.3.0",
+    "mocha": "^10.2.0",
+    "ts-mocha": "^10.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0"
+  }
+}

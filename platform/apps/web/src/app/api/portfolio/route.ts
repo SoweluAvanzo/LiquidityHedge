@@ -11,6 +11,7 @@
  */
 
 import { type NextRequest, NextResponse } from "next/server";
+import { checkLimit, tooManyRequests } from "@/lib/server/rate-limit";
 import { Connection, PublicKey } from "@solana/web3.js";
 import {
   fetchPortfolio,
@@ -39,46 +40,6 @@ export const dynamic = "force-dynamic";
 const DEFAULT_RPC_URL = "https://api.mainnet-beta.solana.com";
 const CURVE_POINTS = 101;
 
-/**
- * Pilot-level in-memory per-IP token bucket (10 requests/minute).
- *
- * NOTE (pre-launch): this only protects a single long-lived Node process —
- * it resets on redeploy and is per-instance under horizontal scaling.
- * Real rate limiting moves to the edge (CDN/WAF or a shared store such as
- * Upstash/Redis) before launch.
- */
-const BUCKET_CAPACITY = 10;
-const REFILL_PER_MS = BUCKET_CAPACITY / 60_000; // 10 tokens per minute
-const buckets = new Map<string, { tokens: number; last: number }>();
-
-function takeToken(ip: string): boolean {
-  const now = Date.now();
-  const bucket = buckets.get(ip) ?? { tokens: BUCKET_CAPACITY, last: now };
-  bucket.tokens = Math.min(
-    BUCKET_CAPACITY,
-    bucket.tokens + (now - bucket.last) * REFILL_PER_MS,
-  );
-  bucket.last = now;
-  if (bucket.tokens < 1) {
-    buckets.set(ip, bucket);
-    return false;
-  }
-  bucket.tokens -= 1;
-  buckets.set(ip, bucket);
-  // Opportunistic cleanup so the map cannot grow unboundedly.
-  if (buckets.size > 10_000) {
-    for (const [key, b] of buckets) {
-      if (now - b.last > 120_000) buckets.delete(key);
-    }
-  }
-  return true;
-}
-
-function clientIp(request: NextRequest): string {
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
-  return request.headers.get("x-real-ip") ?? "unknown";
-}
 
 /**
  * Viability Index per SOL/USDC position (FR-M8). Positions keyed by
@@ -133,12 +94,11 @@ async function computeViabilities(
 }
 
 export async function GET(request: NextRequest) {
-  if (!takeToken(clientIp(request))) {
-    return NextResponse.json(
-      { error: "Too many requests — try again in a minute." },
-      { status: 429 },
-    );
-  }
+  // A10: shared limiter keyed on the trusted last hop. (The previous
+  // per-route bucket keyed on the client-controlled first X-Forwarded-For
+  // entry, so rotating that header bypassed it entirely.)
+  const limit = checkLimit(request, "portfolio");
+  if (!limit.ok) return tooManyRequests(limit);
 
   const ownerParam = request.nextUrl.searchParams.get("owner");
   let owner: PublicKey;

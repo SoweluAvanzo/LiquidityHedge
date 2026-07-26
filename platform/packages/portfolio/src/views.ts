@@ -101,6 +101,35 @@ export function buildPositionView(input: BuildViewInput): PortfolioPositionView 
  * token-amount math (decimals-safe for any pair — unlike feeding raw
  * whirlpool liquidity into the abstract-unit V(S) formula).
  */
+/**
+ * P4: per-position constants hoisted out of the hot loop. The Monte-Carlo
+ * engine calls the valuation millions of times; recomputing the range's
+ * sqrt-prices (BigInt work) on every call dominated the profile.
+ * `preparePositionValuer` computes them once and returns a closure.
+ */
+export function preparePositionValuer(
+  view: Pick<
+    PortfolioPositionView,
+    "liquidity" | "tickLower" | "tickUpper" | "decimalsA" | "decimalsB"
+  >,
+): (price: number) => number {
+  const sqrtLower = tickToSqrtPriceX64(view.tickLower);
+  const sqrtUpper = tickToSqrtPriceX64(view.tickUpper);
+  const { liquidity, decimalsA, decimalsB } = view;
+  const scaleA = 10 ** decimalsA;
+  const scaleB = 10 ** decimalsB;
+  return (price: number): number => {
+    const sqrtP = priceToSqrtPriceX64(price, decimalsA, decimalsB);
+    const { amountA, amountB } = estimateTokenAmounts(
+      liquidity,
+      sqrtP,
+      sqrtLower,
+      sqrtUpper,
+    );
+    return (Number(amountA) / scaleA) * price + Number(amountB) / scaleB;
+  };
+}
+
 export function positionValueAtPrice(
   view: Pick<
     PortfolioPositionView,

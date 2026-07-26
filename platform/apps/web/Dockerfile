@@ -32,13 +32,13 @@ WORKDIR /app
 # Standalone bundle mirrors the pnpm workspace root (platform/).
 COPY --from=build --chown=node:node /app/platform/apps/web/.next/standalone ./platform/
 COPY --from=build --chown=node:node /app/platform/apps/web/.next/static ./platform/apps/web/.next/static
+# Static assets (llms.txt, favicon). The build stage always has this
+# directory, so the copy is safe even when it is otherwise empty.
+COPY --from=build --chown=node:node /app/platform/apps/web/public ./platform/apps/web/public
 # Legal corpus for the master-terms hash (ancestor walk from cwd).
 COPY --from=build --chown=node:node /app/product-design/legal ./product-design/legal
 
 WORKDIR /app/platform/apps/web
-# `public/` is optional: the app ships no static assets, and git does not
-# track empty directories (a clean CI checkout has no public/ at all).
-RUN mkdir -p public && chown node:node public
 # Event-log persistence lives here — mounted as a volume in compose.
 RUN mkdir -p .data && chown node:node .data
 USER node

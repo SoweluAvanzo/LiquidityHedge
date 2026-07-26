@@ -13,6 +13,7 @@
  */
 
 import { type NextRequest, NextResponse } from "next/server";
+import { checkLimit, tooManyRequests } from "@/lib/server/rate-limit";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { fetchPortfolio } from "@lh/portfolio";
 import {
@@ -35,6 +36,11 @@ export const dynamic = "force-dynamic";
 const DEFAULT_RPC_URL = "https://api.mainnet-beta.solana.com";
 
 export async function POST(request: NextRequest) {
+  // A10: cost-tiered rate limit, keyed on the trusted last hop. (This call
+  // was missing while the import was present — quote and simulate are the
+  // two most expensive routes, so leaving them unguarded defeated the fix.)
+  const limit = checkLimit(request, "quote");
+  if (!limit.ok) return tooManyRequests(limit);
   let ownerRaw: unknown;
   let positionMint: unknown;
   try {

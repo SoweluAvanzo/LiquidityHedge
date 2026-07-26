@@ -6,12 +6,126 @@
 #   cp .env.example .env   # fill in secrets — never commit .env
 #   docker compose up -d --build
 #
-# One-shot regime update (host cron, e.g. */10):
+# One-shot DIAGNOSTIC regime read (σ, IV/RV) — the web app computes and
+# caches its own regime inputs, so this is for operators, not the app.
+# Do NOT cron it every 10 minutes: that burned ~13k Birdeye calls/month
+# (P5). Run on demand, or daily at most:
 #   docker compose --profile jobs run --rm regime-updater
 
 name: lh-platform
 
 services:
+  # Storage. NEVER published on the host: no `ports:` mapping, reachable
+  # only on the internal `data` network. Credentials come from .env; the
+  # app connects as the least-privilege lh_writer role, never as superuser.
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lh_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-lh}
+      LH_WRITER_PASSWORD: ${LH_WRITER_PASSWORD:?set LH_WRITER_PASSWORD in .env}
+      LH_READER_PASSWORD: ${LH_READER_PASSWORD:?set LH_READER_PASSWORD in .env}
+      # Modern password hashing for all roles.
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+    volumes:
+      - lh_pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    command:
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - password_encryption=scram-sha-256
+      - -c
+      - log_min_duration_statement=2000
+      - -c
+      - max_connections=20
+      # P7: sized for the 1 GB container (the 4 GB default made the planner
+      # assume cache it does not have).
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - maintenance_work_mem=256MB
+      # NVMe, not spinning rust.
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      # Align checkpoints with the 15-min collector cycle (halves full-page
+      # image WAL volume).
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - log_checkpoints=on
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lh_admin} -d ${POSTGRES_DB:-lh}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_READ_SEARCH, FOWNER, SETGID, SETUID]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    logging: &logging
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+    networks: [data]
+
+  # One-shot schema migration. Runs as the ADMIN role and exits; web and
+  # the collector wait for it to complete, so a fresh cloud deployment
+  # converges with no manual psql step.
+  migrate:
+    build:
+      context: ../..
+      dockerfile: platform/services/ops-jobs/Dockerfile
+    command: ["pnpm", "migrate"]
+    restart: "no"
+    environment:
+      DATABASE_URL_MIGRATOR: postgres://${POSTGRES_USER:-lh_admin}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-lh}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    logging: *logging
+    networks: [data]
+
+  # Nightly pg_dump + retention into the lh_backups volume (RB-6).
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-lh_admin}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?}
+      PGDATABASE: ${POSTGRES_DB:-lh}
+      LEDGER_DIR: /ledgers
+      RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    volumes:
+      - ./backup.sh:/backup.sh:ro
+      - lh_backups:/backups
+      # P8: the certificate/order ledgers are JSONL in this volume, not in
+      # Postgres — read-only so the backup job can never mutate them.
+      - lh_data:/ledgers:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    logging: *logging
+    networks: [data]
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -29,9 +143,7 @@ services:
         condition: service_healthy
     security_opt:
       - no-new-privileges:true
-    logging: &logging
-      driver: json-file
-      options: { max-size: "20m", max-file: "5" }
+    logging: *logging
     networks: [edge]
 
   web:
@@ -55,6 +167,7 @@ services:
       HEDGE_INITIAL_RESERVES_USDC: ${HEDGE_INITIAL_RESERVES_USDC:-0}
       HEDGE_PER_BUYER_CAP_USDC: ${HEDGE_PER_BUYER_CAP_USDC:-0}
       HEDGE_PREMIUM_FLOOR_USDC: ${HEDGE_PREMIUM_FLOOR_USDC:-50000}
+      DATABASE_URL: postgres://lh_writer:${LH_WRITER_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-lh}
       # NEVER "1" in production; Caddy additionally blocks /api/hedge/dev/*.
       HEDGE_DEV_MODE: "0"
     cap_drop: [ALL]
@@ -62,11 +175,16 @@ services:
       - no-new-privileges:true
     mem_limit: 768m
     logging: *logging
-    networks: [edge]
+    networks: [edge, data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
-  # Resident Tier-C collector: exact fee-growth history for tracked pools
-  # (pool-level data generalizes to every position — see
-  # packages/market-data/src/pool-snapshots.ts). 15-minute cadence.
+  # Resident Tier-C collector: exact fee-growth + TVL history for EVERY
+  # Orca pool above a volume threshold (pool-level data generalizes to every
+  # position — see packages/market-data/src/pool-snapshots.ts). 15 min.
   snapshot-collector:
     build:
       context: ../..
@@ -77,9 +195,78 @@ services:
       RPC_URL: ${RPC_URL:?}
       SNAPSHOT_LOOP_SECONDS: "900"
       SNAPSHOT_DIR: /snapshots
-      POOLS: ${SNAPSHOT_POOLS:-Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE}
+      # Track EVERY Orca pool above this 24h volume (discovery refreshed
+      # daily). ~3 account reads per pool per cycle, batched 100/call.
+      MIN_POOL_VOLUME_USD: ${MIN_POOL_VOLUME_USD:-10000}
+      MAX_TRACKED_POOLS: ${MAX_TRACKED_POOLS:-400}
+      TRACK_REFRESH_HOURS: ${TRACK_REFRESH_HOURS:-24}
+      DATABASE_URL: postgres://lh_writer:${LH_WRITER_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-lh}
     volumes:
       - lh_snapshots:/snapshots
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # ts-node compiles the workspace in memory; multi-pool discovery needs
+    # headroom (256m was silently OOM-killed).
+    mem_limit: 768m
+    logging: *logging
+    networks: [edge, data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # B1 — key-holding payout executor. Drains the outbox the web process
+  # writes and signs transfers with the hot wallet. NOT internet-facing:
+  # no ports, no HTTP surface, outbound RPC only. The web container never
+  # holds a signing key. Start with the "hedge" profile once a treasury
+  # and hot wallet are configured.
+  payout-executor:
+    profiles: [hedge]
+    build:
+      context: ../..
+      dockerfile: platform/services/ops-jobs/Dockerfile
+    command: ["pnpm", "payout-executor"]
+    restart: unless-stopped
+    environment:
+      RPC_URL: ${RPC_URL:?}
+      HOT_WALLET_KEYPAIR: /run/secrets/hot-wallet.json
+      HEDGE_DATA_DIR: /webdata
+      HOT_WALLET_FLOAT_CAP_USDC: ${HOT_WALLET_FLOAT_CAP_USDC:-2000000000}
+      PAYOUT_LOOP_SECONDS: ${PAYOUT_LOOP_SECONDS:-120}
+      PAYOUT_DRY_RUN: ${PAYOUT_DRY_RUN:-1}
+    volumes:
+      - lh_data:/webdata
+      - ${HOT_WALLET_KEYPAIR_PATH:-./hot-wallet.json}:/run/secrets/hot-wallet.json:ro
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    logging: *logging
+    networks: [edge]
+
+  # Data export: CSV summary of every accumulating ledger, emailed via
+  # Resend every REPORT_INTERVAL_HOURS (default 48 = every 2 days).
+  # Disabled unless RESEND_API_KEY is set — start with the "reports" profile.
+  data-reporter:
+    profiles: [reports]
+    build:
+      context: ../..
+      dockerfile: platform/services/ops-jobs/Dockerfile
+    command: ["pnpm", "data-report", "--send", "--loop"]
+    restart: unless-stopped
+    environment:
+      # Required at runtime; the CLI exits with a clear error if empty.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      REPORT_FROM: ${REPORT_FROM:-LH Reports <reports@nortadesyco.xyz>}
+      REPORT_TO: ${REPORT_TO:-sowelu.avanzo@nortadesyco.xyz,sowelu94@gmail.com}
+      REPORT_INTERVAL_HOURS: ${REPORT_INTERVAL_HOURS:-48}
+      SNAPSHOT_DIR: /snapshots
+      WEB_DATA_DIR: /webdata
+    volumes:
+      - lh_snapshots:/snapshots:ro
+      - lh_data:/webdata:ro
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
@@ -102,6 +289,8 @@ services:
     networks: [edge]
 
 volumes:
+  lh_pgdata:
+  lh_backups:
   caddy_data:
   caddy_config:
   lh_data:
@@ -110,3 +299,7 @@ volumes:
 networks:
   edge:
     driver: bridge
+  # Internal-only: no gateway to the host, database traffic never leaves it.
+  data:
+    driver: bridge
+    internal: true

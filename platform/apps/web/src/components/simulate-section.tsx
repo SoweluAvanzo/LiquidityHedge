@@ -8,6 +8,11 @@
  * GET /api/simulate — the form is rendered GENERICALLY from the model's
  * JSON Schema (FR-S5): adding a model requires no UI change here.
  * Every run echoes its full config + seed back (FR-S4 reproducibility).
+ *
+ * The controls are grouped Model / Horizon / Composition / Advanced.
+ * Nothing was removed in the grouping: paths, seed and the hedge overlay
+ * still do exactly what they did, they just start folded away because
+ * their defaults are the right answer for almost every run.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -17,7 +22,14 @@ import type {
   SimulateResponse,
   SimWindowDays,
 } from "@/lib/simulate-api";
-import { formatUsd } from "@/lib/format";
+import { apiFetch, errorMessage, retryAtFrom } from "@/lib/api-client";
+import {
+  formatPercent,
+  formatRatePct,
+  formatUsd,
+  formatUsdSigned,
+} from "@/lib/format";
+import { RateLimitNotice } from "@/components/ui/rate-limit-notice";
 import { FanChart } from "@/components/fan-chart";
 import { SchemaConfigForm } from "@/components/schema-config-form";
 
@@ -64,28 +76,18 @@ function defaultConfig(schema: Record<string, unknown>): Record<string, unknown>
     if (!isPlainObject(prop)) continue;
     if (prop.default !== undefined) {
       config[name] = prop.default;
-    } else if (required.has(name) && Array.isArray(prop.enum) && prop.enum.length > 0) {
+    } else if (
+      required.has(name) &&
+      Array.isArray(prop.enum) &&
+      prop.enum.length > 0
+    ) {
       config[name] = prop.enum[0];
     }
   }
   return config;
 }
 
-/** Signed P&L: explicit plus sign so gains and losses read instantly. */
-function formatPnl(v: number): string {
-  return v >= 0 ? `+${formatUsd(v)}` : formatUsd(v);
-}
-
-function formatPct(v: number): string {
-  return `${(v * 100).toFixed(1)}%`;
-}
-
-/** Rate in %/day: "0.30" once >= 0.1, "0.041" below (estimator-label style). */
-function formatRatePct(v: number): string {
-  return v.toFixed(Math.abs(v) >= 0.1 ? 2 : 3);
-}
-
-function StatTile({
+function Fact({
   label,
   value,
   sub,
@@ -95,10 +97,10 @@ function StatTile({
   sub?: string;
 }) {
   return (
-    <div className="rounded-lg border border-zinc-200 px-3 py-2.5 dark:border-zinc-800">
-      <div className="text-xs text-zinc-500 dark:text-zinc-400">{label}</div>
-      <div className="mt-0.5 text-lg font-semibold tracking-tight">{value}</div>
-      {sub && <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{sub}</div>}
+    <div className="lh-fact">
+      <span className="lh-fact-label">{label}</span>
+      <p className="lh-fact-value">{value}</p>
+      {sub && <p className="lh-fact-sub">{sub}</p>}
     </div>
   );
 }
@@ -111,21 +113,20 @@ function TerminalTiles({
   stats: { mean: number; std: number; var5: number; cvar5: number; pLoss: number };
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      <h4 className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{title}</h4>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-        <StatTile label="Mean P&L" value={formatPnl(stats.mean)} />
-        <StatTile label="Std dev" value={formatUsd(stats.std)} />
-        <StatTile label="VaR 5%" value={formatPnl(stats.var5)} />
-        <StatTile label="CVaR 5%" value={formatPnl(stats.cvar5)} />
-        <StatTile label="P(loss)" value={formatPct(stats.pLoss)} />
+    <div>
+      <p className="lh-label-block" style={{ marginBottom: "0.5rem" }}>
+        {title}
+      </p>
+      <div className="lh-facts lh-facts-5">
+        <Fact label="Mean P&L" value={formatUsdSigned(stats.mean)} />
+        <Fact label="Std dev" value={formatUsd(stats.std)} />
+        <Fact label="VaR 5%" value={formatUsdSigned(stats.var5)} />
+        <Fact label="CVaR 5%" value={formatUsdSigned(stats.cvar5)} />
+        <Fact label="P(loss)" value={formatPercent(stats.pLoss)} />
       </div>
     </div>
   );
 }
-
-const controlClass =
-  "w-full rounded-md border border-zinc-300 bg-transparent px-2.5 py-1.5 text-sm focus:border-zinc-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:focus:border-zinc-400";
 
 export function SimulateSection({ owner }: { owner: string }) {
   const [models, setModels] = useState<RiskModelDescriptor[] | null>(null);
@@ -147,17 +148,19 @@ export function SimulateSection({ owner }: { owner: string }) {
 
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+  // Set when /api/simulate answered 429 (6 runs a minute).
+  const [retryAtTs, setRetryAtTs] = useState<number | null>(null);
   const [result, setResult] = useState<SimulateResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/simulate", { cache: "no-store" });
-        const body = await res.json();
-        if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`);
+        const body = await apiFetch<{ models: RiskModelDescriptor[] }>(
+          "/api/simulate",
+        );
         if (cancelled) return;
-        const list = body.models as RiskModelDescriptor[];
+        const list = body.models;
         setModels(list);
         if (list.length > 0) {
           setModelId(list[0].id);
@@ -165,9 +168,7 @@ export function SimulateSection({ owner }: { owner: string }) {
         }
       } catch (err) {
         if (!cancelled) {
-          setModelsError(
-            err instanceof Error ? err.message : "Failed to load model catalog.",
-          );
+          setModelsError(errorMessage(err, "Failed to load model catalog."));
         }
       }
     })();
@@ -191,6 +192,7 @@ export function SimulateSection({ owner }: { owner: string }) {
     if (!modelId || running) return;
     setRunning(true);
     setRunError(null);
+    setRetryAtTs(null);
     const overrideNum =
       feeRateOverride.trim() === "" ? undefined : Number(feeRateOverride);
     const body: SimulateRequest = {
@@ -210,26 +212,23 @@ export function SimulateSection({ owner }: { owner: string }) {
         ? { feeRatePctPerDayOverride: overrideNum }
         : {}),
       ...(composition !== "value"
-        ? { feeIntensityMode: stochasticFee ? ("stochastic" as const) : ("constant" as const) }
+        ? {
+            feeIntensityMode: stochasticFee
+              ? ("stochastic" as const)
+              : ("constant" as const),
+          }
         : {}),
     };
     try {
-      const res = await fetch("/api/simulate", {
+      const payload = await apiFetch<SimulateResponse>("/api/simulate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const payload = await res.json();
-      if (!res.ok) {
-        throw new Error(
-          typeof payload?.error === "string"
-            ? payload.error
-            : `Request failed (${res.status})`,
-        );
-      }
-      setResult(payload as SimulateResponse);
+      setResult(payload);
     } catch (err) {
-      setRunError(err instanceof Error ? err.message : "Simulation failed.");
+      setRetryAtTs(retryAtFrom(err));
+      setRunError(errorMessage(err, "Simulation failed."));
     } finally {
       setRunning(false);
     }
@@ -240,180 +239,152 @@ export function SimulateSection({ owner }: { owner: string }) {
   // the user may have changed it since the last run).
   const reportComposition: Composition = report?.composition ?? "value";
 
-  // "rate source: measured 0.041%/day (in-range-conditional)" — resolved
-  // per-position rates echoed by the server, transparency-labeled like the
-  // portfolio card's estimator notes.
-  const rateSourceText = (() => {
+  // "measured 0.041%/day (in-range-conditional)" — resolved per-position
+  // rates echoed by the server, labelled like the portfolio card's
+  // estimator provenance.
+  const rateSource = (() => {
     const rates = result?.echo.yieldRates;
     if (!rates || rates.length === 0) return null;
     const rateText = `${[...new Set(rates.map((r) => formatRatePct(r.ratePctPerDay)))].join(" / ")}%/day`;
-    const source =
+    const value =
       rates[0].source === "override"
-        ? `rate source: user override ${rateText}`
-        : `rate source: measured ${rateText} (in-range-conditional)`;
+        ? `user override ${rateText}`
+        : `measured ${rateText} (in-range-conditional)`;
     // Fee-intensity dynamics: name the data basis verbatim when the rate
     // fluctuates along paths — same transparency policy as the estimator
     // labels.
     const fi = result?.echo.feeIntensity;
     return fi?.mode === "stochastic" && fi.basis
-      ? `${source} · stochastic volume (${fi.basis})`
-      : source;
+      ? `${value} · stochastic volume (${fi.basis})`
+      : value;
   })();
 
   return (
-    <section className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-800">
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold tracking-tight">Simulate</h2>
-        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+    <section className="lh-card" aria-labelledby="sim-h">
+      <header className="lh-card-head">
+        <h2 className="lh-h2" id="sim-h">
+          Simulate
+        </h2>
+        <span className="lh-card-meta">
           Monte-Carlo over the SOL/USDC positions of this portfolio
         </span>
       </header>
 
       {modelsError ? (
-        <p className="mt-4 text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="lh-error-text" role="alert" style={{ marginTop: "1rem" }}>
           {modelsError}
         </p>
       ) : !models ? (
         <div
-          className="mt-4 h-24 animate-pulse rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900"
+          className="lh-skeleton"
+          style={{ height: "6rem", marginTop: "1rem" }}
           aria-hidden="true"
         />
       ) : (
         <>
-          {/* Run configuration — one block above the results it scopes */}
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="flex flex-col gap-1">
-              <label
-                htmlFor="sim-model"
-                className="text-xs font-medium text-zinc-700 dark:text-zinc-300"
+          <div
+            style={{
+              display: "grid",
+              gap: "0.75rem",
+              marginTop: "1.25rem",
+            }}
+          >
+            {/* ── Model ── */}
+            <div className="lh-group">
+              <p className="lh-group-title">Model</p>
+              <div
+                style={{
+                  display: "grid",
+                  gap: "0.75rem",
+                  gridTemplateColumns:
+                    "repeat(auto-fit, minmax(min(100%, 14rem), 1fr))",
+                }}
               >
-                Model
-              </label>
-              <select
-                id="sim-model"
-                value={modelId}
-                disabled={running}
-                onChange={(e) => selectModel(e.target.value)}
-                className={controlClass}
-              >
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+                <div className="lh-field">
+                  <label className="lh-label" htmlFor="sim-model">
+                    Path model
+                  </label>
+                  <select
+                    id="sim-model"
+                    className="lh-select"
+                    value={modelId}
+                    disabled={running}
+                    onChange={(e) => selectModel(e.target.value)}
+                  >
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-            <div className="flex flex-col gap-1">
-              <label
-                htmlFor="sim-window"
-                className="text-xs font-medium text-zinc-700 dark:text-zinc-300"
-              >
-                Calibration window
-              </label>
-              <select
-                id="sim-window"
-                value={windowDays}
-                disabled={running}
-                onChange={(e) => setWindowDays(Number(e.target.value) as SimWindowDays)}
-                className={controlClass}
-              >
-                {WINDOW_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <label
-                htmlFor="sim-horizon"
-                className="text-xs font-medium text-zinc-700 dark:text-zinc-300"
-              >
-                Horizon: {horizonWeeks} week{horizonWeeks === 1 ? "" : "s"}
-              </label>
-              <input
-                id="sim-horizon"
-                type="range"
-                min={1}
-                max={52}
-                step={1}
-                value={horizonWeeks}
-                disabled={running}
-                onChange={(e) => setHorizonWeeks(Number(e.target.value))}
-                className="h-8 w-full accent-[var(--chart-series)]"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1">
-                <label
-                  htmlFor="sim-paths"
-                  className="text-xs font-medium text-zinc-700 dark:text-zinc-300"
-                >
-                  Paths (max 5000)
-                </label>
-                <input
-                  id="sim-paths"
-                  type="number"
-                  min={100}
-                  max={5000}
-                  step={100}
-                  value={nPaths}
-                  disabled={running}
-                  onChange={(e) => setNPaths(Number(e.target.value))}
-                  className={controlClass}
-                />
+                <div className="lh-field">
+                  <label className="lh-label" htmlFor="sim-window">
+                    Calibration window
+                  </label>
+                  <select
+                    id="sim-window"
+                    className="lh-select"
+                    value={windowDays}
+                    disabled={running}
+                    onChange={(e) =>
+                      setWindowDays(Number(e.target.value) as SimWindowDays)
+                    }
+                  >
+                    {WINDOW_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div className="flex flex-col gap-1">
-                <label
-                  htmlFor="sim-seed"
-                  className="text-xs font-medium text-zinc-700 dark:text-zinc-300"
-                >
-                  Seed
+
+              {selectedModel && (
+                <div style={{ marginTop: "0.75rem" }}>
+                  <SchemaConfigForm
+                    key={selectedModel.id}
+                    schema={selectedModel.configSchema}
+                    config={config}
+                    onChange={setConfig}
+                    disabled={running}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* ── Horizon ── */}
+            <div className="lh-group">
+              <p className="lh-group-title">Horizon</p>
+              <div className="lh-field">
+                <label className="lh-label" htmlFor="sim-horizon">
+                  {horizonWeeks} week{horizonWeeks === 1 ? "" : "s"} ·{" "}
+                  {horizonWeeks * 7} daily steps
                 </label>
                 <input
-                  id="sim-seed"
-                  type="number"
+                  id="sim-horizon"
+                  className="lh-slider"
+                  type="range"
+                  min={1}
+                  max={52}
                   step={1}
-                  value={seed}
+                  value={horizonWeeks}
                   disabled={running}
-                  onChange={(e) => setSeed(Number(e.target.value))}
-                  className={controlClass}
+                  onChange={(e) => setHorizonWeeks(Number(e.target.value))}
                 />
               </div>
             </div>
-          </div>
 
-          {/* Model config — rendered generically from the JSON Schema */}
-          {selectedModel && (
-            <div className="mt-3">
-              <SchemaConfigForm
-                key={selectedModel.id}
-                schema={selectedModel.configSchema}
-                config={config}
-                onChange={setConfig}
-                disabled={running}
-              />
-            </div>
-          )}
-
-          {/* Composition — which component the report describes */}
-          <div className="mt-3 flex flex-wrap items-start gap-x-4 gap-y-2">
-            <div className="flex flex-col gap-1">
-              <span
-                id="sim-composition-label"
-                className="text-xs font-medium text-zinc-700 dark:text-zinc-300"
-              >
-                Composition
-              </span>
+            {/* ── Composition ── */}
+            <div className="lh-group">
+              <p className="lh-group-title">Composition</p>
               <div
                 role="radiogroup"
-                aria-labelledby="sim-composition-label"
-                className="inline-flex w-fit overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
+                aria-label="Which component the report describes"
+                className="lh-seg"
               >
-                {COMPOSITION_OPTIONS.map((o, i) => (
+                {COMPOSITION_OPTIONS.map((o) => (
                   <button
                     key={o.value}
                     type="button"
@@ -421,173 +392,251 @@ export function SimulateSection({ owner }: { owner: string }) {
                     aria-checked={composition === o.value}
                     disabled={running}
                     onClick={() => setComposition(o.value)}
-                    className={`px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${
-                      i > 0 ? "border-l border-zinc-300 dark:border-zinc-700" : ""
-                    } ${
-                      composition === o.value
-                        ? "bg-zinc-900 font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
-                        : "hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                    }`}
+                    className="lh-seg-btn"
                   >
                     {o.label}
                   </button>
                 ))}
               </div>
-            </div>
-            {composition !== "value" && (
-              <>
-                <div className="flex min-w-64 flex-1 flex-col gap-1 sm:max-w-xs">
-                  <label
-                    htmlFor="sim-fee-rate"
-                    className="text-xs font-medium text-zinc-700 dark:text-zinc-300"
-                  >
-                    Fee rate override (%/day, in-range)
-                  </label>
-                  <input
-                    id="sim-fee-rate"
-                    type="number"
-                    min={0}
-                    max={5}
-                    step={0.01}
-                    value={feeRateOverride}
-                    placeholder="measured"
-                    disabled={running}
-                    onChange={(e) => setFeeRateOverride(e.target.value)}
-                    className={controlClass}
-                  />
-                  <p className="text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
-                    Leave empty to use the measured rate. This is the rate WHILE
-                    in range — the simulation applies your range occupancy
-                    path-by-path.
-                  </p>
-                </div>
-                <div className="flex min-w-64 flex-1 flex-col gap-1 sm:max-w-xs">
-                  <label className="flex items-center gap-2 py-1.5 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={stochasticFee}
-                      disabled={running}
-                      onChange={(e) => setStochasticFee(e.target.checked)}
-                      className="h-4 w-4 accent-[var(--chart-series)]"
-                    />
-                    Model volume fluctuations (stochastic fee intensity)
-                  </label>
-                  <p className="text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
-                    Resamples the pool&apos;s historical daily volume shape
-                    (Birdeye pool volume, block bootstrap), so the fee rate
-                    fluctuates along each path. The level stays anchored to the
-                    measured rate — or to your override, with history setting
-                    only the fluctuations.
-                  </p>
-                </div>
-              </>
-            )}
-          </div>
 
-          {/* Hedge overlay */}
-          <div className="mt-3 flex flex-wrap items-end gap-3">
-            <label className="flex items-center gap-2 py-1.5 text-sm">
-              <input
-                type="checkbox"
-                checked={hedged}
-                disabled={running}
-                onChange={(e) => setHedged(e.target.checked)}
-                className="h-4 w-4 accent-[var(--chart-series)]"
-              />
-              Hedged (Liquidity Hedge certificate held to horizon)
-            </label>
-            {hedged && (
-              <div className="flex min-w-64 flex-1 flex-col gap-1 sm:max-w-xs">
-                <label
-                  htmlFor="sim-premium"
-                  className="text-xs font-medium text-zinc-700 dark:text-zinc-300"
+              {composition !== "value" && (
+                <div
+                  style={{
+                    display: "grid",
+                    gap: "0.85rem",
+                    marginTop: "0.85rem",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(min(100%, 18rem), 1fr))",
+                  }}
                 >
-                  Premium per certificate, USD
-                </label>
-                <input
-                  id="sim-premium"
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={premiumUsd}
-                  disabled={running}
-                  onChange={(e) => setPremiumUsd(Math.max(0, Number(e.target.value)))}
-                  className={controlClass}
-                />
-                <p className="text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
-                  Enter a quoted premium; live quoting arrives with the Hedge
-                  module.
-                </p>
+                  <div className="lh-field">
+                    <label className="lh-label" htmlFor="sim-fee-rate">
+                      Fee rate override — %/day, in-range
+                    </label>
+                    <input
+                      id="sim-fee-rate"
+                      className="lh-input lh-input-mono"
+                      type="number"
+                      min={0}
+                      max={5}
+                      step={0.01}
+                      value={feeRateOverride}
+                      placeholder="measured"
+                      disabled={running}
+                      onChange={(e) => setFeeRateOverride(e.target.value)}
+                    />
+                    <p className="lh-help">
+                      Leave empty to use the measured rate. This is the rate
+                      WHILE in range — the simulation applies your range
+                      occupancy path by path.
+                    </p>
+                  </div>
+                  <div className="lh-field">
+                    <label className="lh-check">
+                      <input
+                        type="checkbox"
+                        checked={stochasticFee}
+                        disabled={running}
+                        onChange={(e) => setStochasticFee(e.target.checked)}
+                      />
+                      Model volume fluctuations (stochastic fee intensity)
+                    </label>
+                    <p className="lh-help">
+                      Resamples the pool&apos;s historical daily volume shape
+                      (Birdeye pool volume, block bootstrap), so the fee rate
+                      fluctuates along each path. The level stays anchored to
+                      the measured rate — or to your override, with history
+                      setting only the fluctuations.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── Advanced ── */}
+            <details className="lh-disclosure">
+              <summary>
+                Advanced — paths, seed, hedge overlay
+                {(nPaths !== 2000 || seed !== 42 || hedged) && " · changed"}
+              </summary>
+              <div className="lh-disclosure-body">
+                <div
+                  style={{
+                    display: "grid",
+                    gap: "0.85rem",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(min(100%, 14rem), 1fr))",
+                  }}
+                >
+                  <div className="lh-field">
+                    <label className="lh-label" htmlFor="sim-paths">
+                      Paths (100–5000)
+                    </label>
+                    <input
+                      id="sim-paths"
+                      className="lh-input lh-input-mono"
+                      type="number"
+                      min={100}
+                      max={5000}
+                      step={100}
+                      value={nPaths}
+                      disabled={running}
+                      onChange={(e) => setNPaths(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="lh-field">
+                    <label className="lh-label" htmlFor="sim-seed">
+                      Seed
+                    </label>
+                    <input
+                      id="sim-seed"
+                      className="lh-input lh-input-mono"
+                      type="number"
+                      step={1}
+                      value={seed}
+                      disabled={running}
+                      onChange={(e) => setSeed(Number(e.target.value))}
+                    />
+                    <p className="lh-help">
+                      The same seed with the same configuration reproduces a run
+                      exactly.
+                    </p>
+                  </div>
+                  <div className="lh-field">
+                    <label className="lh-check">
+                      <input
+                        type="checkbox"
+                        checked={hedged}
+                        disabled={running}
+                        onChange={(e) => setHedged(e.target.checked)}
+                      />
+                      Hedged — a Liquidity Hedge certificate held to horizon
+                    </label>
+                    {hedged && (
+                      <>
+                        <label
+                          className="lh-label"
+                          htmlFor="sim-premium"
+                          style={{ marginTop: "0.4rem" }}
+                        >
+                          Premium per certificate, USD
+                        </label>
+                        <input
+                          id="sim-premium"
+                          className="lh-input lh-input-mono"
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={premiumUsd}
+                          disabled={running}
+                          onChange={(e) =>
+                            setPremiumUsd(Math.max(0, Number(e.target.value)))
+                          }
+                        />
+                        <p className="lh-help">
+                          Enter a quoted premium. A live quote for a specific
+                          position comes from that position&rsquo;s hedge panel.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
-            )}
+            </details>
           </div>
 
-          <div className="mt-4 flex items-center gap-3">
+          <div className="lh-btn-row" style={{ marginTop: "1.25rem" }}>
             <button
               type="button"
+              className="lh-btn"
               onClick={run}
               disabled={running || !modelId}
-              className="rounded-md border border-zinc-300 px-4 py-1.5 text-sm font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
             >
               {running ? "Simulating…" : "Run simulation"}
             </button>
             {running && (
-              <span className="text-xs text-zinc-500 dark:text-zinc-400" role="status">
+              <span className="lh-help" role="status">
                 Running {nPaths.toLocaleString("en-US")} paths over{" "}
                 {horizonWeeks * 7} daily steps…
               </span>
             )}
           </div>
 
-          {runError && (
-            <p className="mt-3 text-sm text-red-600 dark:text-red-400" role="alert">
-              {runError}
-            </p>
+          {retryAtTs !== null ? (
+            <div style={{ marginTop: "0.85rem" }}>
+              <RateLimitNotice
+                retryAtTs={retryAtTs}
+                what="Simulation runs"
+                onRetry={run}
+              />
+            </div>
+          ) : (
+            runError && (
+              <p
+                className="lh-error-text"
+                role="alert"
+                style={{ marginTop: "0.85rem" }}
+              >
+                {runError}
+              </p>
+            )
           )}
 
           {/* Results — previous render held at reduced opacity on re-run */}
           {result && report && (
             <div
-              className={`mt-5 flex flex-col gap-4 transition-opacity ${running ? "opacity-60" : ""}`}
+              className={`lh-stack${running ? " lh-dim" : ""}`}
+              style={{ marginTop: "1.5rem" }}
               aria-busy={running}
             >
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="text-xs text-zinc-500 dark:text-zinc-400">
+              <div className="lh-card-head">
+                <p className="lh-label-block">
                   {reportComposition === "yield"
                     ? "Accrued-fees fan"
                     : "Portfolio value fan"}{" "}
                   — {result.positionsCount} position
                   {result.positionsCount === 1 ? "" : "s"}, initial{" "}
                   {formatUsd(report.initialValue)}
-                </h3>
-                <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                </p>
+                <span className="lh-card-meta">
                   {result.echo.modelId} · seed {result.echo.seed} ·{" "}
                   {result.echo.nPaths.toLocaleString("en-US")} paths ·{" "}
                   {result.echo.windowDays}d window
                 </span>
               </div>
 
-              {/* Estimator transparency: in-range behavior in these results
-                  is a property of the chosen path model, not of the
-                  portfolio card's in-range estimator. */}
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                In-range dynamics implied by{" "}
-                {models.find((m) => m.id === result.echo.modelId)?.label ??
-                  result.echo.modelId}{" "}
-                paths — each simulation mode produces its own in-range behavior
-                by construction.
+              {/* Provenance: in-range behaviour in these results is a
+                  property of the chosen path model, not of the portfolio
+                  card's in-range estimator. */}
+              <p className="lh-prov">
+                <span className="lh-prov-item">
+                  <span className="lh-prov-key">in-range dynamics</span>
+                  implied by{" "}
+                  {models.find((m) => m.id === result.echo.modelId)?.label ??
+                    result.echo.modelId}{" "}
+                  paths — each simulation mode produces its own in-range
+                  behaviour by construction
+                </span>
               </p>
 
               <FanChart
                 fan={report.fan}
                 // Yield-only series starts from zero accrued fees — the
                 // position's value is not on this axis.
-                initialValue={reportComposition === "yield" ? 0 : report.initialValue}
+                initialValue={
+                  reportComposition === "yield" ? 0 : report.initialValue
+                }
                 yCaption={COMPOSITION_Y_CAPTION[reportComposition]}
               />
 
               <div
-                className={`grid grid-cols-1 gap-4 ${report.hedgedTerminal ? "lg:grid-cols-2" : ""}`}
+                style={{
+                  display: "grid",
+                  gap: "1rem",
+                  gridTemplateColumns: report.hedgedTerminal
+                    ? "repeat(auto-fit, minmax(min(100%, 26rem), 1fr))"
+                    : "minmax(0, 1fr)",
+                }}
               >
                 <TerminalTiles
                   title={`Terminal P&L at ${result.echo.horizonWeeks}w — ${COMPOSITION_LABEL[reportComposition]}, unhedged`}
@@ -601,32 +650,39 @@ export function SimulateSection({ owner }: { owner: string }) {
                 )}
               </div>
 
-              {/* Yield transparency: accrued mean + the rate actually used */}
-              {reportComposition !== "value" && rateSourceText && (
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Yield: mean accrued {formatUsd(report.meanAccruedYieldUsd)}{" "}
-                  over the horizon · {rateSourceText}
+              {/* Yield provenance: accrued mean + the rate actually used */}
+              {reportComposition !== "value" && rateSource && (
+                <p className="lh-prov">
+                  <span className="lh-prov-item">
+                    <span className="lh-prov-key">mean accrued</span>
+                    {formatUsd(report.meanAccruedYieldUsd)} over the horizon
+                  </span>
+                  <span className="lh-prov-item">
+                    <span className="lh-prov-key">rate</span>
+                    {rateSource}
+                  </span>
                 </p>
               )}
 
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-                <StatTile
+              <div className="lh-facts lh-facts-3">
+                <Fact
                   label="Max drawdown (median)"
                   value={formatUsd(report.maxDrawdown.p50)}
                 />
-                <StatTile
+                <Fact
                   label="Max drawdown (p95)"
                   value={formatUsd(report.maxDrawdown.p95)}
                 />
-                <StatTile
+                <Fact
                   label="P(exit range)"
-                  value={formatPct(report.pExitRange)}
+                  value={formatPercent(report.pExitRange)}
                   sub="any position, any step"
                 />
               </div>
 
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Hypothetical simulation — not a prediction.
+              <p className="lh-note">
+                Hypothetical simulation — model output, not a prediction and not
+                investment advice.
               </p>
             </div>
           )}

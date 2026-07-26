@@ -13,7 +13,13 @@
 	# Don't advertise the stack.
 	header -Server
 
-	reverse_proxy web:3000
+	# A10: never trust a client-sent X-Forwarded-For. Cloudflare's ranges are
+	# the only upstream we accept forwarded headers from; everything else has
+	# its XFF replaced with the observed peer address.
+	reverse_proxy web:3000 {
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+	}
 
 	log {
 		output file /data/access.log {

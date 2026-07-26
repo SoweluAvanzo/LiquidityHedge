@@ -10,14 +10,18 @@
     "regime-once": "ts-node src/cli.ts",
     "devnet-rehearsal": "ts-node src/devnet-rehearsal.ts",
     "snapshot-once": "ts-node src/snapshot-cli.ts",
-    "drill-restore": "ts-node src/drill-restore.ts"
+    "drill-restore": "ts-node src/drill-restore.ts",
+    "data-report": "ts-node src/report-cli.ts",
+    "migrate": "ts-node src/migrate.ts",
+    "payout-executor": "ts-node src/payout-executor.ts"
   },
   "dependencies": {
     "@lh/core": "workspace:*",
     "@lh/hedge": "workspace:*",
     "@lh/market-data": "workspace:*",
     "@solana/web3.js": "^1.95.0",
-    "@solana/spl-token": "^0.4.0"
+    "@solana/spl-token": "^0.4.0",
+    "@lh/storage": "workspace:*"
   },
   "devDependencies": {
     "@types/chai": "^4.3.0",

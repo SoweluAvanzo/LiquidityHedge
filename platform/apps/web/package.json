@@ -22,7 +22,11 @@
     "@solana/web3.js": "^1.95.0",
     "next": "16.2.11",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "@lh/commerce": "workspace:*",
+    "@solana/spl-token": "^0.4.0",
+    "@lh/storage": "workspace:*",
+    "pg-copy-streams": "^6.0.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

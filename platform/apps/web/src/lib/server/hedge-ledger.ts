@@ -127,6 +127,9 @@ function buildConfig(): LedgerConfig {
     // small positions uneconomical to hedge (it dominates the fair value);
     // override per environment with HEDGE_PREMIUM_FLOOR_USDC (µUSDC).
     premiumFloorUsdc: Number(process.env.HEDGE_PREMIUM_FLOOR_USDC ?? 50_000),
+    // A2/A3 guards: bound griefing and unbounded ledger growth.
+    maxOpenQuotesPerOwner: Number(process.env.MAX_OPEN_QUOTES_PER_OWNER ?? 3),
+    maxLifetimeQuotes: Number(process.env.MAX_LIFETIME_QUOTES ?? 50_000),
     markupFloor: 1.05,
     feeSplitRate: 0.1,
     expectedDailyFee: 0.005,

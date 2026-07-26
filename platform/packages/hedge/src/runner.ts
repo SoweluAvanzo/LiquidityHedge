@@ -40,6 +40,13 @@ export interface RunnerPorts {
 export interface RunnerConfig {
   /** Refuse to pay out beyond this per cycle (hot-wallet float, SR-8). */
   hotWalletFloatCapUsdc: number;
+  /**
+   * Refunds below this are not executed (Master Terms §4.4 dust rule):
+   * an ATA creation plus fees costs more than the amount returned, so a
+   * flood of dust payments would otherwise drain SOL. They are recorded
+   * for manual handling instead.
+   */
+  minRefundUsdc: number;
   /** Oracle divergence beyond this defers settlement (AR-7). */
   maxDivergenceBps: number;
   /** Plan everything, execute nothing on-chain. */
@@ -62,8 +69,10 @@ export interface CycleReport {
   refunded: PayoutRecord[];
   deferredForDivergence: { quoteId: string; divergenceBps: number }[];
   failedPayouts: { record: PayoutRecord; error: string }[];
-  /** Set when planned payouts exceeded the float — payouts halted (RB-2). */
+  /** Set when the float could not cover due settlements (RB-2). */
   floatShortfallUsdc: number | null;
+  /** Unmatched payments below the refund minimum — handled manually. */
+  dustSkipped: { txSignature: string; amountUsdc: number }[];
   cursor: string | null;
   invariantsOk: boolean;
 }
@@ -83,6 +92,7 @@ export async function runSettlementCycle(
     deferredForDivergence: [],
     failedPayouts: [],
     floatShortfallUsdc: null,
+    dustSkipped: [],
     cursor,
     invariantsOk: true,
   };
@@ -100,6 +110,14 @@ export async function runSettlementCycle(
   report.lapsedQuotes = ledger.lapseExpiredQuotes();
 
   // 3. Settlements due.
+  //
+  // SECURITY (A4): the float budget is checked BEFORE any settle() call.
+  // Settling first and paying later would mark certificates settled while
+  // their payouts were skipped — they would leave dueForSettlement() and
+  // never be retried. Refunds are budgeted separately and can never
+  // consume the funds owed to settling buyers.
+  const balance = await ports.hotWalletBalanceUsdc();
+  let budget = Math.min(balance, config.hotWalletFloatCapUsdc);
   const pendingPayouts: PayoutRecord[] = [];
   for (const cert of ledger.dueForSettlement()) {
     const reading = await ports.readSettlementPrice(cert);
@@ -111,7 +129,15 @@ export async function runSettlementCycle(
       continue; // AR-7: defer, do not settle on a disputed price
     }
     const fees = await ports.readAccruedFees(cert);
+    // Worst case for this certificate is capDown + collateral; refuse to
+    // settle unless the budget can actually cover the payout.
+    const worstCase = cert.capDownUsdc + cert.capUpUsdc;
+    if (worstCase > budget) {
+      report.floatShortfallUsdc = (report.floatShortfallUsdc ?? 0) + worstCase - budget;
+      continue; // stays due; ops tops up from the vault (RB-2)
+    }
     const { settlementAmountUsdc, to } = ledger.settle(cert.quoteId, reading, fees);
+    budget -= settlementAmountUsdc;
     pendingPayouts.push({
       kind: "settlement",
       reference: cert.quoteId,
@@ -124,6 +150,10 @@ export async function runSettlementCycle(
   // 4. Refund sweep (wrong-amount / lapsed / unmatched payments).
   for (const [sig, payment] of ledger.getState().paymentsByTx) {
     if (payment.matched) continue;
+    if (payment.amountUsdc < config.minRefundUsdc) {
+      report.dustSkipped.push({ txSignature: sig, amountUsdc: payment.amountUsdc });
+      continue; // below the dust threshold — never auto-refunded
+    }
     try {
       const { amountUsdc, to } = ledger.refundPayment(sig);
       pendingPayouts.push({
@@ -138,15 +168,9 @@ export async function runSettlementCycle(
     }
   }
 
-  // 5. Execute payouts under the float cap.
+  // 5. Execute payouts (settlements were budget-checked before settling).
   const toPay = pendingPayouts.filter((p) => p.amountUsdc > 0);
-  const totalDue = toPay.reduce((s, p) => s + p.amountUsdc, 0);
-  const balance = await ports.hotWalletBalanceUsdc();
-  if (totalDue > Math.min(balance, config.hotWalletFloatCapUsdc)) {
-    // Halt: ops must top up from the vault (RB-2). Ledger transitions are
-    // already recorded; the reconciliation monitor tracks the gap.
-    report.floatShortfallUsdc = totalDue - Math.min(balance, config.hotWalletFloatCapUsdc);
-  } else if (!config.dryRun) {
+  if (!config.dryRun) {
     for (const payout of toPay) {
       try {
         const { txSignature } = await ports.executePayout({

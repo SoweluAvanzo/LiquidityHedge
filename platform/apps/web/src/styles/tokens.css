@@ -1,0 +1,126 @@
+/*
+ * ONE palette for the whole product.
+ *
+ * These values were the landing page's ("drafting film": a cool light-table
+ * ground, white vellum surfaces, hairline rules, monospace as the display
+ * face, and a two-colour signal system that carries meaning rather than
+ * decoration — amber = fees accruing, teal = the price corridor). They are
+ * promoted to `:root` here so `/`, `/app` and `/data` read from the same
+ * source. `landing.css` now aliases its own `--lp-*` names onto these.
+ *
+ * Semantics, fixed product-wide:
+ *   teal  (--lh-range)  the price range [p_l, p_u] and anything inside it
+ *   amber (--lh-accrue) fee accrual, and — as a STATUS tone only — attention
+ *   brick (--lh-alert)  failure, violated invariant, money owed back
+ *   blue  (--chart-series) model output plotted as a series; also the focus ring
+ *
+ * NFR-SEC4/SEC5: no @font-face, no external assets of any kind.
+ */
+
+:root {
+  --lh-page: #e9ecef;
+  --lh-surface: #ffffff;
+  --lh-surface-2: #f3f6f8;
+  --lh-ink: #101820;
+  --lh-ink-2: #414d59;
+  --lh-ink-3: #5c6874;
+  --lh-rule: #d3d9de;
+  --lh-rule-strong: #b6c0c8;
+
+  --lh-accrue: #8a5209;
+  --lh-accrue-graphic: #c1801f;
+  --lh-accrue-wash: rgba(193, 128, 31, 0.1);
+
+  --lh-range: #145f6b;
+  --lh-range-graphic: #2e8896;
+  --lh-range-wash: rgba(46, 136, 150, 0.09);
+
+  --lh-alert: #a02f26;
+  --lh-alert-graphic: #c2453b;
+  --lh-alert-wash: rgba(194, 69, 59, 0.1);
+
+  --lh-focus: #0f5fbd;
+
+  --lh-mono: ui-monospace, "SF Mono", SFMono-Regular, "DejaVu Sans Mono", Menlo,
+    Consolas, "Liberation Mono", monospace;
+  --lh-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    "Liberation Sans", Arial, sans-serif;
+
+  --lh-gutter: clamp(1.25rem, 4vw, 2.5rem);
+  --lh-max: 74rem;
+
+  /* Root-layout compatibility aliases (body background / Tailwind theme). */
+  --background: var(--lh-page);
+  --foreground: var(--lh-ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --lh-page: #0a0f14;
+    --lh-surface: #111921;
+    --lh-surface-2: #16202a;
+    --lh-ink: #e6ecf1;
+    --lh-ink-2: #a9b7c2;
+    --lh-ink-3: #8593a0;
+    --lh-rule: #24303a;
+    --lh-rule-strong: #35434f;
+
+    --lh-accrue: #f0b45c;
+    --lh-accrue-graphic: #e09a3e;
+    --lh-accrue-wash: rgba(224, 154, 62, 0.13);
+
+    --lh-range: #5fc2ce;
+    --lh-range-graphic: #3e9fae;
+    --lh-range-wash: rgba(62, 159, 174, 0.12);
+
+    --lh-alert: #f08a80;
+    --lh-alert-graphic: #e0685c;
+    --lh-alert-wash: rgba(224, 104, 92, 0.14);
+
+    --lh-focus: #7ab6ff;
+  }
+}
+
+/*
+ * Chart tokens (validated dataviz palette).
+ *
+ * The series hue and its nested washes are UNCHANGED — they were validated
+ * for contrast on both surfaces and they encode magnitude, not identity.
+ * What changed is everything around them: grid, axis, tick ink and the
+ * surface halo now come from the palette above, so a chart sits on the same
+ * greys as the card that holds it. The active-range band is drawn in the
+ * range teal, because that band IS the price corridor the landing figure
+ * already draws in teal — the same fact should not have two colours.
+ */
+:root {
+  --chart-series: #2a78d6; /* categorical slot 1 (blue), light step */
+  --chart-band: rgba(42, 120, 214, 0.1); /* series hue wash ~10% */
+  --chart-band-strong: rgba(42, 120, 214, 0.22); /* inner fan band (p25–p75) */
+  --chart-range: var(--lh-range-graphic); /* [p_l, p_u] band stroke/fill */
+  --chart-range-wash: var(--lh-range-wash);
+  --chart-accrue: var(--lh-accrue-graphic); /* fee-accrual series */
+  --chart-grid: var(--lh-rule);
+  --chart-axis: var(--lh-rule-strong);
+  --chart-ink-muted: var(--lh-ink-3);
+  --chart-ink-secondary: var(--lh-ink-2);
+  --chart-surface: var(--lh-surface);
+
+  /* Status tones — reserved, never reused for data series. Each is always
+     paired with a text label; colour alone never carries a status. */
+  --status-good: var(--lh-range-graphic);
+  --status-good-wash: var(--lh-range-wash);
+  --status-warning: var(--lh-accrue-graphic);
+  --status-warning-wash: var(--lh-accrue-wash);
+  --status-critical: var(--lh-alert-graphic);
+  --status-critical-wash: var(--lh-alert-wash);
+  --status-neutral: var(--lh-ink-3);
+  --status-neutral-wash: transparent;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --chart-series: #3987e5; /* same hue, stepped for the dark surface */
+    --chart-band: rgba(57, 135, 229, 0.12);
+    --chart-band-strong: rgba(57, 135, 229, 0.26);
+  }
+}

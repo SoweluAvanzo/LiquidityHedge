@@ -12,6 +12,7 @@
  */
 
 import { type NextRequest, NextResponse } from "next/server";
+import { checkLimit, tooManyRequests } from "@/lib/server/rate-limit";
 import type { QuoteRecord } from "@lh/hedge";
 import type { HedgeStatusResponse } from "@/lib/hedge-api";
 import {
@@ -24,6 +25,9 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  // A10: cost-tiered rate limit, keyed on the trusted last hop.
+  const limit = checkLimit(request, "status");
+  if (!limit.ok) return tooManyRequests(limit);
   const quoteId = request.nextUrl.searchParams.get("quoteId");
   const positionMint = request.nextUrl.searchParams.get("positionMint");
 

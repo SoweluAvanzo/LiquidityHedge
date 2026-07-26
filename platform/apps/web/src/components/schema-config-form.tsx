@@ -33,8 +33,8 @@ function humanize(name: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-const inputClass =
-  "w-full rounded-md border border-zinc-300 bg-transparent px-2.5 py-1.5 text-sm focus:border-zinc-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:focus:border-zinc-400";
+const inputClass = "lh-input";
+const selectClass = "lh-select";
 
 export function SchemaConfigForm({
   schema,
@@ -66,25 +66,26 @@ export function SchemaConfigForm({
   if (entries.length === 0) return null;
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <div
+      style={{
+        display: "grid",
+        gap: "0.75rem",
+        gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 14rem), 1fr))",
+      }}
+    >
       {entries.map(([name, prop]) => {
         const id = `model-config-${name}`;
         const label = (
-          <label
-            htmlFor={id}
-            className="text-xs font-medium text-zinc-700 dark:text-zinc-300"
-          >
+          <label htmlFor={id} className="lh-label">
             {humanize(name)}
             {required.has(name) && (
-              <span className="text-zinc-400 dark:text-zinc-500"> (required)</span>
+              <span className="lh-label-optional"> (required)</span>
             )}
           </label>
         );
         const description =
           typeof prop.description === "string" ? (
-            <p className="text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
-              {prop.description}
-            </p>
+            <p className="lh-help">{prop.description}</p>
           ) : null;
         const error = fieldErrors[name];
 
@@ -97,14 +98,14 @@ export function SchemaConfigForm({
                 ? prop.default
                 : String(prop.enum[0]);
           return (
-            <div key={name} className="flex flex-col gap-1">
+            <div key={name} className="lh-field">
               {label}
               <select
                 id={id}
                 value={current}
                 disabled={disabled}
                 onChange={(e) => setValue(name, e.target.value)}
-                className={inputClass}
+                className={selectClass}
               >
                 {prop.enum.map((option) => (
                   <option key={String(option)} value={String(option)}>
@@ -131,7 +132,7 @@ export function SchemaConfigForm({
           const placeholder =
             typeof prop.default === "number" ? `default ${prop.default}` : "";
           return (
-            <div key={name} className="flex flex-col gap-1">
+            <div key={name} className="lh-field">
               {label}
               <input
                 id={id}
@@ -149,7 +150,7 @@ export function SchemaConfigForm({
                   const parsed = Number(text);
                   if (Number.isFinite(parsed)) setValue(name, parsed);
                 }}
-                className={inputClass}
+                className={`${inputClass} lh-input-mono`}
               />
               {description}
             </div>
@@ -163,7 +164,7 @@ export function SchemaConfigForm({
             rawText[name] ??
             (Array.isArray(config[name]) ? (config[name] as number[]).join(", ") : "");
           return (
-            <div key={name} className="flex flex-col gap-1">
+            <div key={name} className="lh-field">
               {label}
               <input
                 id={id}
@@ -191,11 +192,11 @@ export function SchemaConfigForm({
                   setFieldErrors((prev) => ({ ...prev, [name]: null }));
                   setValue(name, parts);
                 }}
-                className={inputClass}
+                className={`${inputClass} lh-input-mono`}
                 aria-invalid={!!error}
               />
               {error && (
-                <p className="text-[11px] text-red-600 dark:text-red-400" role="alert">
+                <p className="lh-error-text" role="alert">
                   {error}
                 </p>
               )}
@@ -209,7 +210,7 @@ export function SchemaConfigForm({
           rawText[name] ??
           (config[name] !== undefined ? JSON.stringify(config[name]) : "");
         return (
-          <div key={name} className="flex flex-col gap-1 sm:col-span-2">
+          <div key={name} className="lh-field" style={{ gridColumn: "1 / -1" }}>
             {label}
             <textarea
               id={id}
@@ -233,11 +234,11 @@ export function SchemaConfigForm({
                   setFieldErrors((prev) => ({ ...prev, [name]: "Invalid JSON." }));
                 }
               }}
-              className={`${inputClass} font-mono text-xs`}
+              className={`lh-textarea lh-input-mono`}
               aria-invalid={!!error}
             />
             {error && (
-              <p className="text-[11px] text-red-600 dark:text-red-400" role="alert">
+              <p className="lh-error-text" role="alert">
                 {error}
               </p>
             )}

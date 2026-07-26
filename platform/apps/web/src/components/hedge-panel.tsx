@@ -3,17 +3,18 @@
 /**
  * Hedge purchase flow for one eligible (SOL/USDC, in-range) position:
  *
- *   Step 1 — quote: premium / collateral / total, caps, corridor,
+ *   Step 1 — quote: premium / collateral / total, caps, range,
  *            premium breakdown, term-sheet hash, live TTL countdown;
  *   Step 2 — consent: the six Master-Terms acknowledgments (all
  *            required) + jurisdiction self-attestation;
  *   Step 3 — payment: treasury / exact amount / memo reference with
  *            copy buttons, 5s status polling until activation;
  *   then the active-certificate card (expiry countdown, caps, live
- *   estimated payoff via the corridor clamp) and the settlement view.
+ *   estimated payoff via the range clamp) and the settlement view.
  *
- * All money renders with an explicit "$" and 2–6 decimals; model
- * figures carry hypothetical/no-advice captions (FR-L3).
+ * All money renders with an explicit "$" and 2–6 decimals through
+ * `@/lib/format`, the same helpers the data checkout uses; model figures
+ * carry hypothetical/no-advice captions (FR-L3).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -25,14 +26,20 @@ import type {
   HedgeQuoteResponse,
   HedgeStatusResponse,
 } from "@/lib/hedge-api";
+import { ApiError, apiFetch, errorMessage, retryAtFrom } from "@/lib/api-client";
 import {
   formatCountdown,
+  formatNumber,
+  formatPercent,
+  formatTimestamp,
   formatUsdc,
   formatUsdcExact,
   formatUsdcSigned,
-} from "@/lib/hedge-api";
-import { formatNumber } from "@/lib/format";
+  usdcAmountField,
+} from "@/lib/format";
 import { StatusBadge } from "@/components/status-badge";
+import { CopyField } from "@/components/ui/copy-field";
+import { RateLimitNotice } from "@/components/ui/rate-limit-notice";
 
 type Phase =
   | "idle" //     panel closed, nothing loaded
@@ -44,12 +51,7 @@ type Phase =
   | "active" //   certificate active — polling for settlement
   | "done"; //    settled or expired
 
-const buttonClass =
-  "rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900";
-const quietButtonClass =
-  "rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-900";
-
-function StatTile({
+function Fact({
   label,
   value,
   sub,
@@ -59,75 +61,34 @@ function StatTile({
   sub?: string;
 }) {
   return (
-    <div className="rounded-lg border border-zinc-200 px-3 py-2.5 dark:border-zinc-800">
-      <div className="text-xs text-zinc-500 dark:text-zinc-400">{label}</div>
-      <div className="mt-0.5 text-lg font-semibold tracking-tight">{value}</div>
-      {sub && <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{sub}</div>}
+    <div className="lh-fact">
+      <span className="lh-fact-label">{label}</span>
+      <p className="lh-fact-value">{value}</p>
+      {sub && <p className="lh-fact-sub">{sub}</p>}
     </div>
   );
 }
 
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <dt className="text-xs text-zinc-500 dark:text-zinc-400">{label}</dt>
-      <dd className="mt-0.5 text-sm" style={{ fontVariantNumeric: "tabular-nums" }}>
-        {children}
-      </dd>
-    </div>
-  );
-}
-
-function CopyButton({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      aria-label={`Copy ${label}`}
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(value);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        } catch {
-          // Clipboard unavailable (permissions) — value stays selectable.
-        }
-      }}
-      className="shrink-0 rounded-md border border-zinc-300 px-2 py-0.5 text-[11px] font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-    >
-      {copied ? "Copied" : "Copy"}
-    </button>
-  );
-}
-
-/** Labelled monospace value with a copy button (payment instructions). */
-function CopyField({
+function Term({
   label,
-  display,
-  copyValue,
+  children,
 }: {
   label: string;
-  display: string;
-  copyValue: string;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs text-zinc-500 dark:text-zinc-400">{label}</span>
-      <div className="flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800">
-        <code
-          className="min-w-0 flex-1 break-all font-mono text-xs"
-          style={{ fontVariantNumeric: "tabular-nums" }}
-        >
-          {display}
-        </code>
-        <CopyButton value={copyValue} label={label} />
-      </div>
+    <div>
+      <dt>{label}</dt>
+      <dd>{children}</dd>
     </div>
   );
 }
 
 /** Linear interpolation of the position's V(S) curve at a given price. */
-function interpolateCurve(curve: ValueCurvePoint[], price: number): number | null {
+function interpolateCurve(
+  curve: ValueCurvePoint[],
+  price: number,
+): number | null {
   if (curve.length === 0) return null;
   if (price <= curve[0].price) return curve[0].value;
   const last = curve[curve.length - 1];
@@ -146,7 +107,7 @@ function interpolateCurve(curve: ValueCurvePoint[], price: number): number | nul
 /**
  * Client-side payoff estimate Π = V(S₀) − V(clamp(S, p_l, p_u)) in µUSDC,
  * from the quote's numbers + the dashboard's live price and value curve.
- * Outside the corridor the contractual caps apply exactly.
+ * Outside the range the contractual caps apply exactly.
  */
 function estimatePayoffUsdc(
   quote: QuoteRecord,
@@ -190,6 +151,8 @@ export function HedgePanel({
   const [checks, setChecks] = useState<boolean[]>([]);
   const [devMode, setDevMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when /api/hedge/quote answered 429 (10 quotes a minute).
+  const [retryAtTs, setRetryAtTs] = useState<number | null>(null);
   const [devNote, setDevNote] = useState<string | null>(null);
   const [devBusy, setDevBusy] = useState(false);
   const [nowTs, setNowTs] = useState(() => Math.floor(Date.now() / 1000));
@@ -225,28 +188,23 @@ export function HedgePanel({
   const requestQuote = useCallback(async () => {
     setPhase("loading");
     setError(null);
+    setRetryAtTs(null);
     setDevNote(null);
     setCertificate(null);
     try {
-      const res = await fetch("/api/hedge/quote", {
+      const payload = await apiFetch<HedgeQuoteResponse>("/api/hedge/quote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ owner, positionMint: position.positionMint }),
       });
-      const body = await res.json();
-      if (!res.ok) {
-        throw new Error(
-          typeof body?.error === "string" ? body.error : `Request failed (${res.status})`,
-        );
-      }
-      const payload = body as HedgeQuoteResponse;
       setQuote(payload.quote);
       setPayment(payload.paymentInstructions);
       setConsentItems(payload.consentItems);
       setChecks(new Array(payload.consentItems.length).fill(false));
       setPhase("quote");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to request a quote.");
+      setRetryAtTs(retryAtFrom(err));
+      setError(errorMessage(err, "Failed to request a quote."));
       setPhase("error");
     }
   }, [owner, position.positionMint]);
@@ -275,9 +233,18 @@ export function HedgePanel({
           setPhase("quote");
           return;
         }
-      } else if (res.status === 503) {
+      } else if (res.status === 503 || res.status === 429) {
+        if (res.status === 429) {
+          const wait = Number(res.headers.get("Retry-After"));
+          setRetryAtTs(
+            Math.floor(Date.now() / 1000) +
+              (Number.isFinite(wait) && wait > 0 ? Math.ceil(wait) : 60),
+          );
+        }
         throw new Error(
-          typeof body?.error === "string" ? body.error : "Hedge service unavailable.",
+          typeof body?.error === "string"
+            ? body.error
+            : "Hedge service unavailable.",
         );
       }
     } catch (err) {
@@ -295,23 +262,29 @@ export function HedgePanel({
     if (!open || !quote) return;
     if (phase !== "payment" && phase !== "active") return;
     let cancelled = false;
+    // Self-scheduling poll so a 429 can widen the interval instead of
+    // hammering a limiter that has already said no.
+    let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
+      let delayMs = 5000;
       try {
-        const res = await fetch(
+        const body = await apiFetch<HedgeStatusResponse>(
           `/api/hedge/status?quoteId=${encodeURIComponent(quote.quoteId)}`,
-          { cache: "no-store" },
         );
-        if (!res.ok || cancelled) return;
-        applyStatus((await res.json()) as HedgeStatusResponse);
-      } catch {
-        // Transient poll failure — next tick retries.
+        if (cancelled) return;
+        applyStatus(body);
+      } catch (err) {
+        if (err instanceof ApiError && err.isRateLimited) {
+          delayMs = (err.retryAfterSeconds ?? 60) * 1000;
+        }
+        // Any other transient failure — the next tick retries.
       }
+      if (!cancelled) timer = setTimeout(poll, delayMs);
     };
     void poll();
-    const timer = setInterval(poll, 5000);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      clearTimeout(timer);
     };
   }, [open, phase, quote, applyStatus]);
 
@@ -328,14 +301,18 @@ export function HedgePanel({
       const body = await res.json();
       if (!res.ok) {
         throw new Error(
-          typeof body?.error === "string" ? body.error : `Request failed (${res.status})`,
+          typeof body?.error === "string"
+            ? body.error
+            : `Request failed (${res.status})`,
         );
       }
       if (body.activated) {
         setCertificate(body.activated as CertificateRecord);
         setPhase("active");
       } else {
-        setDevNote("Payment recorded but no certificate activated (see server log).");
+        setDevNote(
+          "Payment recorded but no certificate activated (see server log).",
+        );
       }
     } catch (err) {
       setDevNote(err instanceof Error ? err.message : "Simulate payment failed.");
@@ -352,7 +329,9 @@ export function HedgePanel({
       const body = await res.json();
       if (!res.ok) {
         throw new Error(
-          typeof body?.error === "string" ? body.error : `Request failed (${res.status})`,
+          typeof body?.error === "string"
+            ? body.error
+            : `Request failed (${res.status})`,
         );
       }
       const settledCount = Array.isArray(body.settled) ? body.settled.length : 0;
@@ -385,12 +364,13 @@ export function HedgePanel({
     checks.every(Boolean);
 
   const expiredNotice = (
-    <div className="flex flex-wrap items-center gap-3 rounded-md border border-dashed border-zinc-300 px-3 py-2 dark:border-zinc-700">
+    <div
+      className="lh-card-sub lh-card-dashed lh-btn-row"
+      style={{ gap: "0.75rem" }}
+    >
       <StatusBadge tone="warning" label="Quote expired" />
-      <span className="text-sm text-zinc-600 dark:text-zinc-400">
-        Quote expired — request a new one.
-      </span>
-      <button type="button" onClick={requestQuote} className={buttonClass}>
+      <span className="lh-help">Quote expired — request a new one.</span>
+      <button type="button" onClick={requestQuote} className="lh-btn lh-btn-ghost">
         Request new quote
       </button>
     </div>
@@ -402,154 +382,149 @@ export function HedgePanel({
       : null;
 
   return (
-    <div className="mt-4">
+    <div style={{ marginTop: "1.25rem" }}>
       {!open ? (
-        <button type="button" onClick={openPanel} className={buttonClass}>
+        <button type="button" onClick={openPanel} className="lh-btn lh-btn-ghost">
           Hedge this position
         </button>
       ) : (
-        <section
-          className="rounded-md border border-zinc-200 p-4 dark:border-zinc-800"
-          aria-label="Hedge purchase"
-        >
-          <header className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-3">
-              <h4 className="text-sm font-semibold tracking-tight">
-                Liquidity Hedge certificate
-              </h4>
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                {STEP_LABELS[phase] ?? ""}
-              </span>
+        <section className="lh-card-sub" aria-label="Hedge purchase">
+          <header className="lh-card-head">
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: "0.75rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <h4 className="lh-h3">Liquidity Hedge certificate</h4>
+              <span className="lh-card-meta">{STEP_LABELS[phase] ?? ""}</span>
             </div>
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className={quietButtonClass}
+              className="lh-btn lh-btn-quiet lh-btn-xs"
             >
               Close
             </button>
           </header>
 
-          <div className="mt-4">
+          <div style={{ marginTop: "1rem" }}>
             {phase === "loading" && (
               <div
-                className="h-24 animate-pulse rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900"
+                className="lh-skeleton"
+                style={{ height: "6rem" }}
                 aria-hidden="true"
               />
             )}
 
-            {phase === "error" && (
-              <div className="flex flex-col gap-3">
-                <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-                  {error}
-                </p>
-                <div>
-                  <button type="button" onClick={requestQuote} className={buttonClass}>
-                    Try again
-                  </button>
+            {phase === "error" &&
+              (retryAtTs !== null ? (
+                <RateLimitNotice
+                  retryAtTs={retryAtTs}
+                  what="Hedge quotes"
+                  onRetry={requestQuote}
+                />
+              ) : (
+                <div className="lh-stack-tight">
+                  <p className="lh-error-text" role="alert">
+                    {error}
+                  </p>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={requestQuote}
+                      className="lh-btn lh-btn-ghost"
+                    >
+                      Try again
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              ))}
 
             {phase === "quote" && quote && (
-              <div className="flex flex-col gap-4">
+              <div className="lh-stack-tight">
                 {quoteExpired ? (
                   expiredNotice
                 ) : (
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                  <p className="lh-prov">
                     <span>
-                      Quote is an offer open for the validity period, then lapses
-                      (Master Terms §4.1).
+                      Quote is an offer open for the validity period, then
+                      lapses (Master Terms §4.1).
                     </span>
-                    <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                      Valid for {formatCountdown(quoteTtl)}
+                    <span className="lh-prov-item">
+                      <span className="lh-prov-key">valid for</span>
+                      {formatCountdown(quoteTtl)}
                     </span>
-                  </div>
+                  </p>
                 )}
 
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  <StatTile label="Premium" value={formatUsdc(quote.premiumUsdc)} />
-                  <StatTile
-                    label="Collateral (= Cap up)"
+                <div className="lh-facts lh-facts-3">
+                  <Fact label="Premium" value={formatUsdc(quote.premiumUsdc)} />
+                  <Fact
+                    label="Collateral (= cap up)"
                     value={formatUsdc(quote.capUpUsdc)}
                   />
-                  <StatTile
+                  <Fact
                     label="Total payable now"
                     value={formatUsdc(quote.totalPayableUsdc)}
-                    sub="Premium + Collateral"
+                    sub="premium + collateral"
                   />
                 </div>
 
-                <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
-                  <Fact label="Cap down (max paid to you)">
+                <dl className="lh-dl lh-dl-4">
+                  <Term label="Cap down (max paid to you)">
                     {formatUsdc(quote.capDownUsdc)}
-                  </Fact>
-                  <Fact label="Cap up (max you can owe, prefunded)">
+                  </Term>
+                  <Term label="Cap up (max you can owe, prefunded)">
                     {formatUsdc(quote.capUpUsdc)}
-                  </Fact>
-                  <Fact label="Corridor [p_l, p_u]">
+                  </Term>
+                  <Term label="Range [p_l, p_u]">
                     {formatNumber(quote.priceLowerUsd)} –{" "}
                     {formatNumber(quote.priceUpperUsd)} USDC
-                  </Fact>
-                  <Fact label="Entry price S₀">
+                  </Term>
+                  <Term label="Entry price S₀">
                     {formatNumber(quote.entryPriceUsd)} USDC
-                  </Fact>
+                  </Term>
                 </dl>
 
                 <div>
-                  <h5 className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Premium breakdown — Premium = max(P_floor, FV · m_vol − y · E[F])
-                  </h5>
-                  <div className="mt-2 overflow-x-auto">
-                    <table className="w-full text-sm">
+                  <p className="lh-label-block">
+                    Premium breakdown — Premium = max(P_floor, FV · m_vol − y ·
+                    E[F])
+                  </p>
+                  <div className="lh-table-scroll" style={{ marginTop: "0.5rem" }}>
+                    <table className="lh-table">
                       <tbody>
-                        <tr className="border-t border-zinc-200 dark:border-zinc-800">
-                          <td className="py-1.5 pr-4">FV — fair value (risk-neutral GBM)</td>
-                          <td
-                            className="py-1.5 text-right"
-                            style={{ fontVariantNumeric: "tabular-nums" }}
-                          >
+                        <tr>
+                          <td>FV — fair value (risk-neutral GBM)</td>
+                          <td className="lh-td-num">
                             {formatUsdc(quote.breakdown.fairValueUsdc)}
                           </td>
                         </tr>
-                        <tr className="border-t border-zinc-200 dark:border-zinc-800">
-                          <td className="py-1.5 pr-4">
-                            m_vol — volatility markup (max of floor, IV/RV)
-                          </td>
-                          <td
-                            className="py-1.5 text-right"
-                            style={{ fontVariantNumeric: "tabular-nums" }}
-                          >
+                        <tr>
+                          <td>m_vol — volatility markup (max of floor, IV/RV)</td>
+                          <td className="lh-td-num">
                             ×{quote.breakdown.effectiveMarkup.toFixed(4)}
                           </td>
                         </tr>
-                        <tr className="border-t border-zinc-200 dark:border-zinc-800">
-                          <td className="py-1.5 pr-4">
-                            − y · E[F] — fee-split discount
-                          </td>
-                          <td
-                            className="py-1.5 text-right"
-                            style={{ fontVariantNumeric: "tabular-nums" }}
-                          >
+                        <tr>
+                          <td>− y · E[F] — fee-split discount</td>
+                          <td className="lh-td-num">
                             −{formatUsdc(quote.breakdown.feeDiscountUsdc)}
                           </td>
                         </tr>
-                        <tr className="border-t border-zinc-200 dark:border-zinc-800">
-                          <td className="py-1.5 pr-4">P_floor — minimum premium</td>
-                          <td
-                            className="py-1.5 text-right"
-                            style={{ fontVariantNumeric: "tabular-nums" }}
-                          >
+                        <tr>
+                          <td>P_floor — minimum premium</td>
+                          <td className="lh-td-num">
                             {formatUsdc(quote.breakdown.premiumFloorUsdc)}
                           </td>
                         </tr>
-                        <tr className="border-y border-zinc-200 dark:border-zinc-800">
-                          <td className="py-1.5 pr-4">σ — annualized realized vol</td>
-                          <td
-                            className="py-1.5 text-right"
-                            style={{ fontVariantNumeric: "tabular-nums" }}
-                          >
-                            {(quote.breakdown.sigmaAnnual * 100).toFixed(1)}%
+                        <tr>
+                          <td>σ — annualized realized vol</td>
+                          <td className="lh-td-num">
+                            {formatPercent(quote.breakdown.sigmaAnnual)}
                           </td>
                         </tr>
                       </tbody>
@@ -557,25 +532,19 @@ export function HedgePanel({
                   </div>
                 </div>
 
-                <div>
-                  <h5 className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Term sheet hash (SHA-256) — shown before acceptance, anchored at
-                    activation
-                  </h5>
-                  <div className="mt-1 flex items-center gap-2">
-                    <code className="min-w-0 break-all font-mono text-xs">
-                      {quote.termSheetHash}
-                    </code>
-                    <CopyButton value={quote.termSheetHash} label="term sheet hash" />
-                  </div>
-                </div>
+                <CopyField
+                  label="Term sheet hash (SHA-256)"
+                  display={quote.termSheetHash}
+                  copyValue={quote.termSheetHash}
+                  help="Shown before acceptance, anchored at activation — the terms you accepted stay identifiable afterwards."
+                />
 
                 {!quoteExpired && (
                   <div>
                     <button
                       type="button"
                       onClick={() => setPhase("consent")}
-                      className={buttonClass}
+                      className="lh-btn"
                     >
                       Continue to acknowledgments
                     </button>
@@ -585,15 +554,15 @@ export function HedgePanel({
             )}
 
             {phase === "consent" && quote && (
-              <div className="flex flex-col gap-4">
+              <div className="lh-stack-tight">
                 {quoteExpired && expiredNotice}
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                <p className="lh-help">
                   Each acknowledgment below is required and is recorded with a
                   timestamp at purchase.
                 </p>
-                <div className="flex flex-col gap-3">
+                <div className="lh-stack-tight">
                   {consentItems.map((text, i) => (
-                    <label key={i} className="flex items-start gap-2.5 text-sm leading-5">
+                    <label key={i} className="lh-check">
                       <input
                         type="checkbox"
                         checked={checks[i] ?? false}
@@ -604,20 +573,19 @@ export function HedgePanel({
                             return next;
                           })
                         }
-                        className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--chart-series)]"
                       />
-                        <span>{text}</span>
+                      <span>{text}</span>
                     </label>
                   ))}
                 </div>
-                <p className="rounded-md border border-zinc-200 px-3 py-2 text-xs leading-5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
-                  {JURISDICTION_ATTESTATION}
-                </p>
-                <div className="flex gap-2">
+                <div className="lh-callout" data-tone="quiet">
+                  <p>{JURISDICTION_ATTESTATION}</p>
+                </div>
+                <div className="lh-btn-row">
                   <button
                     type="button"
                     onClick={() => setPhase("quote")}
-                    className={quietButtonClass}
+                    className="lh-btn lh-btn-quiet"
                   >
                     Back
                   </button>
@@ -625,7 +593,7 @@ export function HedgePanel({
                     type="button"
                     disabled={!allChecked || quoteExpired}
                     onClick={() => setPhase("payment")}
-                    className={buttonClass}
+                    className="lh-btn"
                   >
                     Continue to payment
                   </button>
@@ -634,57 +602,53 @@ export function HedgePanel({
             )}
 
             {phase === "payment" && quote && payment && (
-              <div className="flex flex-col gap-4">
+              <div className="lh-stack-tight">
                 {quoteExpired ? (
                   expiredNotice
                 ) : (
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                    <span role="status">
-                      Waiting for your payment — checking every 5 seconds…
+                  <p className="lh-prov" role="status">
+                    <span className="lh-prov-item">
+                      <span className="lh-prov-key">checking</span>
+                      the chain for your payment every 5 seconds
                     </span>
-                    <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                      Quote valid for {formatCountdown(quoteTtl)}
+                    <span className="lh-prov-item">
+                      <span className="lh-prov-key">quote valid for</span>
+                      {formatCountdown(quoteTtl)}
                     </span>
-                  </div>
+                  </p>
                 )}
 
-                <div className="flex flex-col gap-3">
-                  <CopyField
-                    label="Treasury address (pay to)"
-                    display={payment.treasuryAddress}
-                    copyValue={payment.treasuryAddress}
-                  />
-                  <CopyField
-                    label={`Amount — exactly ${formatUsdcExact(payment.amountUsdc)} in USDC`}
-                    display={(payment.amountUsdc / 1e6).toFixed(6)}
-                    copyValue={(payment.amountUsdc / 1e6).toFixed(6)}
-                  />
-                  <CopyField
-                    label="Memo reference (must accompany the transfer)"
-                    display={payment.memoReference}
-                    copyValue={payment.memoReference}
-                  />
-                </div>
+                <CopyField
+                  label="Treasury address (pay to)"
+                  display={payment.treasuryAddress}
+                  copyValue={payment.treasuryAddress}
+                />
+                <CopyField
+                  label="Amount, USDC"
+                  display={usdcAmountField(payment.amountUsdc)}
+                  copyValue={usdcAmountField(payment.amountUsdc)}
+                  help={`Exactly ${formatUsdcExact(payment.amountUsdc)} — premium plus collateral.`}
+                />
+                <CopyField
+                  label="Memo reference (must accompany the transfer)"
+                  display={payment.memoReference}
+                  copyValue={payment.memoReference}
+                />
 
-                <div
-                  className="rounded-md border px-3 py-2"
-                  style={{
-                    borderColor: "var(--status-warning)",
-                    backgroundColor: "rgba(250, 178, 25, 0.12)",
-                  }}
-                >
-                  <p className="text-sm leading-5">
-                    Send EXACTLY this amount in USDC with EXACTLY this memo — any
-                    other transfer cannot activate the certificate and will be
-                    refunded per Master Terms §4.4
+                <div className="lh-callout">
+                  <p className="lh-callout-h">Send it exactly</p>
+                  <p>
+                    Send exactly this amount in USDC with exactly this memo. Any
+                    other transfer cannot activate the certificate and is
+                    refunded per Master Terms §4.4.
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="lh-btn-row">
                   <button
                     type="button"
                     onClick={() => setPhase("consent")}
-                    className={quietButtonClass}
+                    className="lh-btn lh-btn-quiet"
                   >
                     Back
                   </button>
@@ -693,7 +657,7 @@ export function HedgePanel({
                       type="button"
                       onClick={simulatePayment}
                       disabled={devBusy}
-                      className={buttonClass}
+                      className="lh-btn lh-btn-ghost"
                     >
                       {devBusy ? "Working…" : "Simulate payment (dev)"}
                     </button>
@@ -703,20 +667,17 @@ export function HedgePanel({
             )}
 
             {phase === "active" && quote && certificate && (
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-wrap items-center gap-3">
+              <div className="lh-stack-tight">
+                <div className="lh-btn-row">
                   <StatusBadge tone="good" label="Certificate active" />
-                  <span
-                    className="text-xs text-zinc-500 dark:text-zinc-400"
-                    style={{ fontVariantNumeric: "tabular-nums" }}
-                  >
-                    Expires in {formatCountdown(certificate.expiryTs - nowTs)} (
-                    {new Date(certificate.expiryTs * 1000).toLocaleString()})
+                  <span className="lh-card-meta">
+                    expires in {formatCountdown(certificate.expiryTs - nowTs)} (
+                    {formatTimestamp(certificate.expiryTs)})
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <StatTile
+                <div className="lh-facts lh-facts-4">
+                  <Fact
                     label="Estimated payoff Π (now)"
                     value={
                       payoffEstimateUsdc === null
@@ -725,25 +686,25 @@ export function HedgePanel({
                     }
                     sub={`at ${formatNumber(position.price)} USDC`}
                   />
-                  <StatTile
+                  <Fact
                     label="Cap down (max to you)"
                     value={formatUsdc(certificate.capDownUsdc)}
                   />
-                  <StatTile
+                  <Fact
                     label="Cap up (covered by collateral)"
                     value={formatUsdc(certificate.capUpUsdc)}
                   />
-                  <StatTile
+                  <Fact
                     label="Premium paid"
                     value={formatUsdc(certificate.premiumUsdc)}
                   />
                 </div>
 
-                <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-                  Estimated from the current dashboard price via the corridor clamp
-                  Π = V(S₀) − V(clamp(S, p_l, p_u)) — hypothetical, not a prediction
-                  and not investment advice. Settlement uses the Master Terms §7.1
-                  price policy at expiry.
+                <p className="lh-note">
+                  Estimated from the current dashboard price via the range clamp
+                  Π = V(S₀) − V(clamp(S, p_l, p_u)) — hypothetical, not a
+                  prediction and not investment advice. Settlement uses the
+                  Master Terms §7.1 price policy at expiry.
                 </p>
 
                 {devMode && (
@@ -752,7 +713,7 @@ export function HedgePanel({
                       type="button"
                       onClick={settleDue}
                       disabled={devBusy}
-                      className={buttonClass}
+                      className="lh-btn lh-btn-ghost"
                     >
                       {devBusy ? "Working…" : "Settle due (dev)"}
                     </button>
@@ -762,44 +723,50 @@ export function HedgePanel({
             )}
 
             {phase === "done" && certificate?.settlement && (
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-wrap items-center gap-3">
+              <div className="lh-stack-tight">
+                <div className="lh-btn-row">
                   <StatusBadge
                     tone="good"
                     label={
-                      certificate.status === "settled" ? "Settled" : "Expired (Π = 0)"
+                      certificate.status === "settled"
+                        ? "Settled"
+                        : "Expired (Π = 0)"
                     }
                   />
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                  <span className="lh-card-meta">
                     settled{" "}
-                    {new Date(
-                      certificate.settlement.settledAtTs * 1000,
-                    ).toLocaleString()}
+                    {formatTimestamp(certificate.settlement.settledAtTs)}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <StatTile
+                <div className="lh-facts lh-facts-4">
+                  <Fact
                     label="Settlement price S_T"
                     value={`${formatNumber(certificate.settlement.settlementPriceUsd)} USDC`}
                   />
-                  <StatTile
+                  <Fact
                     label="Payoff Π"
                     value={formatUsdcSigned(certificate.settlement.payoffUsdc)}
                   />
-                  <StatTile
+                  <Fact
                     label="Fee split"
                     value={formatUsdc(certificate.settlement.feeSplitUsdc)}
                   />
-                  <StatTile
+                  <Fact
                     label="Paid to you (§7.2)"
-                    value={formatUsdc(certificate.settlement.settlementAmountUsdc)}
+                    value={formatUsdc(
+                      certificate.settlement.settlementAmountUsdc,
+                    )}
                     sub="max(0, Π − fee split + collateral)"
                   />
                 </div>
 
                 <div>
-                  <button type="button" onClick={requestQuote} className={buttonClass}>
+                  <button
+                    type="button"
+                    onClick={requestQuote}
+                    className="lh-btn lh-btn-ghost"
+                  >
                     Request a new quote
                   </button>
                 </div>
@@ -808,16 +775,23 @@ export function HedgePanel({
           </div>
 
           {devNote && (
-            <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400" role="status">
+            <p className="lh-help" role="status" style={{ marginTop: "0.75rem" }}>
               {devNote}
             </p>
           )}
 
-          <p className="mt-4 border-t border-zinc-200 pt-3 text-[11px] leading-4 text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-            A certificate is a bilateral contract with Blocksventures Ltd. as your
-            sole counterparty — not insurance, not a deposit, not custody. Figures
-            shown are model outputs — hypothetical, not a prediction and not
-            investment advice.
+          <p
+            className="lh-note"
+            style={{
+              marginTop: "1rem",
+              paddingTop: "0.75rem",
+              borderTop: "1px solid var(--lh-rule)",
+            }}
+          >
+            A certificate is a bilateral contract with Blocksventures Ltd. as
+            your sole counterparty — not insurance, not a deposit, not custody.
+            Figures shown are model output — hypothetical, not a prediction and
+            not investment advice.
           </p>
         </section>
       )}

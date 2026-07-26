@@ -1,0 +1,24 @@
+# Cloud override: run PREBUILT images from a registry instead of building
+# on the VM (a small instance should not compile the workspace).
+#
+#   docker compose -f docker-compose.yml -f compose.registry.yml pull
+#   docker compose -f docker-compose.yml -f compose.registry.yml up -d
+#
+# Images are published by CI (.github/workflows/ci.yml) on pushes to main.
+# Pin IMAGE_TAG to a commit SHA for reproducible, rollback-able deploys.
+services:
+  web:
+    image: ${IMAGE_REGISTRY:-ghcr.io/soweluavanzo/liquidityhedge}/web:${IMAGE_TAG:-latest}
+    build: !reset null
+  migrate:
+    image: ${IMAGE_REGISTRY:-ghcr.io/soweluavanzo/liquidityhedge}/ops-jobs:${IMAGE_TAG:-latest}
+    build: !reset null
+  snapshot-collector:
+    image: ${IMAGE_REGISTRY:-ghcr.io/soweluavanzo/liquidityhedge}/ops-jobs:${IMAGE_TAG:-latest}
+    build: !reset null
+  data-reporter:
+    image: ${IMAGE_REGISTRY:-ghcr.io/soweluavanzo/liquidityhedge}/ops-jobs:${IMAGE_TAG:-latest}
+    build: !reset null
+  regime-updater:
+    image: ${IMAGE_REGISTRY:-ghcr.io/soweluavanzo/liquidityhedge}/ops-jobs:${IMAGE_TAG:-latest}
+    build: !reset null
