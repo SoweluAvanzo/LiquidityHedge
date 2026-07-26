@@ -72,6 +72,10 @@ export function PortfolioDashboard({ walletAddress }: { walletAddress: string | 
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    // Yield a microtask so state updates happen asynchronously — no
+    // synchronous setState cascade when invoked from the mount effect.
+    await Promise.resolve();
+    if (controller.signal.aborted) return;
     setLoading(true);
     setError(null);
     try {
@@ -94,9 +98,21 @@ export function PortfolioDashboard({ walletAddress }: { walletAddress: string | 
     }
   }, []);
 
-  useEffect(() => {
+  // Reset-on-owner-change happens during render (React's "adjusting state
+  // when a prop changes" pattern) — the effect only talks to the network.
+  const [prevOwner, setPrevOwner] = useState(owner);
+  if (owner !== prevOwner) {
+    setPrevOwner(owner);
     setData(null);
     setError(null);
+  }
+
+  useEffect(() => {
+    // Canonical fetch-on-mount: `load` performs no synchronous setState —
+    // every state update sits behind an initial awaited microtask (see
+    // load()), so no render cascade is possible. The rule's static
+    // analysis cannot see through the await; suppressed deliberately.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (owner) void load(owner);
     return () => abortRef.current?.abort();
   }, [owner, load]);

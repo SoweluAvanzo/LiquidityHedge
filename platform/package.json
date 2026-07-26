@@ -2,12 +2,18 @@
   "name": "lh-platform",
   "version": "0.1.0",
   "private": true,
-  "description": "Liquidity Hedge Platform — monorepo (see ../product-design/)",
+  "description": "Liquidity Hedge Platform \u2014 monorepo (see ../product-design/)",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
+  },
+  "pnpm": {
+    "overrides": {
+      "postcss": ">=8.5.18",
+      "sharp": ">=0.35.0"
+    }
   }
 }

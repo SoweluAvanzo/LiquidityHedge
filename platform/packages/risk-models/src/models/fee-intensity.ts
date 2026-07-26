@@ -71,3 +71,110 @@ export function sampleRatePaths(
   }
   return paths;
 }
+
+// ── Phase 2: volume–|return| coupling ───────────────────────────────
+// Volume spikes when prices move violently, so fee intensity should be
+// conditioned on each path's own realized |returns| — this is what
+// fattens yield tails in high-volatility scenarios. Model:
+//   log r_pool(t) = α + β·|ret(t)| + ε(t),  ε block-bootstrapped.
+
+export interface CoupledFeeIntensityParams {
+  alpha: number;
+  beta: number;
+  /** Residual variation of log-rate, resampled in blocks. */
+  residuals: number[];
+  meanRate: number;
+  blockLength: number;
+}
+
+export function calibrateCoupledFeeIntensity(
+  dailyRates: number[],
+  dailyReturns: number[],
+  opts?: { blockLength?: number; minObservations?: number },
+): CoupledFeeIntensityParams {
+  const minObs = opts?.minObservations ?? 60;
+  const n = Math.min(dailyRates.length, dailyReturns.length);
+  const x: number[] = [];
+  const y: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const r = dailyRates[dailyRates.length - n + i];
+    const ret = dailyReturns[dailyReturns.length - n + i];
+    if (Number.isFinite(r) && r > 0 && Number.isFinite(ret)) {
+      x.push(Math.abs(ret));
+      y.push(Math.log(r));
+    }
+  }
+  if (x.length < minObs) {
+    throw new Error(
+      `coupled fee-intensity needs ≥${minObs} aligned observations, got ${x.length}`,
+    );
+  }
+  const mx = x.reduce((s, v) => s + v, 0) / x.length;
+  const my = y.reduce((s, v) => s + v, 0) / y.length;
+  let sxy = 0;
+  let sxx = 0;
+  for (let i = 0; i < x.length; i++) {
+    sxy += (x[i] - mx) * (y[i] - my);
+    sxx += (x[i] - mx) * (x[i] - mx);
+  }
+  const beta = sxx > 0 ? sxy / sxx : 0;
+  const alpha = my - beta * mx;
+  const residuals = y.map((v, i) => v - (alpha + beta * x[i]));
+  const rates = y.map((v) => Math.exp(v));
+  return {
+    alpha,
+    beta,
+    residuals,
+    meanRate: rates.reduce((s, r) => s + r, 0) / rates.length,
+    blockLength: opts?.blockLength ?? 7,
+  };
+}
+
+/** Per-path |log returns| of one asset, aligned with the engine's
+ *  interval convention (result[p][s] belongs to the interval ending at
+ *  step s+1). */
+export function absLogReturns(
+  prices: number[][],
+): number[][] {
+  return prices.map((path) => {
+    const out = new Array<number>(path.length - 1);
+    for (let s = 1; s < path.length; s++) {
+      out[s - 1] = Math.abs(Math.log(path[s] / path[s - 1]));
+    }
+    return out;
+  });
+}
+
+/**
+ * Sample rate paths CONDITIONED on each price path's own |returns|:
+ *   rate[p][s] = exp(α + β·|ret[p][s]| + ε_block) , then optionally
+ * rescaled so the sample mean equals `rescaleToMean` (level anchoring).
+ */
+export function sampleCoupledRatePaths(
+  params: CoupledFeeIntensityParams,
+  pathAbsReturns: number[][],
+  grid: { seed: number },
+  opts?: { rescaleToMean?: number },
+): number[][] {
+  const rng = makeRng(grid.seed ^ 0x5eed_fee5);
+  const { residuals, blockLength } = params;
+  const raw: number[][] = pathAbsReturns.map((rets) => {
+    const path = new Array<number>(rets.length);
+    let s = 0;
+    while (s < rets.length) {
+      const start = Math.floor(rng.uniform() * residuals.length);
+      for (let b = 0; b < blockLength && s < rets.length; b++, s++) {
+        path[s] = Math.exp(params.alpha + params.beta * rets[s] + residuals[(start + b) % residuals.length]);
+      }
+    }
+    return path;
+  });
+  if (opts?.rescaleToMean === undefined) return raw;
+  let sum = 0;
+  let count = 0;
+  for (const path of raw) for (const v of path) { sum += v; count++; }
+  const mean = count > 0 ? sum / count : 0;
+  if (mean <= 0) return raw;
+  const scale = opts.rescaleToMean / mean;
+  return raw.map((path) => path.map((v) => v * scale));
+}

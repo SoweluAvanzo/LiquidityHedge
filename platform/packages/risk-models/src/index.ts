@@ -12,3 +12,9 @@ export { HistoricalReplayModel } from "./models/historical-replay";
 export type { ReplayConfig, ReplayParams, ReplayMode } from "./models/historical-replay";
 export { calibrateFeeIntensity, sampleRatePaths } from "./models/fee-intensity";
 export type { FeeIntensityParams } from "./models/fee-intensity";
+export {
+  calibrateCoupledFeeIntensity,
+  sampleCoupledRatePaths,
+  absLogReturns,
+} from "./models/fee-intensity";
+export type { CoupledFeeIntensityParams } from "./models/fee-intensity";

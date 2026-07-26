@@ -472,3 +472,65 @@ describe("Stochastic fee intensity (block bootstrap of r_pool)", () => {
     ).to.throw(/ratePaths must be/);
   });
 });
+
+describe("Volume–|return| coupling (phase 2)", () => {
+  const {
+    calibrateCoupledFeeIntensity,
+    sampleCoupledRatePaths,
+    absLogReturns,
+  } = require("../../src/models/fee-intensity");
+
+  // Synthetic ground truth: log r = ln(0.0007) + 20·|ret| + ε, ε~N(0,0.1)
+  function synth(n = 300, seed = 77) {
+    const rng = makeRng(seed);
+    const returns: number[] = [];
+    const rates: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const ret = 0.03 * rng.gaussian();
+      const eps = 0.1 * rng.gaussian();
+      returns.push(ret);
+      rates.push(Math.exp(Math.log(0.0007) + 20 * Math.abs(ret) + eps));
+    }
+    return { returns, rates };
+  }
+
+  it("calibration recovers the sensitivity β from synthetic data", () => {
+    const { returns, rates } = synth(2000);
+    const p = calibrateCoupledFeeIntensity(rates, returns);
+    expect(p.beta).to.be.closeTo(20, 2);
+    expect(Math.exp(p.alpha)).to.be.closeTo(0.0007, 0.0002);
+    expect(() => calibrateCoupledFeeIntensity(rates.slice(0, 30), returns.slice(0, 30))).to.throw(/≥60/);
+  });
+
+  it("sampled rates are conditioned on each path's own |returns| (fat tails when β>0)", () => {
+    const { returns, rates } = synth(2000);
+    const p = calibrateCoupledFeeIntensity(rates, returns);
+    // Two price paths: one calm, one violent.
+    const calm = [Array.from({ length: 31 }, (_, s) => 150 * Math.exp(0.001 * s))];
+    const wild = [Array.from({ length: 31 }, (_, s) => 150 * Math.exp(0.06 * (s % 2 ? 1 : -1) * s ** 0.5))];
+    const rCalm = sampleCoupledRatePaths(p, absLogReturns(calm), { seed: 5 });
+    const rWild = sampleCoupledRatePaths(p, absLogReturns(wild), { seed: 5 });
+    const mean = (xs: number[][]) => xs.flat().reduce((s, v) => s + v, 0) / xs.flat().length;
+    expect(mean(rWild)).to.be.greaterThan(mean(rCalm) * 1.5); // violent path → much richer fees
+    // Determinism under the same seed.
+    expect(sampleCoupledRatePaths(p, absLogReturns(wild), { seed: 5 })).to.deep.equal(rWild);
+  });
+
+  it("rescaleToMean anchors the level while preserving the coupling shape", () => {
+    const { returns, rates } = synth(2000);
+    const p = calibrateCoupledFeeIntensity(rates, returns);
+    const paths = [Array.from({ length: 60 }, (_, s) => 150 * Math.exp(0.02 * Math.sin(s)))];
+    const anchored = sampleCoupledRatePaths(p, absLogReturns(paths), { seed: 3 }, { rescaleToMean: 0.001 });
+    const flat: number[] = anchored.flat();
+    const mean = flat.reduce((s, v) => s + v, 0) / flat.length;
+    expect(mean).to.be.closeTo(0.001, 1e-12);
+    expect(Math.max(...flat) / Math.min(...flat)).to.be.greaterThan(1.05); // still varies
+  });
+
+  it("absLogReturns matches the engine's interval convention", () => {
+    const r = absLogReturns([[100, 110, 99]]);
+    expect(r[0].length).to.equal(2);
+    expect(r[0][0]).to.be.closeTo(Math.log(1.1), 1e-12);
+    expect(r[0][1]).to.be.closeTo(Math.abs(Math.log(99 / 110)), 1e-12);
+  });
+});
