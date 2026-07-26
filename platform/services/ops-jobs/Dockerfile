@@ -11,6 +11,10 @@ COPY platform/packages ./packages
 COPY platform/services ./services
 RUN pnpm install --frozen-lockfile --filter @lh/ops-jobs...
 
+# Snapshot volume mount point: creating it in the image with node ownership
+# makes Docker propagate that ownership to a fresh named volume (a volume
+# created empty would otherwise be root-owned and unwritable).
+RUN mkdir -p /snapshots && chown node:node /snapshots
 USER node
 WORKDIR /app/platform/services/ops-jobs
 CMD ["pnpm", "regime-once"]

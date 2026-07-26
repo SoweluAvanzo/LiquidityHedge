@@ -123,7 +123,10 @@ function buildConfig(): LedgerConfig {
   return {
     uMaxBps: 3000,
     protocolFeeBps: 150,
-    premiumFloorUsdc: 1_500_000,
+    // Governance parameter (docs/03 §3.3): $0.05 default. A high floor makes
+    // small positions uneconomical to hedge (it dominates the fair value);
+    // override per environment with HEDGE_PREMIUM_FLOOR_USDC (µUSDC).
+    premiumFloorUsdc: Number(process.env.HEDGE_PREMIUM_FLOOR_USDC ?? 50_000),
     markupFloor: 1.05,
     feeSplitRate: 0.1,
     expectedDailyFee: 0.005,

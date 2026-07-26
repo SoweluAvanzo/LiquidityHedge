@@ -21,7 +21,9 @@ const DEFAULT_RPC_URL = "https://api.mainnet-beta.solana.com";
  * the WalletProvider, so no per-wallet adapter packages are needed.
  */
 export function SolanaProviders({ children }: { children: ReactNode }) {
-  const endpoint = process.env.NEXT_PUBLIC_RPC_URL ?? DEFAULT_RPC_URL;
+  // `||` not `??`: an env var set to an EMPTY string (as compose does when
+  // unset) must fall back too — `new Connection("")` throws during SSR.
+  const endpoint = process.env.NEXT_PUBLIC_RPC_URL || DEFAULT_RPC_URL;
   const wallets = useMemo<Adapter[]>(() => [], []);
 
   return (

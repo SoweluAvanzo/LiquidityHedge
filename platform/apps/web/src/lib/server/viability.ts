@@ -46,7 +46,8 @@ import type { PositionViabilityWire } from "@/lib/portfolio-api";
 const TENOR_DAYS = 7;
 const TENOR_SECONDS = TENOR_DAYS * 86_400;
 const EFFECTIVE_MARKUP = 1.08;
-const PREMIUM_FLOOR_USD = 1.5;
+const PREMIUM_FLOOR_USD =
+  Number(process.env.HEDGE_PREMIUM_FLOOR_USDC ?? 50_000) / 1e6;
 const FEE_SPLIT_RATE = 0.1;
 
 const FV_PATHS = 20_000;

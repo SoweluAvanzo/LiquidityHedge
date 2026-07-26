@@ -54,6 +54,7 @@ services:
       HEDGE_TREASURY_ADDRESS: ${HEDGE_TREASURY_ADDRESS:-}
       HEDGE_INITIAL_RESERVES_USDC: ${HEDGE_INITIAL_RESERVES_USDC:-0}
       HEDGE_PER_BUYER_CAP_USDC: ${HEDGE_PER_BUYER_CAP_USDC:-0}
+      HEDGE_PREMIUM_FLOOR_USDC: ${HEDGE_PREMIUM_FLOOR_USDC:-50000}
       # NEVER "1" in production; Caddy additionally blocks /api/hedge/dev/*.
       HEDGE_DEV_MODE: "0"
     cap_drop: [ALL]
