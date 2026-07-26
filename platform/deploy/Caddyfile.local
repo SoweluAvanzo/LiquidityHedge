@@ -1,0 +1,9 @@
+# Local smoke-test variant: plain HTTP on :8080, same routing rules.
+# Used only by `docker compose -f docker-compose.yml -f compose.local.yml`.
+:8080 {
+	encode zstd gzip
+	@devapi path /api/hedge/dev/*
+	respond @devapi 403
+	header -Server
+	reverse_proxy web:3000
+}

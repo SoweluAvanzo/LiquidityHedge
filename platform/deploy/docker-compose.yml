@@ -1,0 +1,111 @@
+# LH Platform — production deployment (single VPS, plan §1/NFR-C1).
+# Topology: Cloudflare (DNS/WAF) → Caddy (auto-TLS, reverse proxy) → web.
+# The web container is NOT published on the host — only Caddy reaches it.
+#
+#   cd platform/deploy
+#   cp .env.example .env   # fill in secrets — never commit .env
+#   docker compose up -d --build
+#
+# One-shot regime update (host cron, e.g. */10):
+#   docker compose --profile jobs run --rm regime-updater
+
+name: lh-platform
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?set SITE_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    logging: &logging
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+    networks: [edge]
+
+  web:
+    build:
+      context: ../..
+      dockerfile: platform/apps/web/Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/platform/apps/web/.next/cache
+    volumes:
+      # Certificate-ledger event log (RB-6: back this volume up nightly).
+      - lh_data:/app/platform/apps/web/.data
+    environment:
+      RPC_URL: ${RPC_URL:?}
+      NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-}
+      BIRDEYE_API_KEY: ${BIRDEYE_API_KEY:?}
+      HEDGE_TREASURY_ADDRESS: ${HEDGE_TREASURY_ADDRESS:-}
+      HEDGE_INITIAL_RESERVES_USDC: ${HEDGE_INITIAL_RESERVES_USDC:-0}
+      HEDGE_PER_BUYER_CAP_USDC: ${HEDGE_PER_BUYER_CAP_USDC:-0}
+      # NEVER "1" in production; Caddy additionally blocks /api/hedge/dev/*.
+      HEDGE_DEV_MODE: "0"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 768m
+    logging: *logging
+    networks: [edge]
+
+  # Resident Tier-C collector: exact fee-growth history for tracked pools
+  # (pool-level data generalizes to every position — see
+  # packages/market-data/src/pool-snapshots.ts). 15-minute cadence.
+  snapshot-collector:
+    build:
+      context: ../..
+      dockerfile: platform/services/ops-jobs/Dockerfile
+    command: ["pnpm", "snapshot-once"]
+    restart: unless-stopped
+    environment:
+      RPC_URL: ${RPC_URL:?}
+      SNAPSHOT_LOOP_SECONDS: "900"
+      SNAPSHOT_DIR: /snapshots
+      POOLS: ${SNAPSHOT_POOLS:-Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE}
+    volumes:
+      - lh_snapshots:/snapshots
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    logging: *logging
+    networks: [edge]
+
+  regime-updater:
+    profiles: [jobs]
+    build:
+      context: ../..
+      dockerfile: platform/services/ops-jobs/Dockerfile
+    environment:
+      BIRDEYE_API_KEY: ${BIRDEYE_API_KEY:?}
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    logging: *logging
+    networks: [edge]
+
+volumes:
+  caddy_data:
+  caddy_config:
+  lh_data:
+  lh_snapshots:
+
+networks:
+  edge:
+    driver: bridge

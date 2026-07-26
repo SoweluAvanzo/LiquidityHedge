@@ -1,0 +1,32 @@
+{
+  "name": "@lh/ops-jobs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Operational jobs (FR-A2): regime updater composing MarketInputs for the hedge ledger from guarded realized vol (paginated Birdeye 15m candles) + Binance ATM implied vol. Refuses degraded data (\u00a7E7).",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "ts-mocha 'tests/**/*.test.ts' --timeout 60000 --recursive",
+    "typecheck": "tsc --noEmit",
+    "regime-once": "ts-node src/cli.ts",
+    "devnet-rehearsal": "ts-node src/devnet-rehearsal.ts",
+    "snapshot-once": "ts-node src/snapshot-cli.ts",
+    "drill-restore": "ts-node src/drill-restore.ts"
+  },
+  "dependencies": {
+    "@lh/core": "workspace:*",
+    "@lh/hedge": "workspace:*",
+    "@lh/market-data": "workspace:*",
+    "@solana/web3.js": "^1.95.0",
+    "@solana/spl-token": "^0.4.0"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "chai": "^4.3.0",
+    "mocha": "^10.2.0",
+    "ts-mocha": "^10.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0"
+  }
+}

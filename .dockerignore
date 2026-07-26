@@ -1,0 +1,14 @@
+# Build context = repo root (the web image needs product-design/legal).
+# Keep the context minimal and free of secrets.
+.git
+**/node_modules
+**/.next
+**/dist
+**/.data
+**/.env
+**/.env.local
+lh-protocol-archive
+lh-protocol/node_modules
+disciplined etrapreneur book
+*.pdf
+platform/deploy/caddy

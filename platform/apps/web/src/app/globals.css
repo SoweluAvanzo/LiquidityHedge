@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+/*
+ * Chart tokens (dataviz palette, validated for both surfaces).
+ * The chart body is written against these roles; light/dark values swap here.
+ */
+:root {
+  --chart-series: #2a78d6; /* categorical slot 1 (blue), light step */
+  --chart-band: rgba(42, 120, 214, 0.1); /* series hue wash ~10% */
+  --chart-band-strong: rgba(42, 120, 214, 0.22); /* inner fan band (p25–p75) */
+  --chart-grid: #e4e4e7; /* hairline gridline, one step off surface */
+  --chart-axis: #d4d4d8; /* baseline / axis rule */
+  --chart-ink-muted: #71717a; /* axis tick labels */
+  --chart-ink-secondary: #52525b; /* marker labels */
+  --chart-surface: #ffffff; /* surface ring on markers */
+  --status-good: #0ca30c; /* fixed status palette — never themed */
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+
+    --chart-series: #3987e5; /* same hue, stepped for the dark surface */
+    --chart-band: rgba(57, 135, 229, 0.12);
+    --chart-band-strong: rgba(57, 135, 229, 0.26);
+    --chart-grid: #27272a;
+    --chart-axis: #3f3f46;
+    --chart-ink-muted: #898781;
+    --chart-ink-secondary: #a1a1aa;
+    --chart-surface: #0a0a0a;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@lh/hedge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hedging pilot core (Phase 4): event-sourced certificate ledger implementing the verified formal model (platform/formal/lh_ledger.qnt) with runtime invariant monitors, quote/term-sheet service on the canonical premium formula, payment matching, settlement per Master Terms §7.2, and on-chain anchoring helpers. Chain access via ports only.",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "ts-mocha 'tests/**/*.test.ts' --timeout 120000 --recursive",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lh/core": "workspace:*",
+    "@lh/portfolio": "workspace:*",
+    "@solana/spl-token": "^0.4.0",
+    "@solana/web3.js": "^1.95.0"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "chai": "^4.3.0",
+    "mocha": "^10.2.0",
+    "ts-mocha": "^10.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0"
+  }
+}

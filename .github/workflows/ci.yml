@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: "@lh/core — typecheck + 200 tests (incl. differential parity)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enable pnpm via corepack
+        run: corepack enable pnpm
+      - name: Install (platform workspace)
+        working-directory: platform
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        working-directory: platform
+        run: pnpm -r typecheck
+      - name: Test (legacy 192 + differential parity vs prototype)
+        working-directory: platform
+        run: pnpm -r test
+
+  prototype:
+    name: "lh-protocol prototype — 192 reference tests"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        working-directory: lh-protocol
+        run: yarn install --frozen-lockfile
+      - name: Test
+        working-directory: lh-protocol
+        run: yarn test
+
+  secrets-scan:
+    name: "Secret scanning (gitleaks)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependency-audit:
+    name: "Dependency vulnerability audit"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enable pnpm via corepack
+        run: corepack enable pnpm
+      - name: Audit platform dependencies (fail on high+)
+        working-directory: platform
+        run: pnpm install --frozen-lockfile && pnpm audit --audit-level high
+
+  docker:
+    name: "Docker images build (web + ops-jobs)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build web image
+        run: docker build -f platform/apps/web/Dockerfile -t lh-web:ci .
+      - name: Build ops-jobs image
+        run: docker build -f platform/services/ops-jobs/Dockerfile -t lh-ops-jobs:ci .
+      - name: Compose config sanity
+        working-directory: platform/deploy
+        run: |
+          cp .env.example .env
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml -f compose.local.yml config -q
+
+  sast:
+    name: "Static analysis (semgrep)"
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep scan
+        run: semgrep scan --config auto --error --exclude node_modules platform lh-protocol/protocol-src

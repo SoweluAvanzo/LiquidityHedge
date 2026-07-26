@@ -1,0 +1,12 @@
+# Local smoke-test override: HTTP-only Caddy on :8080, no TLS, no domain.
+#   docker compose -f docker-compose.yml -f compose.local.yml up -d
+services:
+  caddy:
+    ports: !override
+      - "8080:8080"
+    environment:
+      SITE_DOMAIN: localhost
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config

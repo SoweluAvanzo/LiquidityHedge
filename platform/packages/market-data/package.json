@@ -1,0 +1,21 @@
+{
+  "name": "@lh/market-data",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Market-data ingestion for the LH platform: paginated Birdeye OHLCV (fixes the 1000-candle truncation found in the Phase-0 spike), coverage verification, candle storage port, realized-volatility computation. Loud on degraded data, never silent (§E7).",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "ts-mocha 'tests/**/*.test.ts' --timeout 60000 --recursive",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "chai": "^4.3.0",
+    "mocha": "^10.2.0",
+    "ts-mocha": "^10.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0"
+  }
+}

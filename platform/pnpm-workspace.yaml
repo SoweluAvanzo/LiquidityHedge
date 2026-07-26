@@ -1,0 +1,12 @@
+packages:
+  - "packages/*"
+  - "apps/*"
+  - "services/*"
+# Native build scripts disabled deliberately (supply-chain posture, NFR-SEC4):
+# these are optional accelerators with pure-JS fallbacks in @solana/web3.js.
+allowBuilds:
+  bigint-buffer: false
+  bufferutil: false
+  sharp: false
+  unrs-resolver: false
+  utf-8-validate: false

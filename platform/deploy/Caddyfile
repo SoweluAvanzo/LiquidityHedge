@@ -1,0 +1,25 @@
+# Production reverse proxy. TLS is automatic (Let's Encrypt) for SITE_DOMAIN.
+# App-level security headers (HSTS, nosniff, frame-deny, …) are set by the
+# Next.js app itself; Caddy adds transport, hygiene, and defense-in-depth.
+
+{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	# Defense-in-depth: dev-only endpoints are unreachable through the edge
+	# even if HEDGE_DEV_MODE were ever misconfigured on the app container.
+	@devapi path /api/hedge/dev/*
+	respond @devapi 403
+
+	# Don't advertise the stack.
+	header -Server
+
+	reverse_proxy web:3000
+
+	log {
+		output file /data/access.log {
+			roll_size 20mb
+			roll_keep 5
+		}
+		format json
+	}
+}
