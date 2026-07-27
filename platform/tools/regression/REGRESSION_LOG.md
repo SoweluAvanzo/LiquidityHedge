@@ -271,3 +271,45 @@ Diff: `captures/2026-07-27T13-36-01-782Z.json` →
   refactor.
 
 Golden re-baselined to the 13-36-20 capture.
+
+---
+
+## 2026-07-27 · §1.6 + D5 — tenor-scale σ and the drift-sensitivity sweep
+
+Diff: `captures/2026-07-27T14-01-41-142Z.json` →
+`captures/2026-07-27T14-01-59-981Z.json`, spot +0.064%.
+
+**The D5 measurement (1y of complete SOL dailies, coverage 100%):**
+daily GK annualised 78.5%, daily CC 70.9%, weekly NON-overlapping
+(n=52) **62.0%** [52.0–72.0]. VR(2) = 0.995 (random walk holds
+day-to-day), **VR(7) = 0.76** (it breaks by the week — daily moves
+partially cancel). GK-daily sits OUTSIDE the weekly measurement's 90%
+band: daily-annualised σ of ANY flavour overstates 7-day terminal
+dispersion on this asset.
+
+Movements explained:
+
+- **`sigmaAnnualized` −22.4%** (0.519 → 0.403): σ = 30d GK ×
+  tenorAdjust 0.776 (= weekly₁ᵧ 0.610 ÷ GK-daily₁ᵧ 0.786). All four
+  inputs travel on the wire (`sigmaTenorAdjust`) and the card tooltip
+  derives the number in words. `sigmaDaily` keeps the unadjusted
+  figure. Band scaled by the same factor (joint propagation is §1.7).
+- **`twoSided.expectedValueChangeUsd` +37.9%** (−0.0118 → −0.0073):
+  σ² pass-through (0.776² = 0.602 ✓). VI₂ EPRL 0.352 → 0.586. The
+  previous divergence-loss figures were overstated by pricing 7-day
+  dispersion off daily-annualised vol.
+- **New `driftSensitivity`**: E[ΔV] at ∓50%/yr physical drift =
+  −$0.0214 … +$0.0065 for EPRL — the sweep the plan's own table
+  demanded; the risk-neutral point is visibly the middle of a
+  drift-dominated interval, labelled as such on the card.
+- `concentrationFactor` +6.09%: MARKET — active liquidity at the
+  current tick shifted between captures (L is tick-quantized; spot
+  crossed near 76.8–76.9). §1.6 does not touch c.
+- `reference.fraction` +3.3%: GBM in-range fraction under the LOWER σ
+  (less dispersion → more stay-in-range probability). Empirical
+  fraction +0.9% is the spot move. `divergence` +30% follows from the
+  two legs moving apart.
+- `positionYield` coverage 1.7 → 1.8h: §1.2 history accruing on
+  schedule; the ≥6h realised flip still expected ≈18:15.
+
+Golden re-baselined to the 14-01-59 capture.

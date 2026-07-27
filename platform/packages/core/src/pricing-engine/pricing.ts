@@ -184,10 +184,18 @@ export function quadratureExpectation(
   sigma: number,
   tenor: number,
   nPoints: number = SIMPSON_N,
+  /**
+   * §1.6: annualized PHYSICAL drift μ. Default 0 keeps the risk-neutral
+   * martingale (log-drift −σ²/2) — the only assumption-free choice and
+   * bit-identical to the pre-§1.6 behaviour ((0 − x)·T ≡ −x·T in IEEE
+   * arithmetic). Non-zero values exist ONLY for the drift-sensitivity
+   * sweep the card displays; nothing prices off them.
+   */
+  driftAnnual: number = 0,
 ): number {
   if (nPoints % 2 !== 0) nPoints++;
 
-  const drift = -0.5 * sigma * sigma * tenor;
+  const drift = (driftAnnual - 0.5 * sigma * sigma) * tenor;
   const vol = sigma * Math.sqrt(tenor);
   const h = (2 * Z_BOUND) / nPoints;
 

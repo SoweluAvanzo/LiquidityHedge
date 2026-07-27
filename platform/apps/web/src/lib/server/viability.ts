@@ -38,8 +38,10 @@ import {
 } from "@lh/portfolio";
 import {
   computeGarmanKlassVol,
+  computeNonOverlappingTenorVol,
   computeRealizedVol,
   empiricalInRangeFractionBounds,
+  varianceRatio,
   type RealizedVol,
 } from "@lh/market-data";
 import { quadratureExpectation } from "@lh/core/src/pricing-engine/pricing";
@@ -71,6 +73,11 @@ const FEE_SPLIT_RATE = 0.1;
 /** Concentration-factor sanity window (same policy as live-orca-test). */
 const C_SANITY_MIN = 0.5;
 const C_SANITY_MAX = 50;
+
+/** §1.6: annualized physical-drift sweep for the E[ΔV] sensitivity
+ *  display (±50%/yr, the plan's own table). Display only — nothing
+ *  prices off a directional view. */
+const DRIFT_SWEEP_ANNUAL = 0.5;
 
 const CANDLE_WINDOW_DAYS = 90;
 
@@ -160,13 +167,34 @@ async function loadEmpiricalInRange(
 }
 
 interface SigmaEstimate {
+  /** The σ actually served and priced with: daily estimator × tenor
+   *  adjustment (when available). */
   sigma: number;
-  /** 90% interval for σ itself (p05/p95); analytic 1/√(2n) approximation
-   *  on the close-to-close fallback, block bootstrap on Garman–Klass. */
+  /** 90% interval for σ itself (p05/p95), scaled by the same tenor
+   *  adjustment; block bootstrap on Garman–Klass, analytic 1/√(2n) on
+   *  the close-to-close fallback. */
   band: { p05: number; p95: number };
   windowDays: 30 | 90;
   method: "garman-klass" | "close-to-close";
   nDays: number;
+  /** Unadjusted daily-annualised estimate, for transparency. */
+  sigmaDaily: number;
+  /**
+   * Owner decision D5 (2026-07-27): the corridor payoff depends on
+   * TENOR-scale dispersion, and SOL mean-reverts at the weekly scale
+   * (VR(7) ≈ 0.76 over 1y) — daily-annualised estimators overstate it.
+   * The adjustment is σ_weekly-nonoverlap(1y) ÷ σ_same-method-daily(1y):
+   * the 30d estimator keeps tracking the current regime, the 1y ratio
+   * corrects the scale mismatch. Null when 1y history is unavailable —
+   * then the UNADJUSTED daily estimate serves, labelled.
+   */
+  tenorAdjust: {
+    ratio: number;
+    weeklySigma1y: number;
+    weeklyN: number;
+    dailySigma1y: number;
+    varianceRatio7: number;
+  } | null;
 }
 
 /** §1.1 provenance-carrying yield basis — see poolYieldBasis below. */
@@ -374,6 +402,48 @@ const SIGMA_MIN_COVERAGE = 0.97;
  *     Close-to-close survives only as a LABELLED fallback for corrupt
  *     OHLC, with the analytic band σ·(1 ± 1.645/√(2n)).
  */
+/**
+ * D5 tenor adjustment: σ_weekly-nonoverlap(1y) ÷ σ_daily-same-method(1y).
+ * Best-effort — null (unadjusted, labelled) on any missing input.
+ */
+async function tenorAdjustFor(
+  method: SigmaEstimate["method"],
+): Promise<SigmaEstimate["tenorAdjust"]> {
+  try {
+    const { candles, coverage } = await getSolDailyCandles(EMPIRICAL_WINDOW_DAYS);
+    if (coverage.coverageRatio < SIGMA_MIN_COVERAGE) return null;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const complete =
+      candles.length > 0 && candles[candles.length - 1].t + 86_400 > nowSec
+        ? candles.slice(0, -1)
+        : candles;
+    const closes = complete.map((c) => c.c);
+    const weekly = computeNonOverlappingTenorVol(closes, 7, { minReturns: 40 });
+    const vr = varianceRatio(closes, 7);
+    if (!weekly || !vr) return null;
+    // Denominator matches the base estimator's method so the ratio is a
+    // pure scale correction, not a method switch in disguise.
+    const daily =
+      method === "garman-klass"
+        ? computeGarmanKlassVol(complete, "1D", { minCandles: 300 })?.sigma
+        : computeRealizedVol(complete, "1D", { minReturns: 300 })?.sigma;
+    if (!daily || !(daily > 0)) return null;
+    return {
+      ratio: weekly.sigmaAnnual / daily,
+      weeklySigma1y: weekly.sigmaAnnual,
+      weeklyN: weekly.n,
+      dailySigma1y: daily,
+      varianceRatio7: vr.ratio,
+    };
+  } catch (error) {
+    console.error(
+      "[viability] tenor adjustment unavailable (serving unadjusted daily σ):",
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+}
+
 async function solSigmaEstimate(): Promise<SigmaEstimate | null> {
   const { candles, coverage } = await getSolDailyCandles(CANDLE_WINDOW_DAYS);
   if (coverage.coverageRatio < SIGMA_MIN_COVERAGE) {
@@ -389,6 +459,10 @@ async function solSigmaEstimate(): Promise<SigmaEstimate | null> {
       ? candles.slice(0, -1)
       : candles;
 
+  // Daily-annualised base estimate (§1.4): GK preferred, CC fallback.
+  let base:
+    | { sigma: number; band: { p05: number; p95: number }; windowDays: 30 | 90; method: SigmaEstimate["method"]; nDays: number }
+    | null = null;
   // The 30d window must be CONTIGUOUS daily bars — slicing a gappy
   // series would silently span more than 30 calendar days.
   const last30 = complete.slice(-30);
@@ -397,30 +471,44 @@ async function solSigmaEstimate(): Promise<SigmaEstimate | null> {
     last30.every((c, i) => i === 0 || c.t - last30[i - 1].t === 86_400);
   if (contiguous30) {
     const gk = computeGarmanKlassVol(last30, "1D");
-    if (gk) {
-      return { sigma: gk.sigma, band: gk.band, windowDays: 30, method: "garman-klass", nDays: gk.nDays };
+    if (gk) base = { sigma: gk.sigma, band: gk.band, windowDays: 30, method: "garman-klass", nDays: gk.nDays };
+  }
+  if (!base) {
+    const gk90 = computeGarmanKlassVol(complete, "1D");
+    if (gk90) base = { sigma: gk90.sigma, band: gk90.band, windowDays: 90, method: "garman-klass", nDays: gk90.nDays };
+  }
+  if (!base) {
+    const cc = (rv: RealizedVol, days: 30 | 90) => {
+      const rel = 1.645 / Math.sqrt(2 * rv.nReturns);
+      return {
+        sigma: rv.sigma,
+        band: { p05: rv.sigma * (1 - rel), p95: rv.sigma * (1 + rel) },
+        windowDays: days,
+        method: "close-to-close" as const,
+        nDays: rv.nReturns,
+      };
+    };
+    const rv30 = computeRealizedVol(complete.slice(-31), "1D");
+    if (rv30) base = cc(rv30, 30);
+    else {
+      const rv90 = computeRealizedVol(complete, "1D");
+      if (rv90) base = cc(rv90, 90);
     }
   }
-  const gk90 = computeGarmanKlassVol(complete, "1D");
-  if (gk90) {
-    return { sigma: gk90.sigma, band: gk90.band, windowDays: 90, method: "garman-klass", nDays: gk90.nDays };
-  }
+  if (!base) return null;
 
-  const ccEstimate = (rv: RealizedVol, days: 30 | 90): SigmaEstimate => {
-    const rel = 1.645 / Math.sqrt(2 * rv.nReturns);
-    return {
-      sigma: rv.sigma,
-      band: { p05: rv.sigma * (1 - rel), p95: rv.sigma * (1 + rel) },
-      windowDays: days,
-      method: "close-to-close",
-      nDays: rv.nReturns,
-    };
+  // D5: scale the current-regime daily estimate to the tenor.
+  const tenorAdjust = await tenorAdjustFor(base.method);
+  const k = tenorAdjust?.ratio ?? 1;
+  return {
+    sigma: base.sigma * k,
+    band: { p05: base.band.p05 * k, p95: base.band.p95 * k },
+    windowDays: base.windowDays,
+    method: base.method,
+    nDays: base.nDays,
+    sigmaDaily: base.sigma,
+    tenorAdjust,
   };
-  const rv30 = computeRealizedVol(complete.slice(-31), "1D");
-  if (rv30) return ccEstimate(rv30, 30);
-  const rv90 = computeRealizedVol(complete, "1D");
-  if (rv90) return ccEstimate(rv90, 90);
-  return null;
 }
 
 /**
@@ -439,7 +527,12 @@ async function solSigmaEstimate(): Promise<SigmaEstimate | null> {
 function fairValueQuadrature(
   view: PortfolioPositionView,
   sigma: number,
-): { fairValueUsd: number; expectedValueChangeUsd: number } {
+): {
+  fairValueUsd: number;
+  expectedValueChangeUsd: number;
+  expectedValueChangeUsdAtMinusDrift: number;
+  expectedValueChangeUsdAtPlusDrift: number;
+} {
   const v0 = positionValueAtPrice(view, view.price);
   const tenorYears = TENOR_SECONDS / SECONDS_PER_YEAR;
   // §3.1 asserts FV >= 0. That proof needs S0 inside [p_l, p_u]: below
@@ -464,13 +557,30 @@ function fairValueQuadrature(
   // E[ΔV] = E[V(S_T)] − V(S_0), NOT clamped — a mark-to-market
   // expectation, legitimately negative (that is the divergence loss),
   // which is what the paper's two-sided breakeven needs (§2.4.4).
+  const deltaV = (sT: number) => positionValueAtPrice(view, sT) - v0;
   const expectedValueChangeUsd = quadratureExpectation(
-    (sT) => positionValueAtPrice(view, sT) - v0,
+    deltaV,
     view.price,
     sigma,
     tenorYears,
   );
-  return { fairValueUsd, expectedValueChangeUsd };
+  // §1.6: the same integral under ±50%/yr PHYSICAL drift. The point
+  // estimate stays risk-neutral (the only assumption-free choice; the
+  // index claims to measure concavity, not a directional view) — the
+  // sweep exists so a reader SEES the result is drift-determined
+  // rather than inferring precision the estimator does not have.
+  const expectedValueChangeUsdAtMinusDrift = quadratureExpectation(
+    deltaV, view.price, sigma, tenorYears, undefined, -DRIFT_SWEEP_ANNUAL,
+  );
+  const expectedValueChangeUsdAtPlusDrift = quadratureExpectation(
+    deltaV, view.price, sigma, tenorYears, undefined, DRIFT_SWEEP_ANNUAL,
+  );
+  return {
+    fairValueUsd,
+    expectedValueChangeUsd,
+    expectedValueChangeUsdAtMinusDrift,
+    expectedValueChangeUsdAtPlusDrift,
+  };
 }
 
 /**
@@ -554,7 +664,12 @@ export async function computePositionViability(
       (realised.ok ? realised.inRangeDailyRate : poolDaily * c) *
       inRangeEstimate.fraction;
 
-    const { fairValueUsd, expectedValueChangeUsd } = fairValueQuadrature(view, sigma);
+    const {
+      fairValueUsd,
+      expectedValueChangeUsd,
+      expectedValueChangeUsdAtMinusDrift,
+      expectedValueChangeUsdAtPlusDrift,
+    } = fairValueQuadrature(view, sigma);
     // A NaN anywhere upstream used to travel as `null`, which the card
     // reads as "unbounded" and paints GREEN — a silent numeric failure
     // displayed as the strongest possible pass. Refuse instead.
@@ -655,6 +770,16 @@ export async function computePositionViability(
       sigmaBand: sigmaEstimate.band,
       sigmaMethod: sigmaEstimate.method,
       sigmaDays: sigmaEstimate.nDays,
+      // D5: the tenor scaling and its evidence, or null = unadjusted.
+      sigmaDaily: sigmaEstimate.sigmaDaily,
+      sigmaTenorAdjust: sigmaEstimate.tenorAdjust,
+      // §1.6: E[ΔV] under ±50%/yr physical drift — the reader must see
+      // the estimate is drift-determined; the point stays risk-neutral.
+      driftSensitivity: {
+        sweepAnnual: DRIFT_SWEEP_ANNUAL,
+        expectedValueChangeUsdAtMinus: expectedValueChangeUsdAtMinusDrift,
+        expectedValueChangeUsdAtPlus: expectedValueChangeUsdAtPlusDrift,
+      },
       poolDailyYield: poolDaily,
       // §1.1 provenance: which source produced poolDailyYield, over what
       // window, and why the fallback was used when it was. The UI shows

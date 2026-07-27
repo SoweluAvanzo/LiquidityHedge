@@ -235,6 +235,19 @@ describe("Pricing Engine", () => {
       const e2 = quadratureExpectation((sT) => sT * sT, S0, sigma, T);
       expect(e2).to.be.closeTo(S0 * S0 * Math.exp(sigma * sigma * T), S0 * S0 * 1e-6);
     });
+
+    it("§1.6 drift sweep: E[S_T] = S0·e^{μT} under physical drift μ, and μ=0 is bit-identical to the default", () => {
+      const mu = 0.5; // +50%/yr
+      const eUp = quadratureExpectation((sT) => sT, S0, sigma, T, undefined, mu);
+      expect(eUp).to.be.closeTo(S0 * Math.exp(mu * T), S0 * 1e-6);
+      const eDn = quadratureExpectation((sT) => sT, S0, sigma, T, undefined, -mu);
+      expect(eDn).to.be.closeTo(S0 * Math.exp(-mu * T), S0 * 1e-6);
+      // The default path must not move by a single ulp: the sweep is a
+      // display feature, never a repricing.
+      const impl = quadratureExpectation((sT) => sT - S0, S0, sigma, T);
+      const expl = quadratureExpectation((sT) => sT - S0, S0, sigma, T, undefined, 0);
+      expect(impl).to.equal(expl);
+    });
   });
 
   // ── Monotonicity properties ───────────────────────────────

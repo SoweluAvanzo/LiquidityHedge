@@ -71,6 +71,33 @@ export interface PositionViabilityWire {
   sigmaMethod: "garman-klass" | "close-to-close";
   /** Bars actually integrated (in-progress day always dropped). */
   sigmaDays: number;
+  /** Unadjusted daily-annualised σ (before the D5 tenor scaling). */
+  sigmaDaily: number;
+  /**
+   * Owner decision D5: sigmaAnnualized = sigmaDaily × ratio, because
+   * the corridor payoff depends on TENOR-scale dispersion and SOL
+   * mean-reverts weekly (VR(7) ≈ 0.76 over 1y — daily-annualised
+   * estimators overstate 7-day terminal dispersion). ratio =
+   * σ_weekly-nonoverlap(1y) ÷ σ_same-method-daily(1y). Null = 1y
+   * history unavailable, unadjusted daily σ served.
+   */
+  sigmaTenorAdjust: {
+    ratio: number;
+    weeklySigma1y: number;
+    weeklyN: number;
+    dailySigma1y: number;
+    varianceRatio7: number;
+  } | null;
+  /**
+   * §1.6: E[ΔV] under ±sweepAnnual physical drift. The point estimate
+   * is risk-neutral (pure concavity/divergence loss, no directional
+   * view); this sweep shows how drift-determined the number is.
+   */
+  driftSensitivity: {
+    sweepAnnual: number;
+    expectedValueChangeUsdAtMinus: number;
+    expectedValueChangeUsdAtPlus: number;
+  };
   poolDailyYield: number;
   /**
    * §1.1 provenance for poolDailyYield. "measured-snapshots" = derived

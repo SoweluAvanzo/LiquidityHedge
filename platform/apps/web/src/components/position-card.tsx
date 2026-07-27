@@ -149,11 +149,22 @@ function EstimatorLine({ viability }: { viability: PositionViabilityWire }) {
         <span className="lh-prov-item">
           <span className="lh-prov-key">
             σ ({viability.sigmaWindowDays}d{" "}
-            {viability.sigmaMethod === "garman-klass" ? "GK-OHLC" : "close-to-close"})
+            {viability.sigmaMethod === "garman-klass" ? "GK-OHLC" : "close-to-close"}
+            {viability.sigmaTenorAdjust
+              ? ` × ${viability.sigmaTenorAdjust.ratio.toFixed(2)} tenor-adj`
+              : ""}
+            )
           </span>
           {formatPercent(viability.sigmaAnnualized, 1)} (90% CI{" "}
           {formatPercent(viability.sigmaBand.p05, 1)}–
           {formatPercent(viability.sigmaBand.p95, 1)})
+          <InfoTip
+            text={
+              viability.sigmaTenorAdjust
+                ? `The 7-day payoff depends on tenor-scale dispersion. Measured over 1y: weekly non-overlapping vol ${formatPercent(viability.sigmaTenorAdjust.weeklySigma1y, 1)} (n=${viability.sigmaTenorAdjust.weeklyN}) vs daily-annualised ${formatPercent(viability.sigmaTenorAdjust.dailySigma1y, 1)} — variance ratio VR(7)=${viability.sigmaTenorAdjust.varianceRatio7.toFixed(2)}: daily moves partially cancel by the week (mean reversion). The current-regime ${viability.sigmaWindowDays}d estimate (${formatPercent(viability.sigmaDaily ?? viability.sigmaAnnualized, 1)} daily-annualised) is scaled by ${viability.sigmaTenorAdjust.ratio.toFixed(2)} to the tenor scale (owner decision D5).`
+                : `Daily-annualised estimate served UNADJUSTED — 1y history for the tenor-scale correction was unavailable. Under weekly mean reversion this may overstate 7-day dispersion.`
+            }
+          />
         </span>
       )}
       {py && (
@@ -282,11 +293,20 @@ function ViabilityRow({
             {formatDailyYield(viability.twoSided.breakevenDailyYield)}
           </span>
           <span className="lh-prov-item">
-            <span className="lh-prov-key">E[ΔV] 7d</span>
+            <span className="lh-prov-key">E[ΔV] 7d (risk-neutral)</span>
             {formatUsd(viability.twoSided.expectedValueChangeUsd)}
           </span>
+          {viability.driftSensitivity && (
+            <span className="lh-prov-item">
+              <span className="lh-prov-key">
+                drift ∓{formatPercent(viability.driftSensitivity.sweepAnnual, 0)}/yr
+              </span>
+              {formatUsd(viability.driftSensitivity.expectedValueChangeUsdAtMinus)} …{" "}
+              {formatUsd(viability.driftSensitivity.expectedValueChangeUsdAtPlus)}
+            </span>
+          )}
           <InfoTip
-            text={`INCLUDES DIVERGENCE LOSS — this is the difference from the index above, which does not. Paper §2.4.3-2.4.4: two-sided viability needs the unhedged LP PnL to cover the protocol fee leakage, sum(dV_w + V_w*r*7) = phi*sum(P_w), giving r* = (phi*P - E[dV])/(V*T). Here E[dV] = ${formatUsd(viability.twoSided.expectedValueChangeUsd)} is the RISK-NEUTRAL expected 7-day mark-to-market change (pure divergence loss, no directional view), from the same deterministic quadrature as the fair value. The unhedged breakeven (phi = 0, fees vs divergence loss alone) is ${formatDailyYield(viability.twoSided.unhedgedBreakevenDailyYield)}; the protocol-fee wedge of Corollary 2.1 adds ${formatDailyYield(viability.twoSided.protocolFeeWedgeDailyYield)} on top. Model output, not a prediction.`}
+            text={`INCLUDES DIVERGENCE LOSS — this is the difference from the index above, which does not. Paper §2.4.3-2.4.4: two-sided viability needs the unhedged LP PnL to cover the protocol fee leakage, sum(dV_w + V_w*r*7) = phi*sum(P_w), giving r* = (phi*P - E[dV])/(V*T). Here E[dV] = ${formatUsd(viability.twoSided.expectedValueChangeUsd)} is the RISK-NEUTRAL expected 7-day mark-to-market change (pure divergence loss, no directional view), from the same deterministic quadrature as the fair value. The drift sweep alongside shows the same integral under a bearish/bullish physical drift — the sign and size of E[dV] are drift-determined, and the risk-neutral point is the assumption-free middle, NOT a forecast. It is also a different estimand from the paper's realised backtest dV_w (physical measure) — do not compare them directly. The unhedged breakeven (phi = 0, fees vs divergence loss alone) is ${formatDailyYield(viability.twoSided.unhedgedBreakevenDailyYield)}; the protocol-fee wedge of Corollary 2.1 adds ${formatDailyYield(viability.twoSided.protocolFeeWedgeDailyYield)} on top. Model output, not a prediction.`}
           />
         </span>
       </div>

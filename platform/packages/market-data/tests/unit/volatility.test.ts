@@ -1,6 +1,12 @@
 import { expect } from "chai";
-import { computeGarmanKlassVol, computeRealizedVol } from "../../src/volatility";
+import {
+  computeGarmanKlassVol,
+  computeRealizedVol,
+  computeNonOverlappingTenorVol,
+  varianceRatio,
+} from "../../src/volatility";
 import { Candle } from "../../src/types";
+import { mulberry32 } from "../../src/bootstrap";
 
 /** Bar with O=C at price p, range p·e^{±k/2} (symmetric, no close move). */
 function rangeBar(t: number, p: number, k: number): Candle {
@@ -60,6 +66,61 @@ describe("@lh/market-data Garman–Klass volatility (§1.4)", () => {
   it("refuses fewer than minCandles bars", () => {
     const candles = Array.from({ length: 29 }, (_, i) => rangeBar(i * 86_400, 100, 0.03));
     expect(computeGarmanKlassVol(candles, "1D")).to.equal(null);
+  });
+
+  describe("tenor-scale dispersion (D5 arbitration)", () => {
+    it("known value: alternating ±r daily returns → weekly variance collapses (mean reversion)", () => {
+      // closes alternate 100, 100·e^r, 100, … : every 1-day return is ±r
+      // but every 2-day return is exactly 0 → VR(2) ≈ 0.
+      const r = 0.02;
+      const closes = Array.from({ length: 365 }, (_, i) =>
+        i % 2 === 0 ? 100 : 100 * Math.exp(r),
+      );
+      const vr = varianceRatio(closes, 2)!;
+      expect(vr.ratio).to.be.lessThan(0.01);
+      const weekly = computeNonOverlappingTenorVol(closes, 2)!;
+      expect(weekly.sigmaAnnual).to.be.lessThan(0.01);
+    });
+
+    it("known value: constant drift-free ±r i.i.d.-like series → VR ≈ 1", () => {
+      // Deterministic pseudo-random walk: signs from the seeded PRNG (a
+      // sine-grid pattern has hidden periodicity near lag 7 and fails).
+      const rng = mulberry32(42);
+      let p = 100;
+      const closes = [p];
+      for (let i = 0; i < 364; i++) {
+        const sign = rng() > 0.5 ? 1 : -1;
+        p = p * Math.exp(sign * 0.02);
+        closes.push(p);
+      }
+      const vr = varianceRatio(closes, 7)!;
+      expect(vr.ratio).to.be.greaterThan(0.5);
+      expect(vr.ratio).to.be.lessThan(2.0);
+    });
+
+    it("annualisation: exact for a constant per-step return magnitude", () => {
+      // 7-day non-overlapping returns all equal ±R with zero mean → the
+      // sample variance is R², annualized by 365/7.
+      const R = 0.05;
+      const closes: number[] = [100];
+      for (let i = 0; i < 52; i++) {
+        const sign = i % 2 === 0 ? 1 : -1;
+        // one 7-step block per flat segment: 6 flat days then the jump
+        for (let d = 0; d < 6; d++) closes.push(closes[closes.length - 1]);
+        closes.push(closes[closes.length - 1] * Math.exp(sign * R));
+      }
+      const tv = computeNonOverlappingTenorVol(closes, 7)!;
+      // ±R alternating with equal counts → mean 0, sample var = R²·n/(n−1)
+      const expected = Math.sqrt((R * R * tv.n) / (tv.n - 1) * (365 / 7));
+      expect(tv.sigmaAnnual).to.be.closeTo(expected, 1e-12);
+      expect(tv.band.p05).to.be.lessThan(tv.sigmaAnnual);
+      expect(tv.band.p95).to.be.greaterThan(tv.sigmaAnnual);
+    });
+
+    it("refuses thin histories", () => {
+      const closes = Array.from({ length: 100 }, (_, i) => 100 + i);
+      expect(computeNonOverlappingTenorVol(closes, 7)).to.equal(null); // 14 < 30 returns
+    });
   });
 
   it("GK and CC agree in order of magnitude on a common series", () => {

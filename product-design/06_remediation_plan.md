@@ -530,8 +530,23 @@ Note: the `MIN_EMPIRICAL_WINDOWS = 60` gate still counts RAW windows
 (≈9 effective) — whether the gate should use effective count is left
 for 1.7's propagation work, where the CI itself can gate.
 
-Next: **1.6** (explicit about the measure — drift-sensitivity band;
-includes D5's tenor-scale variance-ratio check) … 1.10 in order.
+**1.6 + D5 — DONE ✅, deployed.** (a) E[ΔV] is labelled risk-neutral on
+the card (begun in 1.3) and now ships a **drift-sensitivity sweep**
+(±50%/yr physical drift, the plan's own table) — EPRL at deploy:
+−\$0.0214 … +\$0.0065 around the risk-neutral −\$0.0073; the reader sees
+the estimate is drift-dominated. (b) **D5 resolved empirically**: over
+1y of complete data, weekly non-overlapping σ = 62.0% (n=52) vs GK
+daily 78.5% vs CC daily 70.9%; VR(2)=0.995 but **VR(7)=0.76** — SOL
+mean-reverts at the weekly scale and ANY daily-annualised σ overstates
+7-day terminal dispersion (GK sits outside the weekly 90% band). σ now
+serves as **30d GK × tenorAdjust** (weekly₁ᵧ ÷ same-method-daily₁ᵧ ≈
+0.78), full basis on the wire (`sigmaTenorAdjust`, `sigmaDaily`) and
+derived in words in the card tooltip. Effect at deploy: σ 0.519 →
+0.403, E[ΔV] magnitude ×0.60, VI₂ EPRL 0.35 → 0.59. New market-data
+primitives: `computeNonOverlappingTenorVol`, `varianceRatio`.
+
+Next: **1.7** (propagate uncertainty; display at resolved precision;
+badge hysteresis) … 1.10 in order.
 
 ### Caveat for whoever picks this up
 
