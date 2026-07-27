@@ -82,8 +82,19 @@ export function depositUsdc(
   const priceBefore = sharePrice(pool);
 
   let shares: number;
-  if (pool.totalShares === 0 || pool.reservesUsdc === 0) {
+  if (pool.totalShares === 0) {
     shares = amount;
+  } else if (pool.reservesUsdc === 0) {
+    // AUDIT #17: `||` here minted `amount` shares against pre-existing
+    // shares that are worthless (reserves are 0), so the new depositor
+    // instantly owned only amount/(totalShares+amount) of reserves they
+    // alone funded. A fully-drained pool must be restarted, not diluted
+    // into.
+    throw new Error(
+      "Pool reserves are zero while shares remain outstanding — deposits are " +
+        "refused until the pool is reset, otherwise the depositor would be " +
+        "diluted by worthless pre-existing shares",
+    );
   } else {
     shares = Math.floor((amount * pool.totalShares) / pool.reservesUsdc);
   }

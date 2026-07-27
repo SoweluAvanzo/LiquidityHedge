@@ -47,7 +47,7 @@ const organization: JsonObject = {
   url: `${SITE_URL}/`,
   email: CONTACT_EMAIL,
   description:
-    "Blocksventures Ltd builds measurement and hedging infrastructure for concentrated-liquidity positions on Orca Whirlpools (Solana): free portfolio analytics, fee-growth datasets sampled from the pools' own on-chain fee accumulators, and cash-settled bilateral hedging certificates offered as an invite-only pilot.",
+    "Blocksventures Ltd builds measurement and hedging infrastructure for concentrated-liquidity positions: fee-growth datasets sampled from the pools' own on-chain fee accumulators, cash-settled bilateral hedging certificates offered as an invite-only pilot, and free portfolio analytics. Neither the data schema nor the hedge contract is specific to one venue; coverage today is Orca Whirlpools on Solana.",
   disambiguatingDescription:
     "Blocksventures Ltd is a British Virgin Islands business company. It is not licensed, registered or supervised by any financial regulator, and it is the direct counterparty to any hedging certificate it issues. Its products are not insurance, not deposits and not investment advice.",
   address: {
@@ -55,6 +55,7 @@ const organization: JsonObject = {
     addressCountry: "VG",
   },
   knowsAbout: [
+    "concentrated liquidity",
     "Orca Whirlpools",
     "Solana concentrated liquidity",
     "feeGrowthGlobal accumulators",
@@ -73,7 +74,7 @@ const website: JsonObject = {
   inLanguage: "en",
   publisher: { "@id": ORG_ID },
   description:
-    "Portfolio analytics, Orca Whirlpool fee-growth datasets and range-risk hedging for Solana concentrated-liquidity positions.",
+    "Fee-growth datasets, range-risk hedging and free portfolio analytics for concentrated-liquidity positions. Coverage today: Orca Whirlpools on Solana.",
 };
 
 const forwardDataset: JsonObject = {
@@ -83,7 +84,7 @@ const forwardDataset: JsonObject = {
   name: "Orca Whirlpool fee-growth snapshots — 2026 forward",
   alternateName: "Orca concentrated-liquidity fee accrual dataset",
   description:
-    "Fifteen-minute snapshots of every Orca Whirlpool on Solana clearing a 10,000 USDC 24-hour volume threshold (approximately 107 pools; the tracked set is refreshed daily). Each row records the pool's own fee accumulators feeGrowthGlobalA and feeGrowthGlobalB (cumulative swap fees per unit of liquidity, Q64.64 fixed point), the liquidity active at the current tick, the decimal-adjusted pool price, and both token vault balances, which give exact on-chain TVL. Because fee growth is denominated per unit of liquidity, the dataset supports computing the exact counterfactual fee income of any price range in any covered pool — including ranges that were never held — which volume, TVL or APR feeds cannot do.",
+    "Fifteen-minute snapshots of every Orca Whirlpool on Solana clearing a 10,000 USDC 24-hour volume threshold (approximately 107 pools; the tracked set is refreshed daily). Each row records the pool's own fee accumulators feeGrowthGlobalA and feeGrowthGlobalB (cumulative swap fees per unit of liquidity, Q64.64 fixed point), the liquidity active at the current tick, the decimal-adjusted pool price, and both token vault balances, which give exact on-chain TVL. Because fee growth is denominated per unit of liquidity, the dataset supports computing the exact counterfactual fee income of any price range in any covered pool — including ranges that were never held — which volume, TVL or APR feeds cannot do. No other source of this series is known to exist: a Whirlpool account stores only its current cumulative fee totals and never the history, so the series can exist only where somebody sampled it at the time, and any uncovered interval is unrecoverable. Continuous forward collection has run since 26 July 2026.",
   url: `${SITE_URL}/#data`,
   keywords: [
     "Orca Whirlpool fee growth data",

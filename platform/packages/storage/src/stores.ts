@@ -189,3 +189,59 @@ export class PgEventStore {
     }));
   }
 }
+
+/**
+ * Pool metadata projection — pair symbols, decimals, quote mint, fee tier.
+ *
+ * AUDIT #6: `lh.tracked_pools` was created and granted in schema.sql, and
+ * LEFT JOINed by the dataset download route, but NOTHING in the workspace
+ * ever inserted into it. Every delivered CSV therefore carried an empty
+ * `pair` and empty `decimals_a`/`decimals_b` on every row — and without
+ * decimals the vault columns cannot be converted, which is the whole point
+ * of the product. The collector already resolves this metadata each cycle;
+ * it just never persisted it.
+ */
+export interface TrackedPoolRow {
+  address: string;
+  symbolA: string;
+  symbolB: string;
+  decimalsA: number;
+  decimalsB: number;
+  quoteMint: string;
+  feeRate: number;
+}
+
+export class PgTrackedPoolStore {
+  constructor(private readonly pool: Pool) {}
+
+  /** Upsert the whole tracked set; safe to call every cycle. */
+  async upsert(rows: TrackedPoolRow[], refreshedAt: number): Promise<number> {
+    if (rows.length === 0) return 0;
+    const res = await this.pool.query(
+      `INSERT INTO lh.tracked_pools
+         (address, symbol_a, symbol_b, decimals_a, decimals_b, quote_mint, fee_rate, refreshed_at)
+       SELECT * FROM UNNEST(
+         $1::text[], $2::text[], $3::text[], $4::smallint[], $5::smallint[],
+         $6::text[], $7::integer[], $8::bigint[])
+       ON CONFLICT (address) DO UPDATE SET
+         symbol_a = EXCLUDED.symbol_a,
+         symbol_b = EXCLUDED.symbol_b,
+         decimals_a = EXCLUDED.decimals_a,
+         decimals_b = EXCLUDED.decimals_b,
+         quote_mint = EXCLUDED.quote_mint,
+         fee_rate = EXCLUDED.fee_rate,
+         refreshed_at = EXCLUDED.refreshed_at`,
+      [
+        rows.map((r) => r.address),
+        rows.map((r) => r.symbolA),
+        rows.map((r) => r.symbolB),
+        rows.map((r) => r.decimalsA),
+        rows.map((r) => r.decimalsB),
+        rows.map((r) => r.quoteMint),
+        rows.map((r) => r.feeRate),
+        rows.map(() => refreshedAt),
+      ],
+    );
+    return res.rowCount ?? 0;
+  }
+}

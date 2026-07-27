@@ -47,14 +47,24 @@ function buckets(): Map<string, Bucket> {
 /**
  * The client address, as far as it can be trusted.
  *
- * `CF-Connecting-IP` is set by Cloudflare and cannot survive from a client
- * (Cloudflare overwrites it). Otherwise we take the LAST X-Forwarded-For
+ * `CF-Connecting-IP` is honoured ONLY when `TRUST_CF_HEADERS=1` declares
+ * that a Cloudflare edge really does front this deployment (it overwrites
+ * the header there). Otherwise we take the LAST X-Forwarded-For
  * entry — appended by our own reverse proxy — never the first, which is
  * whatever the client sent.
  */
 export function clientKey(req: NextRequest): string {
-  const cf = req.headers.get("cf-connecting-ip");
-  if (cf) return `cf:${cf.trim()}`;
+  // AUDIT #2: this header was trusted unconditionally. It is only
+  // unforgeable for traffic that ACTUALLY transits Cloudflare — Cloudflare
+  // overwrites it there. Our own Caddy does not touch it, and Caddy is
+  // reachable directly, so a client could set it themselves and mint a
+  // fresh bucket per request (verified: 12/12 requests passed a 6/min
+  // limit). It is now opt-in for deployments that really are CF-fronted,
+  // and the edge strips it in every other case.
+  if (process.env.TRUST_CF_HEADERS === "1") {
+    const cf = req.headers.get("cf-connecting-ip");
+    if (cf) return `cf:${cf.trim()}`;
+  }
   const xff = req.headers.get("x-forwarded-for");
   if (xff) {
     const parts = xff.split(",").map((p) => p.trim()).filter(Boolean);

@@ -35,7 +35,7 @@ interface CacheEntry<T> {
   value: T;
 }
 
-const candleCache = new Map<number, CacheEntry<IngestResult>>();
+const candleCache = new Map<string, CacheEntry<IngestResult>>();
 const overviewCache = new Map<string, CacheEntry<PoolOverview>>();
 const pairCandleCache = new Map<string, CacheEntry<IngestResult>>();
 
@@ -77,13 +77,19 @@ export function birdeyeApiKey(): string | null {
 }
 
 /**
- * Daily SOL/USD candles for the window ending now, cached per windowDays.
+ * Daily USD candles for any token mint, cached per (mint, windowDays).
  * Successful fetches (complete or not) are cached; transport errors are not.
+ *
+ * Birdeye's OHLCV endpoint is address-generic, so nothing here is
+ * SOL-specific — the multi-pair simulator calibrates one series per
+ * distinct base mint in the portfolio through this function.
  */
-export async function getSolDailyCandles(
+export async function getTokenDailyCandles(
+  mint: string,
   windowDays: number,
 ): Promise<IngestResult> {
-  const cached = candleCache.get(windowDays);
+  const cacheKey = `${mint}:${windowDays}`;
+  const cached = candleCache.get(cacheKey);
   const now = Date.now();
   if (cached && now - cached.fetchedAt < TTL_MS) return cached.value;
 
@@ -94,9 +100,16 @@ export async function getSolDailyCandles(
   const fetcher = makeBirdeyeFetcher(key);
   const timeTo = Math.floor(now / 1000);
   const timeFrom = timeTo - windowDays * 86_400;
-  const result = await fetchOhlcvPaged(fetcher, SOL_MINT, "1D", timeFrom, timeTo);
-  candleCache.set(windowDays, { fetchedAt: now, value: result });
+  const result = await fetchOhlcvPaged(fetcher, mint, "1D", timeFrom, timeTo);
+  candleCache.set(cacheKey, { fetchedAt: now, value: result });
   return result;
+}
+
+/** Daily SOL/USD candles — the viability pipeline's fixed reference series. */
+export async function getSolDailyCandles(
+  windowDays: number,
+): Promise<IngestResult> {
+  return getTokenDailyCandles(SOL_MINT, windowDays);
 }
 
 /** Birdeye pair overview for a Whirlpool, cached per (pool, feeTier). */

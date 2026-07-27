@@ -72,6 +72,68 @@ export function sampleRatePaths(
   return paths;
 }
 
+/**
+ * Block-bootstrap ONE sequence of date indices into a common calendar of
+ * `nObs` daily observations, shared by every pool in a portfolio.
+ *
+ * Fee income across pools co-moves: a market-wide volume regime lifts all
+ * of them together. Sampling each pool's rate path from its own random
+ * draws destroys that and understates portfolio fee dispersion; giving
+ * every pool the same seed (as the single-pool path effectively did)
+ * couples them by construction and overstates it. Reading every pool off
+ * the SAME resampled dates reproduces whatever co-movement the record
+ * actually showed — no correlation parameter is fitted and none is
+ * assumed. It is the fee-side counterpart of the joint cross-asset
+ * resampling the price bootstrap performs.
+ *
+ * Callers must align their per-pool series to this calendar first (take
+ * the last `nObs` observations of each), so index i means the same day
+ * for every pool.
+ */
+export function sampleSharedBlockIndices(grid: {
+  nPaths: number;
+  steps: number;
+  seed: number;
+  nObs: number;
+  blockLength: number;
+}): number[][] {
+  const { nPaths, steps, seed, nObs } = grid;
+  if (nObs < 1) throw new Error("sampleSharedBlockIndices: empty calendar");
+  const bl = Math.max(1, Math.min(grid.blockLength, nObs));
+  const rng = makeRng(seed ^ 0x5eed_fee5); // decorrelate from price seed
+  const out: number[][] = [];
+  for (let p = 0; p < nPaths; p++) {
+    const row = new Array<number>(steps);
+    let s = 0;
+    while (s < steps) {
+      const start = Math.floor(rng.uniform() * nObs);
+      for (let b = 0; b < bl && s < steps; b++, s++) {
+        row[s] = (start + b) % nObs;
+      }
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+/**
+ * Read one pool's rate paths off a shared index matrix. `dailyRates` must
+ * already be aligned to the calendar the indices address.
+ */
+export function ratePathsFromIndices(
+  dailyRates: number[],
+  indices: number[][],
+  opts?: { rescaleToMean?: number },
+): number[][] {
+  if (dailyRates.length === 0) throw new Error("ratePathsFromIndices: no rates");
+  const mean = dailyRates.reduce((a, b) => a + b, 0) / dailyRates.length;
+  const scale =
+    opts?.rescaleToMean !== undefined && mean > 0 ? opts.rescaleToMean / mean : 1;
+  return indices.map((row) =>
+    row.map((i) => dailyRates[i % dailyRates.length] * scale),
+  );
+}
+
 // ── Phase 2: volume–|return| coupling ───────────────────────────────
 // Volume spikes when prices move violently, so fee intensity should be
 // conditioned on each path's own realized |returns| — this is what

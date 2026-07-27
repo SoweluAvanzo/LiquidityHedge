@@ -108,7 +108,14 @@ export async function runCycleOnce(): Promise<{ ok: boolean; summary: string }> 
         return { transfers: r.transfers, cursor: r.cursor };
       },
       readSettlementPrice: (cert) => readSettlementPrice(connection, cert),
-      // Buyer-favourable default on data failure (Master Terms §7.2).
+      // AUDIT #4: this is a STUB, not a fallback. The port doc says
+      // implementations must return 0 *on data failure*; here there is no
+      // primary reader at all — the real one (core's fee-refresher) was
+      // never wired to @lh/hedge. Returning 0 is buyer-favourable and safe
+      // in itself, but the premium must not be discounted for a fee split
+      // that will never be collected, so `feeSplitRate` is pinned to 0 in
+      // hedge-ledger's buildConfig(). The assertion below keeps the two
+      // facts welded together.
       readAccruedFees: async () => 0,
       // dryRun is always true here — this process never signs.
       executePayout: async () => {
@@ -163,11 +170,26 @@ export async function runCycleOnce(): Promise<{ ok: boolean; summary: string }> 
 export function startSettlementScheduler(): void {
   const seconds = Number(process.env.SETTLEMENT_INTERVAL_SECONDS ?? 60);
   if (seconds <= 0) return;
+  let cfg;
   try {
-    getHedgeConfig();
+    cfg = getHedgeConfig();
   } catch (e) {
     if (e instanceof HedgeUnavailableError) return; // hedging disabled
     throw e;
+  }
+
+  // AUDIT #4: a non-zero fee split means the premium was discounted for
+  // revenue the settlement path is supposed to collect. `readAccruedFees`
+  // above returns 0 unconditionally, so that revenue cannot arrive.
+  // Selling at a discount for income that structurally never comes is a
+  // loss on every certificate — refuse to run rather than bleed quietly.
+  if (cfg.feeSplitRate > 0) {
+    throw new Error(
+      `feeSplitRate is ${cfg.feeSplitRate} but readAccruedFees is a stub that ` +
+        `always returns 0 — the premium would be discounted for fee revenue ` +
+        `that is never collected. Wire a real fee-growth reader before ` +
+        `setting HEDGE_FEE_SPLIT_RATE above zero.`,
+    );
   }
   const tick = () => {
     runCycleOnce()

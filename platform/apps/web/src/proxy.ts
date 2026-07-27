@@ -66,14 +66,16 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // All routes except API responses (JSON — CSP is a document policy),
-    // static assets, and link prefetches.
-    {
-      source: "/((?!api|_next/static|_next/image|favicon.ico).*)",
-      missing: [
-        { type: "header", key: "next-router-prefetch" },
-        { type: "header", key: "purpose", value: "prefetch" },
-      ],
-    },
+    // All routes except API responses (JSON — CSP is a document policy)
+    // and static assets.
+    //
+    // AUDIT #16: prefetch requests were excluded here, but Next still
+    // serves a COMPLETE HTML document for them — so those documents went
+    // out with no Content-Security-Policy header at all (verified: normal
+    // request 1 CSP header, `purpose: prefetch` request 0). A document
+    // shipped without its security policy is a gap whether or not a
+    // reuse path is currently demonstrable, so prefetches get the policy
+    // too.
+    "/((?!api|_next/static|_next/image|favicon.ico).*)",
   ],
 };

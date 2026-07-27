@@ -9,7 +9,12 @@ import { type NextRequest, NextResponse } from "next/server";
 import { checkLimit, tooManyRequests } from "@/lib/server/rate-limit";
 import { readdirSync, readFileSync, existsSync } from "fs";
 import path from "path";
-import { PoolSnapshot, snapshotTvlQuote, isUsdQuote } from "@lh/market-data";
+import {
+  PoolSnapshot,
+  snapshotTvlQuote,
+  isUsdQuote,
+  USD_QUOTE_MINTS,
+} from "@lh/market-data";
 import { CommerceUnavailableError, commerceConfig, withOrders } from "@/lib/server/order-ledger";
 import { createPool } from "@lh/storage";
 
@@ -103,15 +108,44 @@ async function streamFromPostgres(dsn: string): Promise<Response | null> {
     if (Number(rows[0]?.n ?? 0) === 0) return null;
 
     // pg-copy-streams ships no types; the surface we use is one function.
+    // COPY ... TO STDOUT accepts no bind parameters, so the mint list is
+    // inlined. Every entry is checked against a strict base58 pattern
+    // first: these are compile-time constants, and this keeps it that way
+    // even if the set is ever sourced differently.
+    const usdMintList = [...USD_QUOTE_MINTS]
+      .map((m) => {
+        if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(m)) {
+          throw new Error(`refusing to inline non-base58 mint: ${m}`);
+        }
+        return `'${m}'`;
+      })
+      .join(", ");
+
     const { to: copyTo } = await import("pg-copy-streams");
     const client = await pool.connect();
+    // AUDIT #6: this emitted 12 snake_case columns while /data publishes a
+    // 14-field camelCase specification that buyers are told to read before
+    // paying. `tvlQuote` and `quoteIsUsd` were absent entirely. Column
+    // names and order now mirror CSV_FIELDS exactly; the header is asserted
+    // against it in tests/unit/csv-schema.test.ts so the two cannot drift.
     const sql = `COPY (
-        SELECT s.pool,
-               coalesce(p.symbol_a || '/' || p.symbol_b, '') AS pair,
-               s.t,
-               to_char(to_timestamp(s.t) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS iso,
-               s.price, s.liquidity, s.fee_growth_global_a, s.fee_growth_global_b,
-               s.vault_a, s.vault_b, p.decimals_a, p.decimals_b
+        SELECT s.pool                                              AS "pool",
+               coalesce(p.symbol_a || '/' || p.symbol_b, '')       AS "pair",
+               s.t                                                 AS "t",
+               to_char(to_timestamp(s.t) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS "iso",
+               s.price                                             AS "price",
+               s.liquidity                                         AS "liquidity",
+               s.fee_growth_global_a                               AS "feeGrowthGlobalA",
+               s.fee_growth_global_b                               AS "feeGrowthGlobalB",
+               s.vault_a                                           AS "vaultA",
+               s.vault_b                                           AS "vaultB",
+               p.decimals_a                                        AS "decimalsA",
+               p.decimals_b                                        AS "decimalsB",
+               CASE WHEN p.decimals_a IS NULL OR p.decimals_b IS NULL THEN NULL
+                    ELSE s.vault_b / power(10::numeric, p.decimals_b)
+                       + (s.vault_a / power(10::numeric, p.decimals_a)) * s.price
+               END                                                 AS "tvlQuote",
+               (p.quote_mint = ANY (ARRAY[${usdMintList}]))         AS "quoteIsUsd"
           FROM lh.pool_snapshots s
           LEFT JOIN lh.tracked_pools p ON p.address = s.pool
          ORDER BY s.pool, s.t

@@ -164,7 +164,7 @@ export function PortfolioDashboard({
     <div className="lh-stack">
       <div className="lh-page-head" style={{ marginBottom: 0 }}>
         <div>
-          <p className="lh-eyebrow">Dashboard · Orca Whirlpools · Solana</p>
+          <p className="lh-eyebrow">Liquidity Studio · concentrated liquidity</p>
           <h1 className="lh-h1">Concentrated-liquidity positions.</h1>
         </div>
         <p className="lh-note" style={{ maxWidth: "34ch" }}>
@@ -242,11 +242,11 @@ export function PortfolioDashboard({
         <section className="lh-card" aria-labelledby="empty-h">
           <p className="lh-eyebrow">Nothing loaded yet</p>
           <h2 className="lh-h2" id="empty-h" style={{ marginTop: "0.35rem" }}>
-            Read any Orca Whirlpool position, straight from the chain.
+            Read any concentrated-liquidity position, straight from the chain.
           </h2>
           <p className="lh-lead">
             Paste a public Solana address above, or connect a wallet, and this
-            page reads every Orca Whirlpool position that address owns: its
+            page reads every concentrated-liquidity position that address owns: its
             value and token split, its range and whether the price is inside it
             right now, uncollected fees, the V(S) payoff curve, and a viability
             index that sets measured fee yield against the breakeven the range
@@ -375,9 +375,10 @@ export function PortfolioDashboard({
 
               {data.positions.length === 0 ? (
                 <section className="lh-card lh-card-dashed">
-                  <h2 className="lh-h2">No Orca Whirlpool positions here</h2>
+                  <h2 className="lh-h2">No positions found here</h2>
                   <p className="lh-p">
-                    This address owns no Orca Whirlpool position NFTs. Check the
+                    This address owns no concentrated-liquidity position NFTs on a
+                    covered venue. Check the
                     address, or load the example portfolio to see the dashboard
                     with data in it.
                   </p>

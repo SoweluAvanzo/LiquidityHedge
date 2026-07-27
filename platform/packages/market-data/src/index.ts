@@ -11,7 +11,7 @@ export {
   feeGrowthDelta,
   FilePoolSnapshotStore,
 } from "./pool-snapshots";
-export { snapshotTvlQuote, isUsdQuote } from "./pool-snapshots";
+export { snapshotTvlQuote, isUsdQuote, USD_QUOTE_MINTS } from "./pool-snapshots";
 export type { PoolSnapshot, PoolSnapshotStore, RangeYieldResult } from "./pool-snapshots";
 export { realizedInRangeFraction, empiricalInRangeFraction } from "./in-range";
 export type { RealizedInRange, EmpiricalInRangeResult } from "./in-range";

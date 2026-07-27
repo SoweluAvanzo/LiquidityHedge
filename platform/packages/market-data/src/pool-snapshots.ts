@@ -66,7 +66,7 @@ export function snapshotTvlQuote(
 }
 
 /** USD-pegged quote mints — the only pools whose quote-denominated TVL is USD. */
-const USD_QUOTE_MINTS = new Set([
+export const USD_QUOTE_MINTS = new Set([
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC
   "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", // USDT
   "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA", //  USDS

@@ -2,7 +2,10 @@
 
 /**
  * Simulate section (FR-S1..S6): Monte-Carlo the loaded portfolio's
- * SOL/USDC positions over a configurable model, window and horizon.
+ * USD-quoted positions over a configurable model, window and horizon.
+ * Multi-pair: each distinct base token is one simulated asset and the
+ * paths are drawn jointly, so the reported dispersion carries the assets'
+ * historical co-movement rather than diversifying it away.
  *
  * The model catalog and each model's config form come from
  * GET /api/simulate — the form is rendered GENERICALLY from the model's
@@ -20,6 +23,7 @@ import type { Composition, RiskModelDescriptor } from "@lh/risk-models";
 import type {
   SimulateRequest,
   SimulateResponse,
+  SamplingMode,
   SimWindowDays,
 } from "@/lib/simulate-api";
 import { apiFetch, errorMessage, retryAtFrom } from "@/lib/api-client";
@@ -46,6 +50,11 @@ const COMPOSITION_OPTIONS: { value: Composition; label: string }[] = [
 ];
 
 /** How the composition reads in result headers ("value + yield, unhedged"). */
+/** Base58 mints are unreadable in a table header; the ends identify them. */
+function shortMint(mint: string): string {
+  return mint.length > 12 ? `${mint.slice(0, 4)}…${mint.slice(-4)}` : mint;
+}
+
 const COMPOSITION_LABEL: Record<Composition, string> = {
   value: "value",
   "value+yield": "value + yield",
@@ -141,6 +150,8 @@ export function SimulateSection({ owner }: { owner: string }) {
   const [hedged, setHedged] = useState(false);
   const [premiumUsd, setPremiumUsd] = useState(0);
   const [composition, setComposition] = useState<Composition>("value");
+  const [sampling, setSampling] = useState<SamplingMode>("joint");
+  const [compareSampling, setCompareSampling] = useState(false);
   // Kept as a string so "empty" (= use the measured rate) stays distinct
   // from an explicit 0%/day override.
   const [feeRateOverride, setFeeRateOverride] = useState("");
@@ -213,6 +224,8 @@ export function SimulateSection({ owner }: { owner: string }) {
         : {}),
       ...(composition !== "value"
         ? {
+            sampling,
+            compareSampling,
             feeIntensityMode: stochasticFee
               ? ("stochastic" as const)
               : ("constant" as const),
@@ -266,7 +279,7 @@ export function SimulateSection({ owner }: { owner: string }) {
           Simulate
         </h2>
         <span className="lh-card-meta">
-          Monte-Carlo over the SOL/USDC positions of this portfolio
+          Monte-Carlo over the USD-quoted positions of this portfolio
         </span>
       </header>
 
@@ -374,6 +387,78 @@ export function SimulateSection({ owner }: { owner: string }) {
                   onChange={(e) => setHorizonWeeks(Number(e.target.value))}
                 />
               </div>
+            </div>
+
+            {/* ── Cross-asset sampling ── */}
+            <div className="lh-group">
+              <p className="lh-group-title">Cross-asset sampling</p>
+              <div
+                role="radiogroup"
+                aria-label="How several assets are sampled together"
+                className="lh-seg"
+              >
+                {(
+                  [
+                    { value: "joint" as const, label: "Joint" },
+                    { value: "independent" as const, label: "Independent" },
+                  ]
+                ).map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={sampling === o.value}
+                    disabled={running}
+                    onClick={() => setSampling(o.value)}
+                    className="lh-seg-btn"
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              <p className="lh-note" style={{ marginTop: "0.6rem" }}>
+                {sampling === "joint" ? (
+                  <>
+                    One resampled history is read across every asset, so the
+                    paths carry the correlation the market actually showed —
+                    for prices and for fee income alike. Correlation is
+                    applied with its sign: assets that move together widen
+                    the outcome spread, assets that move against each other
+                    narrow it. This is the correct setting for portfolio
+                    risk.
+                  </>
+                ) : (
+                  <>
+                    <b>Diagnostic only.</b> Each asset is drawn from its own
+                    distribution with an independent seed, discarding the
+                    measured correlation. Read it <em>against</em> the joint
+                    result — the gap between the two is what correlation is
+                    worth to this portfolio. It is not a risk figure on its
+                    own: for positively correlated assets it understates the
+                    tail, and it credits diversification the portfolio may
+                    not have.
+                  </>
+                )}
+              </p>
+
+              <label
+                className="lh-check"
+                style={{ marginTop: "0.75rem", display: "block" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={compareSampling}
+                  disabled={running}
+                  onChange={(e) => setCompareSampling(e.target.checked)}
+                />{" "}
+                Measure the co-movement effect
+              </label>
+              <p className="lh-note" style={{ marginTop: "0.4rem" }}>
+                Runs the portfolio both ways and reports the difference, so
+                the diversification your correlation actually buys is a
+                number rather than an inference. Doubles the simulation, and
+                applies only when more than one asset is held.
+              </p>
             </div>
 
             {/* ── Composition ── */}
@@ -595,8 +680,11 @@ export function SimulateSection({ owner }: { owner: string }) {
                     ? "Accrued-fees fan"
                     : "Portfolio value fan"}{" "}
                   — {result.positionsCount} position
-                  {result.positionsCount === 1 ? "" : "s"}, initial{" "}
-                  {formatUsd(report.initialValue)}
+                  {result.positionsCount === 1 ? "" : "s"}
+                  {result.assets && result.assets.length > 1
+                    ? ` across ${result.assets.length} assets, drawn jointly`
+                    : ""}
+                  , initial {formatUsd(report.initialValue)}
                 </p>
                 <span className="lh-card-meta">
                   {result.echo.modelId} · seed {result.echo.seed} ·{" "}
@@ -604,6 +692,215 @@ export function SimulateSection({ owner }: { owner: string }) {
                   {result.echo.windowDays}d window
                 </span>
               </div>
+
+              {/* Correlation, with its uncertainty. The joint simulator's
+                  claim rests on this estimate, so it is shown rather than
+                  assumed — and shown with a CI, because a coefficient
+                  without one is a guess with a decimal point. */}
+              {result.correlation && result.correlation.assetIds.length > 1 && (
+                <details className="lh-details" style={{ marginTop: "1rem" }}>
+                  <summary>
+                    Return correlation — {result.correlation.assetIds.length}{" "}
+                    assets, n={result.correlation.n} daily observations
+                  </summary>
+                  <div
+                    className="lh-table-scroll"
+                    role="region"
+                    aria-label="Return correlation matrix"
+                    tabIndex={0}
+                    style={{ marginTop: "0.75rem" }}
+                  >
+                    <table className="lh-table">
+                      <caption>
+                        Pearson correlation of aligned daily log returns
+                      </caption>
+                      <thead>
+                        <tr>
+                          <th scope="col">Asset</th>
+                          {result.correlation.assetIds.map((id) => (
+                            <th key={id} scope="col">
+                              {shortMint(id)}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {result.correlation.matrix.map((row, i) => (
+                          <tr key={result.correlation!.assetIds[i]}>
+                            <th scope="row">
+                              {shortMint(result.correlation!.assetIds[i])}
+                            </th>
+                            {row.map((v, j) => (
+                              <td key={j} className="lh-td-num">
+                                {i === j ? "1" : v.toFixed(3)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div
+                    className="lh-table-scroll"
+                    role="region"
+                    aria-label="Correlation significance"
+                    tabIndex={0}
+                    style={{ marginTop: "0.75rem" }}
+                  >
+                    <table className="lh-table">
+                      <caption>
+                        95% confidence interval and two-sided p-value against
+                        no correlation
+                      </caption>
+                      <thead>
+                        <tr>
+                          <th scope="col">Pair</th>
+                          <th scope="col">r</th>
+                          <th scope="col">95% CI</th>
+                          <th scope="col">p</th>
+                          <th scope="col">Significant</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {result.correlation.pairs.map((pr) => (
+                          <tr key={`${pr.i}-${pr.j}`}>
+                            <th scope="row">
+                              {shortMint(result.correlation!.assetIds[pr.i])} ·{" "}
+                              {shortMint(result.correlation!.assetIds[pr.j])}
+                            </th>
+                            <td className="lh-td-num">{pr.r.toFixed(3)}</td>
+                            <td className="lh-td-num">
+                              [{pr.ciLow.toFixed(3)}, {pr.ciHigh.toFixed(3)}]
+                            </td>
+                            <td className="lh-td-num">
+                              {pr.pValue < 0.001
+                                ? "<0.001"
+                                : pr.pValue.toFixed(3)}
+                            </td>
+                            <td>{pr.significant ? "yes" : "no"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {result.comovement && (
+                    <div
+                      className="lh-table-scroll"
+                      role="region"
+                      aria-label="Co-movement effect"
+                      tabIndex={0}
+                      style={{ marginTop: "0.75rem" }}
+                    >
+                      <table className="lh-table">
+                        <caption>
+                          Co-movement effect — the same portfolio priced both
+                          ways
+                        </caption>
+                        <thead>
+                          <tr>
+                            <th scope="col">Measure</th>
+                            <th scope="col">Joint</th>
+                            <th scope="col">Independent</th>
+                            <th scope="col">Effect</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <th scope="row">Terminal P&amp;L spread (σ)</th>
+                            <td className="lh-td-num">
+                              {formatUsd(result.comovement.jointStd)}
+                            </td>
+                            <td className="lh-td-num">
+                              {formatUsd(result.comovement.independentStd)}
+                            </td>
+                            <td className="lh-td-num">
+                              ×{result.comovement.dispersionRatio.toFixed(3)}
+                            </td>
+                          </tr>
+                          <tr>
+                            <th scope="row">5% worst case (VaR)</th>
+                            <td className="lh-td-num">
+                              {formatUsd(result.comovement.jointVar5)}
+                            </td>
+                            <td className="lh-td-num">
+                              {formatUsd(result.comovement.independentVar5)}
+                            </td>
+                            <td className="lh-td-num">
+                              {formatUsd(result.comovement.var5DeltaUsd)}
+                            </td>
+                          </tr>
+                          <tr>
+                            <th scope="row">Mean of worst 5% (CVaR)</th>
+                            <td className="lh-td-num">
+                              {formatUsd(result.comovement.jointCvar5)}
+                            </td>
+                            <td className="lh-td-num">
+                              {formatUsd(result.comovement.independentCvar5)}
+                            </td>
+                            <td className="lh-td-num">
+                              {formatUsd(
+                                result.comovement.jointCvar5 -
+                                  result.comovement.independentCvar5,
+                              )}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {result.comovement && (
+                    <p className="lh-note" style={{ marginTop: "0.5rem" }}>
+                      {result.comovement.dispersionRatio > 1.005 ? (
+                        <>
+                          Correlation <b>widens</b> this portfolio&rsquo;s
+                          outcome spread by{" "}
+                          {(
+                            (result.comovement.dispersionRatio - 1) *
+                            100
+                          ).toFixed(1)}
+                          %. The assets move together, so holding several of
+                          them diversifies less than their individual
+                          volatilities suggest.
+                        </>
+                      ) : result.comovement.dispersionRatio < 0.995 ? (
+                        <>
+                          Correlation <b>narrows</b> this portfolio&rsquo;s
+                          outcome spread by{" "}
+                          {(
+                            (1 - result.comovement.dispersionRatio) *
+                            100
+                          ).toFixed(1)}
+                          %. The assets partly offset each other — a genuine
+                          diversification benefit, earned rather than assumed.
+                        </>
+                      ) : (
+                        <>
+                          Correlation makes no material difference to this
+                          portfolio&rsquo;s spread — the measured co-movement
+                          is too weak, or the positions too concentrated in
+                          one asset, for it to matter.
+                        </>
+                      )}
+                    </p>
+                  )}
+
+                  <p className="lh-note" style={{ marginTop: "0.75rem" }}>
+                    {result.correlation.method}
+                  </p>
+                  {result.sampling === "independent" && (
+                    <p className="lh-note" style={{ marginTop: "0.5rem" }}>
+                      <b>These results ignore the correlation above.</b>{" "}
+                      Sampling was set to independent, so the dispersion shown
+                      assumes a diversification benefit the portfolio does not
+                      have. Compare against a joint run before using any
+                      number from it.
+                    </p>
+                  )}
+                </details>
+              )}
 
               {/* Provenance: in-range behaviour in these results is a
                   property of the chosen path model, not of the portfolio
@@ -617,6 +914,16 @@ export function SimulateSection({ owner }: { owner: string }) {
                   paths — each simulation mode produces its own in-range
                   behaviour by construction
                 </span>
+                {result.assets && result.assets.length > 1 && (
+                  <span className="lh-prov-item">
+                    <span className="lh-prov-key">fee accrual</span>
+                    modelled per pool as a USD rate on position value,
+                    calibrated on that pool&rsquo;s own volume history and
+                    marked along its own asset&rsquo;s path — the token split
+                    of accrued fees between the pair is not tracked, so
+                    uncollected fees carry no separate inventory exposure
+                  </span>
+                )}
               </p>
 
               <FanChart

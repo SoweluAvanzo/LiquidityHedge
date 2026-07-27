@@ -206,7 +206,7 @@
 
 .lp-h1 {
   font-family: var(--lp-mono);
-  font-size: clamp(2rem, 4.6vw, 3.15rem);
+  font-size: clamp(1.75rem, 3.6vw, 2.55rem);
   font-weight: 500;
   letter-spacing: -0.045em;
   line-height: 1.03;
@@ -274,60 +274,11 @@
   height: auto;
 }
 
-.lp-figure-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0 0.25rem 0.6rem;
-  border-bottom: 1px solid var(--lp-rule);
-  margin-bottom: 0.5rem;
-}
-
-.lp-figure-title {
-  font-family: var(--lp-mono);
-  font-size: 0.6875rem;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  color: var(--lp-ink-3);
-}
-
-.lp-key {
-  display: flex;
-  gap: 0.9rem;
-  font-family: var(--lp-mono);
-  font-size: 0.6875rem;
-  color: var(--lp-ink-2);
-}
-
-.lp-key span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.lp-swatch {
-  width: 0.7rem;
-  height: 0.7rem;
-  border-radius: 2px;
-  flex: none;
-}
-
-.lp-figcaption {
-  font-size: 0.75rem;
-  line-height: 1.5;
-  color: var(--lp-ink-3);
-  padding: 0.6rem 0.25rem 0;
-  border-top: 1px solid var(--lp-rule);
-  margin-top: 0.4rem;
-}
-
-/* Draw-in of the accumulator on load — one moment, not an effect budget. */
-.lp-acc-line {
-  stroke-dasharray: 1400;
-  stroke-dashoffset: 1400;
-  animation: lp-draw 1900ms cubic-bezier(0.22, 0.61, 0.36, 1) 220ms forwards;
+/* Draw-in of the in-range path on load — one moment, not an effect budget. */
+.lp-band-line {
+  stroke-dasharray: 2600;
+  stroke-dashoffset: 2600;
+  animation: lp-draw 2000ms cubic-bezier(0.22, 0.61, 0.36, 1) 200ms forwards;
 }
 
 @keyframes lp-draw {
@@ -337,7 +288,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lp-acc-line {
+  .lp-band-line {
     animation: none;
     stroke-dashoffset: 0;
   }
@@ -391,6 +342,77 @@
 .lp-section-head {
   max-width: 66ch;
   margin-bottom: clamp(2rem, 4vw, 2.75rem);
+}
+
+/* The one commercial claim that has to land: louder than a note, quieter
+   than a callout. It carries an argument, not a warning, so it takes the
+   range colour rather than the attention colour. */
+.lp-claim {
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  color: var(--lp-ink);
+  margin: 0 0 1.25rem;
+  padding: 0.95rem 1.15rem;
+  background: var(--lp-range-wash);
+  border-left: 3px solid var(--lp-range-graphic);
+  border-radius: 0 4px 4px 0;
+  max-width: 70ch;
+}
+
+.lp-claim b {
+  font-weight: 600;
+}
+
+/* Quiet qualifier under a lead — where the general claim gets its concrete
+   scope, without the scope becoming the headline. */
+.lp-note {
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--lp-ink-3);
+  margin: 1rem 0 0;
+  max-width: 62ch;
+  padding-left: 0.85rem;
+  border-left: 2px solid var(--lp-rule-strong);
+}
+
+/* Carries the free dashboard, which is the way in to both products and so
+   belongs above them rather than as a third thing being sold. */
+.lp-section-tight {
+  padding-block: clamp(2rem, 4vw, 2.75rem);
+  border-top: 0;
+}
+
+.lp-freebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  background: var(--lp-surface);
+  border: 1px solid var(--lp-rule);
+  border-left: 3px solid var(--lp-range-graphic);
+  border-radius: 5px;
+  padding: 1.15rem 1.35rem;
+}
+
+.lp-freebar > div {
+  flex: 1 1 32ch;
+}
+
+.lp-freebar-h {
+  font-family: var(--lp-mono);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+.lp-freebar-p {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--lp-ink-2);
+  margin: 0.4rem 0 0;
+  max-width: 68ch;
 }
 
 /* ── service rows ───────────────────────────────────────────────────── */
@@ -790,25 +812,11 @@
 
 /* ── figure typography ──────────────────────────────────────────────── */
 
-.lp-fig-label {
-  font-family: var(--lp-mono);
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  fill: var(--lp-ink-3);
-}
-
 .lp-fig-tag {
   font-family: var(--lp-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  fill: var(--lp-range);
-}
-
-.lp-fig-note {
-  font-family: var(--lp-mono);
-  font-size: 9px;
   letter-spacing: 0.06em;
-  fill: var(--lp-ink-3);
+  text-transform: uppercase;
+  fill: var(--lp-range);
 }

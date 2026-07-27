@@ -131,8 +131,25 @@ function buildConfig(): LedgerConfig {
     maxOpenQuotesPerOwner: Number(process.env.MAX_OPEN_QUOTES_PER_OWNER ?? 3),
     maxLifetimeQuotes: Number(process.env.MAX_LIFETIME_QUOTES ?? 50_000),
     markupFloor: 1.05,
-    feeSplitRate: 0.1,
-    expectedDailyFee: 0.005,
+    // AUDIT #4: the premium formula discounts by `y · E[F]` BECAUSE the
+    // Risk Taker collects y × realised LP fees at settlement. Every
+    // production `readAccruedFees` returns 0 unconditionally (the real
+    // fee-growth reader is never wired to @lh/hedge), so that revenue
+    // never arrives — the discount was pure, structural loss: ~$35 given
+    // away on a $10k position against $1 of protocol fee.
+    //
+    // Until a real reader is wired, the split is ZERO and the premium is
+    // not discounted for it. Re-enable ONLY together with a reader that
+    // actually returns accrued fees; the two must move as one.
+    feeSplitRate: Number(process.env.HEDGE_FEE_SPLIT_RATE ?? 0),
+    // AUDIT #5: this was hardcoded at 0.5%/day while the platform's own
+    // live measurement of the canonical SOL/USDC pool is ~0.042%/day —
+    // 12x. E[F] = V · expectedDailyFee · tenorDays feeds the same discount
+    // above, so an inflated figure underprices the certificate. The
+    // conservative governance default is now an order of magnitude lower
+    // and overridable; a measurement-driven value is the proper fix
+    // (computeInRangeDailyRate already exists in lib/server/viability).
+    expectedDailyFee: Number(process.env.HEDGE_EXPECTED_DAILY_FEE ?? 0.0005),
     tenorSeconds: Number(process.env.HEDGE_TENOR_SECONDS ?? 604_800),
     quoteTtlSeconds: 120,
     regimeMaxAgeSeconds: 900,

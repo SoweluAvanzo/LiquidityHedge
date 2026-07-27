@@ -12,11 +12,11 @@ export const metadata: Metadata = {
   applicationName: SITE_NAME,
   title: {
     default:
-      "Liquidity Hedge — Orca Whirlpool fee-growth data and range hedging",
+      "Liquidity Hedge — concentrated-liquidity data and range hedging",
     template: `%s — ${SITE_NAME}`,
   },
   description:
-    "Fee-growth datasets, portfolio analytics and range hedging for Orca Whirlpool concentrated-liquidity positions on Solana.",
+    "Fee-growth datasets, portfolio analytics and range hedging for concentrated-liquidity positions. Coverage today: Orca Whirlpools on Solana.",
   authors: [{ name: "Blocksventures Ltd" }],
   creator: "Blocksventures Ltd",
   publisher: "Blocksventures Ltd",

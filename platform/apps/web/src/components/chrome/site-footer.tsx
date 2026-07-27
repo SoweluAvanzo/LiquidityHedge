@@ -12,7 +12,9 @@ import { CONTACT_EMAIL, LEGAL_ENTITY, SITE_NAME } from "@/lib/site";
 const FOOTER_LINKS = [
   { label: "Dashboard", href: "/app" },
   { label: "Buy data", href: "/data" },
-  { label: "Dataset specification", href: "/#data" },
+  // The field spec moved to the checkout, next to the purchase decision.
+  { label: "Dataset specification", href: "/data#spec" },
+  { label: "Hedging", href: "/#hedge" },
   { label: "Pricing", href: "/#pricing" },
   { label: "Legal summary", href: "/#legal" },
 ];

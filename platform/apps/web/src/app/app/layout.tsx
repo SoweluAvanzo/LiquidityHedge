@@ -7,12 +7,12 @@ import { SolanaProviders } from "@/components/solana-providers";
 export const metadata: Metadata = {
   title: "Dashboard",
   description:
-    "Read-only dashboard for Orca Whirlpool concentrated-liquidity positions: live position value, range status, uncollected fees, payoff curves, Monte-Carlo simulation and Liquidity Hedge certificates.",
+    "Read-only dashboard for concentrated-liquidity positions: live position value, range status, uncollected fees, payoff curves, Monte-Carlo simulation and Liquidity Hedge certificates.",
   alternates: { canonical: "/app" },
   openGraph: {
     title: "Liquidity Hedge — Dashboard",
     description:
-      "Read-only dashboard for Orca Whirlpool concentrated-liquidity positions on Solana.",
+      "Read-only dashboard for concentrated-liquidity positions. Coverage today: Orca Whirlpools on Solana.",
     url: "/app",
     siteName: "Liquidity Hedge",
     locale: "en_US",
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Liquidity Hedge — Dashboard",
     description:
-      "Read-only dashboard for Orca Whirlpool concentrated-liquidity positions on Solana.",
+      "Read-only dashboard for concentrated-liquidity positions. Coverage today: Orca Whirlpools on Solana.",
   },
 };
 

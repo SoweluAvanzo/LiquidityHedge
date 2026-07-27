@@ -17,6 +17,12 @@
 	# the only upstream we accept forwarded headers from; everything else has
 	# its XFF replaced with the observed peer address.
 	reverse_proxy web:3000 {
+		# Client-supplied CF-* identity headers are forged unless a real
+		# Cloudflare edge sits in front; strip them so the app's rate
+		# limiter cannot be given a fresh bucket per request (AUDIT #2).
+		header_up -CF-Connecting-IP
+		header_up -CF-IPCountry
+		header_up -True-Client-IP
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-For {remote_host}
 	}

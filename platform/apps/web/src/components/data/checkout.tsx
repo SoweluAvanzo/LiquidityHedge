@@ -763,10 +763,9 @@ export function DataCheckout() {
                   <p className="lh-help" style={{ marginTop: "0.6rem" }}>
                     The underlined digits are this order&rsquo;s tag — the odd
                     cents that tell your transfer apart from everyone
-                    else&rsquo;s. They are how a payment that carries no
-                    reference key is matched to your order, so the amount must
-                    arrive exactly as shown: <b>do not round</b>. A different
-                    amount cannot be credited and has to be refunded by hand.
+                    else&rsquo;s. The amount must arrive exactly as shown:{" "}
+                    <b>do not round</b>. A different amount cannot be credited
+                    and has to be refunded by hand.
                   </p>
                 </div>
 
@@ -786,7 +785,7 @@ export function DataCheckout() {
                   label="Memo (include it verbatim)"
                   display={order.payment.memo}
                   copyValue={order.payment.memo}
-                  help="Wallets that cannot attach a memo are still fine — the amount tag identifies the order on its own."
+                  help="Required. Your payment is matched to this order by the Solana Pay reference it carries, so pay from a wallet that can attach it — use the Solana Pay link or the Pay with wallet tab. A plain exchange withdrawal cannot be matched automatically and needs a manual claim by email."
                 />
                 <CopyField
                   label="Solana Pay link"

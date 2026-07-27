@@ -41,6 +41,7 @@
  */
 
 import { SECONDS_PER_YEAR } from "../types";
+import { normalCdf } from "../utils/normal";
 
 // ---------------------------------------------------------------------------
 // Birdeye pair-overview client
@@ -154,20 +155,7 @@ export function estimatePoolDailyYield(
 // In-range fraction under GBM
 // ---------------------------------------------------------------------------
 
-/** Standard normal CDF via erf approximation (Abramowitz–Stegun 7.1.26). */
-function normalCdf(z: number): number {
-  const t = 1 / (1 + 0.3275911 * Math.abs(z));
-  const y =
-    1 -
-    (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t -
-      0.284496736) *
-      t +
-      0.254829592) *
-      t *
-      Math.exp(-z * z / 2) /
-      Math.sqrt(2 * Math.PI);
-  return z >= 0 ? y : 1 - y;
-}
+
 
 /**
  * Probability that `S_t` lies inside a symmetric multiplicative range

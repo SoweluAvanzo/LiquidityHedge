@@ -91,9 +91,13 @@ function stats(values: number[], initial: number): TerminalStats {
   const pnl = values.map((v) => v - initial).sort((a, b) => a - b);
   const n = pnl.length;
   const mean = pnl.reduce((s, x) => s + x, 0) / n;
-  const std = Math.sqrt(
-    pnl.reduce((s, x) => s + (x - mean) * (x - mean), 0) / (n - 1),
-  );
+  // AUDIT #15: a single-path run (historical replay in "latest" mode)
+  // made this 0/0 = NaN, which serialises to null and was then rendered as
+  // a currency value. One sample has no dispersion; say so.
+  const std =
+    n < 2
+      ? 0
+      : Math.sqrt(pnl.reduce((s, x) => s + (x - mean) * (x - mean), 0) / (n - 1));
   const var5 = quantile(pnl, 0.05);
   const tail = pnl.slice(0, Math.max(1, Math.floor(n * 0.05)));
   return {

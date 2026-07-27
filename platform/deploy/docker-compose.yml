@@ -167,6 +167,21 @@ services:
       HEDGE_INITIAL_RESERVES_USDC: ${HEDGE_INITIAL_RESERVES_USDC:-0}
       HEDGE_PER_BUYER_CAP_USDC: ${HEDGE_PER_BUYER_CAP_USDC:-0}
       HEDGE_PREMIUM_FLOOR_USDC: ${HEDGE_PREMIUM_FLOOR_USDC:-50000}
+      # AUDIT #10: DATA_REVENUE_WALLET was documented in .env.example and
+      # read by the order ledger, but never passed in — so every /api/data/*
+      # route answered 503 and the whole data product was dead in the
+      # shipped deployment.
+      DATA_REVENUE_WALLET: ${DATA_REVENUE_WALLET:-}
+      USDC_MINT: ${USDC_MINT:-}
+      ORDER_TTL_SECONDS: ${ORDER_TTL_SECONDS:-}
+      DOWNLOAD_TTL_SECONDS: ${DOWNLOAD_TTL_SECONDS:-}
+      MIN_REFUND_USDC: ${MIN_REFUND_USDC:-}
+      SETTLEMENT_INTERVAL_SECONDS: ${SETTLEMENT_INTERVAL_SECONDS:-}
+      MAX_DIVERGENCE_BPS: ${MAX_DIVERGENCE_BPS:-}
+      HEDGE_TENOR_SECONDS: ${HEDGE_TENOR_SECONDS:-}
+      MAX_OPEN_QUOTES_PER_OWNER: ${MAX_OPEN_QUOTES_PER_OWNER:-}
+      MAX_LIFETIME_QUOTES: ${MAX_LIFETIME_QUOTES:-}
+      TRUST_CF_HEADERS: ${TRUST_CF_HEADERS:-}
       DATABASE_URL: postgres://lh_writer:${LH_WRITER_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-lh}
       # NEVER "1" in production; Caddy additionally blocks /api/hedge/dev/*.
       HEDGE_DEV_MODE: "0"

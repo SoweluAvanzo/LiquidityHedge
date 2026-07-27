@@ -11,7 +11,12 @@ import { resolve, join } from "path";
 import { Connection } from "@solana/web3.js";
 import { FilePoolSnapshotStore, snapshotTvlQuote, isUsdQuote } from "@lh/market-data";
 import type { PoolSnapshotStore } from "@lh/market-data";
-import { createPool, PgPoolSnapshotStore, safeDsn } from "@lh/storage";
+import {
+  createPool,
+  PgPoolSnapshotStore,
+  PgTrackedPoolStore,
+  safeDsn,
+} from "@lh/storage";
 import { captureSnapshots, resolvePoolMetadata, DEFAULT_POOLS } from "./pool-snapshot-job";
 import { discoverPoolsByVolume, TrackedPool } from "./pool-discovery";
 
@@ -89,8 +94,12 @@ async function main() {
   // Postgres when DATABASE_URL is set (production), files otherwise (dev).
   const dsn = envVar("DATABASE_URL");
   let store: PoolSnapshotStore;
+  let trackedStore: PgTrackedPoolStore | null = null;
   if (dsn) {
-    store = new PgPoolSnapshotStore(createPool({ connectionString: dsn, maxConnections: 4 }));
+    const pgPool = createPool({ connectionString: dsn, maxConnections: 4 });
+    store = new PgPoolSnapshotStore(pgPool);
+    // AUDIT #6: the metadata projection the dataset export joins against.
+    trackedStore = new PgTrackedPoolStore(pgPool);
     console.log(`storage: postgres ${safeDsn(dsn)}`);
   } else {
     store = new FilePoolSnapshotStore(dir);
@@ -112,10 +121,37 @@ async function main() {
       );
     }
     pools = meta.resolved;
+    const refreshedAt = Math.floor(Date.now() / 1000);
     writeFileSync(
       join(dir, "tracked-pools.json"),
-      JSON.stringify({ refreshedAt: Math.floor(Date.now() / 1000), pools }, null, 2),
+      JSON.stringify({ refreshedAt, pools }, null, 2),
     );
+    // Persist the same metadata to Postgres. The dataset export LEFT JOINs
+    // this table for `pair` and the decimals; without it every delivered
+    // row carried empty columns (AUDIT #6). Non-fatal: a metadata write
+    // must never cost us a snapshot cycle.
+    if (trackedStore) {
+      try {
+        const n = await trackedStore.upsert(
+          pools.map((p) => ({
+            address: p.address,
+            symbolA: p.symbolA,
+            symbolB: p.symbolB,
+            decimalsA: p.decimalsA,
+            decimalsB: p.decimalsB,
+            quoteMint: p.quoteMint,
+            feeRate: p.feeRate,
+          })),
+          refreshedAt,
+        );
+        console.log(`tracked_pools: upserted ${n} rows`);
+      } catch (e) {
+        console.error(
+          "tracked_pools upsert failed (dataset export will have empty pair/decimals):",
+          e instanceof Error ? e.message : e,
+        );
+      }
+    }
     const started = Date.now();
     const result = await captureSnapshots(
       connection,

@@ -15,7 +15,7 @@ export interface NavLink {
 }
 
 export const NAV_LINKS: NavLink[] = [
-  { id: "app", label: "Dashboard", href: "/app" },
+  { id: "app", label: "Liquidity Studio", href: "/app" },
   { id: "data", label: "Data", href: "/data" },
   { id: "hedge", label: "Hedging", href: "/#hedge" },
   { id: "pricing", label: "Pricing", href: "/#pricing" },

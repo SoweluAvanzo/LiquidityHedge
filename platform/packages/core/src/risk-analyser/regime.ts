@@ -87,11 +87,14 @@ export function updateRegime(
   // Apply feedback correction if previous regime exists
   const prevRegime = store.getRegime();
   if (prevRegime) {
-    severityPpm = applySeverityFeedback(
-      severityPpm,
-      prevRegime.severityPpm,
-      severityPpm,
-    );
+    // AUDIT #17: this passed (current, prevSeverity, currentSeverity) —
+    // so `expectedLossPpm` was the PREVIOUS severity and `realizedLossPpm`
+    // was the freshly-computed severity. No realised loss ever entered the
+    // loop, and the positive gain made it amplify whichever way the new
+    // calibration had already moved. Feedback needs a genuine realised
+    // figure; until one is plumbed through, applying none is correct and
+    // the calibration stands on its own.
+    void applySeverityFeedback; // retained: exercised directly by its tests
   }
 
   const regime: RegimeSnapshot = {
@@ -202,10 +205,14 @@ export function calibrateSeverityForPool(
   const capitalCharge =
     (cap * uAfterPpm * uAfterPpm) / PPM_BI / PPM_BI / 5n;
   const adverse = stressFlag ? cap / 10n : 0n;
+  // AUDIT #17: cost = cap × (carryBps / BPS) × (tenorSeconds / 86400).
+  // The divisor carried an extra factor of 100 on top of BPS_BI, making
+  // replication cost 100x too small; nonSeverityCosts came out understated
+  // and the calibrated severity biased high.
   const replication =
     (cap * BigInt(carryBpsPerDay) * BigInt(template.tenorSeconds)) /
     BPS_BI /
-    (100n * 86_400n);
+    86_400n;
   const nonSeverityCosts = capitalCharge + adverse + replication;
 
   // Target FV for swap: geometric proxy ≈ (1/2) · Cap_down · p_hit · (width/2) / PPM

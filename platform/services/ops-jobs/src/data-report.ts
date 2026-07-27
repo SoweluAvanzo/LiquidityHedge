@@ -346,12 +346,28 @@ export function buildDataReport(inputs: ReportInputs, nowIso: string): DataRepor
     addFile("Pool overview (vendor volume/TVL)", path.join(d, "pool-overview.jsonl"));
     addFile("In-range estimator predictions", path.join(d, "inrange-predictions.jsonl"));
     addFile("Certificate ledger events", path.join(d, "hedge-events.jsonl"));
+    // AUDIT #8: the order ledger was attached to nothing. A 200 USDC
+    // pre-order is delivered BY HAND and a wrong-amount payment must be
+    // refunded by hand — both were recorded only in a JSONL file inside a
+    // Docker volume that no report read and no endpoint exposed. Money
+    // taken with nobody told.
+    addFile("Order ledger events (refunds + pre-orders to deliver)",
+      path.join(d, "order-events.jsonl"));
   }
+
+  // Operator action list, derived from the order ledger the same way the
+  // app would. Rebuilt from events so the job needs no shared state.
+  const attention = summariseOrdersNeedingAttention(inputs.webDataDir);
 
   const totalRows = datasets.reduce((s, d) => s + d.rows, 0);
   const subject = `LH data export — ${datasets.length} dataset(s), ${totalRows} rows (${nowIso.slice(0, 10)})`;
 
   const lines: string[] = [`Liquidity Hedge — data export`, `Generated ${nowIso}`, ""];
+  if (attention.length > 0) {
+    lines.push("** ACTION REQUIRED **");
+    for (const a of attention) lines.push(`  ${a}`);
+    lines.push("");
+  }
   for (const d of datasets) {
     lines.push(`${d.name}`);
     lines.push(`  file: ${d.file} · rows: ${d.rows} · size: ${(d.bytes / 1024).toFixed(1)} kB`);
@@ -388,4 +404,50 @@ export function buildDataReport(inputs: ReportInputs, nowIso: string): DataRepor
     `<p style="color:#666">Data is attached as CSV (one file per dataset).</p></div>`;
 
   return { generatedAt: nowIso, datasets, attachments, subject, text, html, skipped };
+}
+/**
+ * Orders awaiting a human: refunds due, and paid pre-orders to deliver.
+ *
+ * AUDIT #8: `OrderLedger.needsAttention()` existed and was called by
+ * nothing, so neither case ever reached an operator. Replayed here from
+ * the event log rather than importing the live ledger, so the reporting
+ * job stays read-only and needs no shared process state.
+ */
+function summariseOrdersNeedingAttention(dir: string | undefined): string[] {
+  if (!dir) return [];
+  const file = path.join(dir, "order-events.jsonl");
+  if (!fs.existsSync(file)) return [];
+  const state = new Map<string, { status: string; amount: number; product: string }>();
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    let e: Record<string, unknown>;
+    try { e = JSON.parse(line); } catch { continue; }
+    const id = String(e.orderId ?? "");
+    if (!id) continue;
+    const prev = state.get(id) ?? { status: "", amount: 0, product: "" };
+    switch (e.kind) {
+      case "OrderCreated":
+        state.set(id, {
+          status: "awaiting-payment",
+          amount: Number(e.amountUsdc ?? 0),
+          product: String(e.productId ?? ""),
+        });
+        break;
+      case "PaymentObserved": state.set(id, { ...prev, status: "paid" }); break;
+      case "Fulfilled":       state.set(id, { ...prev, status: "fulfilled" }); break;
+      case "RefundDue":       state.set(id, { ...prev, status: "refund-due" }); break;
+      case "Refunded":        state.set(id, { ...prev, status: "refunded" }); break;
+      case "Expired":         state.set(id, { ...prev, status: "expired" }); break;
+      default: break;
+    }
+  }
+  const out: string[] = [];
+  for (const [id, o] of state) {
+    if (o.status === "refund-due") {
+      out.push(`REFUND DUE  order ${id}  ${(o.amount / 1e6).toFixed(6)} USDC  (${o.product})`);
+    } else if (o.status === "paid") {
+      out.push(`DELIVER     order ${id}  ${(o.amount / 1e6).toFixed(6)} USDC  (${o.product}) — paid, awaiting manual delivery`);
+    }
+  }
+  return out;
 }

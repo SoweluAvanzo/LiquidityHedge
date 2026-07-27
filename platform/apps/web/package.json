@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"commonjs\",\"esModuleInterop\":true,\"moduleResolution\":\"node\",\"jsx\":\"react-jsx\"}' ts-mocha 'tests/**/*.test.ts' --timeout 60000 --recursive"
   },
   "dependencies": {
     "@lh/core": "workspace:*",
@@ -30,12 +31,18 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^10.0.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "chai": "^4.3.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "mocha": "^10.2.0",
     "tailwindcss": "^4",
+    "ts-mocha": "^10.0.0",
+    "ts-node": "^10.9.0",
     "typescript": "^5"
   }
 }

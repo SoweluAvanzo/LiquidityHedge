@@ -1,21 +1,21 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
 import { DataCheckout } from "@/components/data/checkout";
 import { SiteFooter } from "@/components/chrome/site-footer";
 import { SiteHeader } from "@/components/chrome/site-header";
 import { WalletButton } from "@/components/chrome/wallet-button";
+import { CSV_FIELDS } from "@/lib/landing-content";
 import { CONTACT_EMAIL, LEGAL_ENTITY, SITE_NAME } from "@/lib/site";
 
 const DESCRIPTION =
-  "Buy the Orca Whirlpool fee-growth dataset with USDC on Solana. Pay from a connected wallet or manually; the payment is verified on-chain before anything is delivered.";
+  "Buy the concentrated-liquidity fee-growth dataset with USDC on Solana. Pay from a connected wallet or manually; the payment is verified on-chain before anything is delivered.";
 
 export const metadata: Metadata = {
   title: "Buy data",
   description: DESCRIPTION,
   alternates: { canonical: "/data" },
   openGraph: {
-    title: `Buy the Orca fee-growth dataset — ${SITE_NAME}`,
+    title: `Buy the concentrated-liquidity dataset — ${SITE_NAME}`,
     description: DESCRIPTION,
     url: "/data",
     siteName: SITE_NAME,
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: `Buy the Orca fee-growth dataset — ${SITE_NAME}`,
+    title: `Buy the concentrated-liquidity dataset — ${SITE_NAME}`,
     description: DESCRIPTION,
   },
   robots: { index: true, follow: true },
@@ -43,17 +43,73 @@ export default function DataPage() {
               <h1 className="lh-h1">Buy the fee-growth data.</h1>
               <p className="lh-lead">
                 One long-format CSV of the on-chain fee accumulators, active
-                liquidity, price and vault balances of every tracked Orca
-                Whirlpool, sampled every fifteen minutes. The{" "}
-                <Link className="lh-inline-link" href="/#data">
+                liquidity, price and vault balances of every tracked
+                concentrated-liquidity pool, sampled every fifteen minutes. The{" "}
+                <a className="lh-inline-link" href="#spec">
                   field specification
-                </Link>{" "}
-                is on the landing page — read it before you pay.
+                </a>{" "}
+                is below — read it before you pay.
               </p>
             </div>
           </div>
 
           <DataCheckout />
+
+          {/* Field spec lives with the purchase decision, not on the landing
+              page — the landing page sells the idea, this sells the file. */}
+          <section
+            className="lh-card"
+            style={{ marginTop: "2rem" }}
+            aria-labelledby="spec-h"
+            id="spec"
+          >
+            <h2 className="lh-h2" id="spec-h">
+              What is in the file
+            </h2>
+            <p className="lh-lead" style={{ marginTop: "0.5rem" }}>
+              One CSV, one row per pool per snapshot, every covered pool in the
+              same file — keyed by <code>pool</code> and sorted by pool then
+              time. RFC-4180 quoted, UTF-8. Coverage today is Orca Whirlpools on
+              Solana clearing a $10,000 daily volume threshold; the schema is
+              venue-agnostic, so pools added later arrive in these same columns.
+            </p>
+            <div
+              className="lh-table-scroll"
+              role="region"
+              aria-label="Dataset field specification"
+              tabIndex={0}
+              style={{ marginTop: "1rem" }}
+            >
+              <table className="lh-table">
+                <caption>
+                  pool-snapshots.csv — field specification, in column order
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Field</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Meaning</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {CSV_FIELDS.map((field) => (
+                    <tr key={field.name}>
+                      <th scope="row">{field.name}</th>
+                      <td>{field.type}</td>
+                      <td>{field.description}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="lh-note" style={{ marginTop: "1rem" }}>
+              The accumulators are what give the file its durable value. A
+              pool holds only its current totals and never the series, so this
+              history cannot be reconstructed retrospectively by anyone who was
+              not sampling it at the time. That is the reason the collection
+              runs continuously.
+            </p>
+          </section>
 
           <section
             className="lh-card"
@@ -61,7 +117,7 @@ export default function DataPage() {
             aria-labelledby="trust-h"
           >
             <h2 className="lh-h2" id="trust-h">
-              What happens to your money, exactly
+              How your payment is handled
             </h2>
             <div className="lh-facts lh-facts-4" style={{ marginTop: "1rem" }}>
               <div className="lh-fact">
@@ -92,9 +148,9 @@ export default function DataPage() {
                   Never on request
                 </p>
                 <p className="lh-fact-sub">
-                  Nothing is released because the browser says a payment
-                  happened. This page can only ask the server to look at the
-                  chain again.
+                  No delivery is triggered by a client-side claim that payment
+                  has occurred. This page can only ask the server to re-examine
+                  the chain.
                 </p>
               </div>
               <div className="lh-fact">

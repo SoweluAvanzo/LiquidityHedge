@@ -1,10 +1,15 @@
 /**
- * /api/simulate — portfolio Monte-Carlo over the owner's SOL/USDC
+ * /api/simulate — portfolio Monte-Carlo over the owner's USD-quoted
  * Whirlpool positions (FR-S1..S6).
+ *
+ * Multi-pair: every distinct base mint is one simulated asset, and all of
+ * their histories are calibrated TOGETHER so the paths are drawn jointly.
+ * That is what keeps portfolio risk honest — independent per-asset paths
+ * would diversify away co-movement the portfolio does not actually enjoy.
  *
  *  GET  → { models } from the risk-model registry, so the UI renders
  *         config forms generically from each model's JSON Schema (FR-S5).
- *  POST → calibrate the chosen model on Birdeye daily SOL candles,
+ *  POST → calibrate the chosen model on Birdeye daily candles,
  *         rebase to the live pool price, simulate, and report.
  *
  * Product rules enforced here:
@@ -25,9 +30,11 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { fetchPortfolio, type PortfolioPositionView } from "@lh/portfolio";
 import {
   calibrateFeeIntensity,
+  correlationReport,
+  sampleSharedBlockIndices,
+  ratePathsFromIndices,
   getModel,
   listModels,
-  sampleRatePaths,
   simulatePortfolio,
   type AssetSeries,
   type Composition,
@@ -41,8 +48,7 @@ import {
 import { estimatePoolDailyYield } from "@lh/core/src/market-data/orca-volume-adapter";
 import {
   getPoolDailyCandles,
-  getSolDailyCandles,
-  SOL_MINT,
+  getTokenDailyCandles,
   birdeyeApiKey,
 } from "@/lib/server/birdeye";
 import {
@@ -60,6 +66,8 @@ import {
   type ResolvedYieldRate,
   type SimulateRequest,
   type SimulateResponse,
+  type SamplingMode,
+  type CoMovementEffect,
   type SimWindowDays,
 } from "@/lib/simulate-api";
 
@@ -159,6 +167,8 @@ function validateConfig(
 type EffectiveRequest = SimulateRequest & {
   composition: Composition;
   feeIntensityMode: FeeIntensityMode;
+  sampling: SamplingMode;
+  compareSampling: boolean;
 };
 
 interface ValidatedRequest {
@@ -215,6 +225,16 @@ function validateBody(body: unknown): ValidatedRequest | { error: string } {
   }
   const nPaths = Math.min(body.nPaths, SIM_MAX_PATHS); // clamp, never reject high
 
+  if (
+    body.sampling !== undefined &&
+    body.sampling !== "joint" &&
+    body.sampling !== "independent"
+  ) {
+    return { error: '`sampling` must be "joint" or "independent".' };
+  }
+  if (body.compareSampling !== undefined && typeof body.compareSampling !== "boolean") {
+    return { error: "`compareSampling` must be a boolean." };
+  }
   if (!isFiniteNumber(body.seed) || !Number.isInteger(body.seed)) {
     return { error: "`seed` must be an integer." };
   }
@@ -281,6 +301,8 @@ function validateBody(body: unknown): ValidatedRequest | { error: string } {
       horizonWeeks: body.horizonWeeks,
       nPaths,
       seed: body.seed,
+      sampling: body.sampling ?? "joint",
+      compareSampling: body.compareSampling === true,
       hedged: body.hedged,
       premiumUsd,
       composition,
@@ -354,6 +376,10 @@ async function measureInRangeRates(
   return rates;
 }
 
+/** Mirrors `calibrateFeeIntensity`'s own defaults (fee-intensity.ts). */
+const FEE_MIN_OBSERVATIONS = 60;
+const FEE_BLOCK_LENGTH = 7;
+
 interface StochasticResolution {
   yieldRates: ResolvedYieldRate[];
   feeIntensity: FeeIntensityEcho;
@@ -390,10 +416,19 @@ async function resolveStochasticFeeIntensity(
   const override = req.feeRatePctPerDayOverride;
   const horizonSteps = req.horizonWeeks * 7;
 
-  const perPool = new Map<string, { paths: number[][]; nObs: number }>();
-  const yieldRates: ResolvedYieldRate[] = [];
-  const ratePaths = new Map<string, number[][]>();
-  const positionMeans: number[] = [];
+  // Pass 1 — calibrate every distinct pool. Nothing is sampled yet: the
+  // pools must first be put on a common calendar so they can be resampled
+  // together (see `sampleSharedBlockIndices`).
+  interface PoolCal {
+    /** Daily rate keyed by candle open time, so pools align by DATE. */
+    byDay: Map<number, number>;
+    anchorMean: number;
+  }
+  const cal = new Map<string, PoolCal>();
+  const basisByPosition = new Map<
+    string,
+    { pool: string; basis: NonNullable<Awaited<ReturnType<typeof computePoolYieldBasis>>> }
+  >();
 
   for (const view of views) {
     const pool = pools?.get(view.whirlpool);
@@ -405,47 +440,123 @@ async function resolveStochasticFeeIntensity(
           "feeRatePctPerDayOverride or retry later.",
       };
     }
-    const { overview, concentrationFactor: c } = basis;
+    basisByPosition.set(view.positionAddress, { pool: view.whirlpool, basis });
 
-    let poolEntry = perPool.get(view.whirlpool);
-    if (!poolEntry) {
-      let params;
-      try {
-        const { candles } = await getPoolDailyCandles(view.whirlpool, req.windowDays);
-        // Pair-OHLCV `v` is BASE-TOKEN volume (SOL), so v × close = USD
-        // volume (verified against the overview's 24h USD figure). The
-        // final candle is the in-progress day — a systematically low
-        // partial observation — and is dropped. TVL held constant at the
-        // current overview value (labeled in the echoed basis); feeTier is
-        // the overview's decimal fraction.
-        const complete = candles.slice(0, -1);
-        const dailyRates = complete.map(
-          (k) => (k.v * k.c * overview.feeTier) / overview.liquidityUsd,
-        );
-        params = calibrateFeeIntensity(dailyRates);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error("[api/simulate] fee-intensity calibration failed:", message);
-        return {
-          error:
-            `Stochastic fee intensity unavailable (${message}). ` +
-            'Use feeIntensityMode "constant" or retry later.',
-        };
+    if (cal.has(view.whirlpool)) continue;
+    const { overview } = basis;
+    try {
+      const { candles } = await getPoolDailyCandles(view.whirlpool, req.windowDays);
+      // Pair-OHLCV `v` is BASE-TOKEN volume, so v × close = USD volume
+      // (verified against the overview's 24h USD figure). The final candle
+      // is the in-progress day — a systematically low partial observation
+      // — and is dropped. TVL held constant at the current overview value
+      // (labeled in the echoed basis); feeTier is the overview's decimal
+      // fraction.
+      const complete = candles.slice(0, -1);
+      const byDay = new Map<number, number>();
+      for (const k of complete) {
+        const rate = (k.v * k.c * overview.feeTier) / overview.liquidityUsd;
+        // `k.c` is this pool's OWN base-token price, so each pool's rate
+        // series is denominated against its own asset — pools never share
+        // a price series, only resampled DATES.
+        if (Number.isFinite(rate) && rate >= 0) byDay.set(k.t, rate);
       }
-      // Level anchor: user override (position-level) or the CURRENT
-      // measured pool rate (pool-level; × c per position below).
-      const sampled = sampleRatePaths(
-        params,
-        { nPaths: req.nPaths, steps: horizonSteps, seed: req.seed },
-        {
-          rescaleToMean:
-            override !== undefined ? override / 100 : estimatePoolDailyYield(overview),
-        },
-      );
-      poolEntry = { paths: sampled, nObs: params.dailyRates.length };
-      perPool.set(view.whirlpool, poolEntry);
+      // Validate this pool on its own before it joins the calendar, so a
+      // thin pool fails with the calibrator's message rather than silently
+      // shrinking the intersection later.
+      calibrateFeeIntensity([...byDay.values()]);
+      cal.set(view.whirlpool, {
+        byDay,
+        anchorMean:
+          override !== undefined ? override / 100 : estimatePoolDailyYield(overview),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[api/simulate] fee-intensity calibration failed:", message);
+      return {
+        error:
+          `Stochastic fee intensity unavailable (${message}). ` +
+          'Use feeIntensityMode "constant" or retry later.',
+      };
     }
+  }
 
+  // Put the pools on a common calendar — the intersection of the days
+  // every pool observed — so one index means one DATE across all of them,
+  // then draw a single index matrix that every pool reads off.
+  //
+  // What is shared here is ONLY the dates. Each pool keeps its own volume
+  // history, its own fee tier, its own TVL and therefore its own rate
+  // distribution; each POSITION keeps its own concentration factor and its
+  // own range. Sharing a rate series across pools, or a concentration
+  // factor across positions, would be a real error — this is what makes
+  // fee income co-move across pools the way it historically did without
+  // conflating the pools themselves.
+  const entries = [...cal.entries()];
+  // Common calendar = the days EVERY pool observed. Aligning by position
+  // in each array instead would pair different dates whenever one pool has
+  // a gap, quietly destroying the co-movement the shared index exists to
+  // preserve.
+  const [, firstCal] = entries[0];
+  let commonDays = [...firstCal.byDay.keys()];
+  for (const [, c] of entries.slice(1)) {
+    commonDays = commonDays.filter((t) => c.byDay.has(t));
+  }
+  commonDays.sort((a, b) => a - b);
+  const nObs = commonDays.length;
+  if (nObs < FEE_MIN_OBSERVATIONS) {
+    return {
+      error:
+        `Stochastic fee intensity unavailable: the ${entries.length} pools in ` +
+        `this portfolio share only ${nObs} common daily observations ` +
+        `(minimum ${FEE_MIN_OBSERVATIONS}). Their histories do not overlap ` +
+        `enough to resample them together. Use feeIntensityMode "constant", ` +
+        `or shorten the window.`,
+    };
+  }
+  const blockLength = FEE_BLOCK_LENGTH;
+  // In independent mode each pool gets its own draw, so the toggle applies
+  // to fee co-movement as well as price co-movement. Applying it to only
+  // one of the two would make the comparison meaningless.
+  const sharedIndices =
+    req.sampling === "joint"
+      ? sampleSharedBlockIndices({
+          nPaths: req.nPaths,
+          steps: horizonSteps,
+          seed: req.seed,
+          nObs,
+          blockLength,
+        })
+      : null;
+
+  const perPool = new Map<string, { paths: number[][]; nObs: number }>();
+  entries.forEach(([pool, c], k) => {
+    const aligned = commonDays.map((t) => c.byDay.get(t)!);
+    const indices =
+      sharedIndices ??
+      sampleSharedBlockIndices({
+        nPaths: req.nPaths,
+        steps: horizonSteps,
+        seed: req.seed + k * 7919,
+        nObs,
+        blockLength,
+      });
+    perPool.set(pool, {
+      paths: ratePathsFromIndices(aligned, indices, { rescaleToMean: c.anchorMean }),
+      nObs,
+    });
+  });
+
+  // Pass 2 — attribute pool paths to positions, applying each position's
+  // concentration factor (override paths are already position-level, so c
+  // is NOT applied again).
+  const yieldRates: ResolvedYieldRate[] = [];
+  const ratePaths = new Map<string, number[][]>();
+  const positionMeans: number[] = [];
+  for (const view of views) {
+    const entry = basisByPosition.get(view.positionAddress)!;
+    const { overview, concentrationFactor: c } = entry.basis;
+    const poolEntry = perPool.get(entry.pool)!;
     const measuredLevel = estimatePoolDailyYield(overview) * c;
     yieldRates.push({
       positionAddress: view.positionAddress,
@@ -461,9 +572,13 @@ async function resolveStochasticFeeIntensity(
     positionMeans.push(override !== undefined ? override / 100 : measuredLevel);
   }
 
-  const nObs = Math.min(...[...perPool.values()].map((e) => e.nObs));
   const basisLabel =
-    `birdeye-pool-volume shape (${nObs}d), level anchored to ` +
+    `birdeye-pool-volume shape (${nObs}d), ` +
+    (entries.length > 1
+      ? `${req.sampling === "joint" ? "shared-date" : "independent"} resample across ` +
+        `${entries.length} pools, `
+      : "") +
+    "level anchored to " +
     (override !== undefined ? "user override" : "current measured rate");
   return {
     yieldRates,
@@ -511,7 +626,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 1. Positions — SOL/USDC only (the simulatable subset).
+  // 1. Positions — every USD-quoted pool (the simulatable subset).
+  //    Each distinct base mint becomes one simulated asset; positions
+  //    sharing a base mint share its price path, and the cross-asset
+  //    correlation is carried by the model (see step 2b).
   const connection = new Connection(process.env.RPC_URL ?? DEFAULT_RPC_URL, "confirmed");
   let views: PortfolioPositionView[];
   try {
@@ -523,14 +641,25 @@ export async function POST(request: NextRequest) {
       { status: 502 },
     );
   }
-  const solViews = views.filter(
-    (v) => v.tokenMintA === SOL_MINT && v.isUsdcQuoted,
-  );
-  if (solViews.length === 0) {
+  const simViews = views.filter((v) => v.isUsdcQuoted);
+  if (simViews.length === 0) {
     return NextResponse.json(
-      { error: "No SOL/USDC positions found for this owner — nothing to simulate." },
+      {
+        error:
+          "No USD-quoted positions found for this owner — nothing to simulate. " +
+          "Simulation requires a pool whose quote token is a USD stablecoin.",
+      },
       { status: 422 },
     );
+  }
+  // Distinct base mints, in first-seen order — the asset axis of the run.
+  const assetMints = [...new Set(simViews.map((v) => v.tokenMintA))];
+  // Live mark per asset: the price of the first position holding it. Two
+  // pools on the same base mint quote within arbitrage distance of each
+  // other, so the choice is immaterial at simulation resolution.
+  const priceByAsset = new Map<string, number>();
+  for (const v of simViews) {
+    if (!priceByAsset.has(v.tokenMintA)) priceByAsset.set(v.tokenMintA, v.price);
   }
 
   // 1b. Yield rates (composition ≠ "value"): an explicit override wins;
@@ -542,7 +671,7 @@ export async function POST(request: NextRequest) {
   let ratePathsByPosition: Map<string, number[][]> | undefined;
   if (req.composition !== "value") {
     if (req.feeIntensityMode === "stochastic") {
-      const resolved = await resolveStochasticFeeIntensity(connection, solViews, req);
+      const resolved = await resolveStochasticFeeIntensity(connection, simViews, req);
       if ("error" in resolved) {
         return NextResponse.json({ error: resolved.error }, { status: 422 });
       }
@@ -551,14 +680,14 @@ export async function POST(request: NextRequest) {
       ratePathsByPosition = resolved.ratePaths;
     } else if (req.feeRatePctPerDayOverride !== undefined) {
       feeIntensityEcho = { mode: "constant" };
-      yieldRates = solViews.map((v) => ({
+      yieldRates = simViews.map((v) => ({
         positionAddress: v.positionAddress,
         ratePctPerDay: req.feeRatePctPerDayOverride!,
         source: "override" as const,
       }));
     } else {
       feeIntensityEcho = { mode: "constant" };
-      yieldRates = (await measureInRangeRates(connection, solViews)) ?? undefined;
+      yieldRates = (await measureInRangeRates(connection, simViews)) ?? undefined;
       if (!yieldRates) {
         return NextResponse.json(
           {
@@ -596,28 +725,62 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 2b. History — daily SOL candles over the requested window, refused loudly
-  //     when coverage is degraded (deliberate product rule, §E7).
-  let history: AssetSeries | null = null;
+  // 2b. History — one daily USD series per distinct base mint, over the
+  //     requested window, refused loudly when coverage is degraded
+  //     (deliberate product rule, §E7).
+  //
+  //     The series are handed to the model TOGETHER. That is what carries
+  //     the cross-asset correlation: GBM estimates the correlation matrix
+  //     and draws shocks through its Cholesky factor, while the bootstrap
+  //     and replay models resample whole cross-asset return VECTORS, so
+  //     they preserve the empirical co-movement by construction. Sampling
+  //     each asset independently would understate portfolio tail risk,
+  //     since Solana assets are strongly co-moving.
+  let history: AssetSeries[] | null = null;
   if (!gbmDirect) try {
-    const { candles, coverage } = await getSolDailyCandles(req.windowDays);
-    if (!coverage.complete) {
+    const series: AssetSeries[] = [];
+    for (const mint of assetMints) {
+      const { candles, coverage } = await getTokenDailyCandles(mint, req.windowDays);
+      if (!coverage.complete) {
+        return NextResponse.json(
+          {
+            error:
+              `Market data quality insufficient for ${mint}: only ` +
+              `${coverage.received} of ${coverage.expected} daily candles ` +
+              `available for the ${req.windowDays}-day window ` +
+              `(${(coverage.coverageRatio * 100).toFixed(1)}% coverage, ` +
+              `${coverage.gaps} gaps). Degraded data is refused, not smoothed over.`,
+          },
+          { status: 422 },
+        );
+      }
+      series.push({
+        assetId: mint,
+        closes: candles.map((c) => c.c),
+        stepSeconds: DAY_SECONDS,
+      });
+    }
+    // Joint sampling needs one shared time axis. `jointLogReturns` aligns
+    // on the SHORTEST series by taking each one's tail, so a token listed
+    // more recently than the window silently shortens the calibration for
+    // every asset. Refuse that rather than calibrate on a stub.
+    const lengths = series.map((h) => h.closes.length);
+    const shortest = Math.min(...lengths);
+    const longest = Math.max(...lengths);
+    if (shortest < longest * 0.9) {
+      const worst = series[lengths.indexOf(shortest)].assetId;
       return NextResponse.json(
         {
           error:
-            `Market data quality insufficient: only ${coverage.received} of ` +
-            `${coverage.expected} daily candles available for the ${req.windowDays}-day ` +
-            `window (${(coverage.coverageRatio * 100).toFixed(1)}% coverage, ` +
-            `${coverage.gaps} gaps). Degraded data is refused, not smoothed over.`,
+            `Histories cannot be aligned: ${worst} has ${shortest} daily ` +
+            `closes against ${longest} for the longest asset. Joint sampling ` +
+            `would truncate every series to the shortest, so the run is ` +
+            `refused. Shorten the window, or simulate the assets separately.`,
         },
         { status: 422 },
       );
     }
-    history = {
-      assetId: "SOL",
-      closes: candles.map((c) => c.c),
-      stepSeconds: DAY_SECONDS,
-    };
+    history = series;
   } catch (error) {
     console.error("[api/simulate] candle ingestion failed:", error);
     return NextResponse.json(
@@ -634,7 +797,7 @@ export async function POST(request: NextRequest) {
 
   // 3. Calibrate, rebase to the LIVE pool price, simulate.
   //    (Daily grid for both models: the bootstrap cannot rescale time.)
-  const currentPrice = solViews[0].price;
+  const s0ByAsset = assetMints.map((m) => priceByAsset.get(m)!);
   const grid: SimulationGrid = {
     horizonSteps: req.horizonWeeks * 7,
     stepSeconds: DAY_SECONDS,
@@ -653,29 +816,100 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
+      // A sigma override runs WITHOUT market data, which means there is no
+      // sample to estimate cross-asset correlation from. For one asset that
+      // is harmless (the Cholesky factor is [[1]]); for several it is not —
+      // assuming independence would understate portfolio tail risk exactly
+      // where it matters. Refuse rather than quietly diversify the risk away.
+      if (assetMints.length > 1) {
+        return NextResponse.json(
+          {
+            error:
+              `A sigma override runs without market data, so the correlation ` +
+              `between the ${assetMints.length} assets in this portfolio is ` +
+              `unknown. Assuming independence would understate portfolio risk, ` +
+              `so the run is refused. Remove the override to calibrate on ` +
+              `history, or simulate a single pair.`,
+          },
+          { status: 422 },
+        );
+      }
       // Shape must match GbmParams (single asset, unit Cholesky).
       params = {
-        assetIds: ["SOL"],
-        s0: [currentPrice],
+        assetIds: assetMints,
+        s0: s0ByAsset,
         sigma: sigmaOverride.slice(0, 1),
         mu: [cfg.driftMode === "custom" ? cfg.customDrift![0] : 0],
         chol: [[1]],
       };
     } else {
-      params = model.calibrate([history!], req.config);
+      params = model.calibrate(history!, req.config);
       // Rebase: paths must start at the price the positions are marked at,
-      // not at the last historical close.
-      (params as { s0: number[] }).s0 = [currentPrice];
+      // not at the last historical close. Order matches `assetMints`,
+      // which is also the order the history series were built in.
+      (params as { s0: number[] }).s0 = s0ByAsset;
     }
+
+    const multiAsset = assetMints.length > 1 && !gbmDirect;
+
+    // AUDIT #12: `historical-replay` derives its window starts from the
+    // history length alone and IGNORES grid.seed, so the "independent"
+    // variant came out bit-identical to the joint one. The comparison then
+    // reported dispersionRatio = 1.000 and the UI concluded "correlation
+    // makes no material difference" — on portfolios where it makes all the
+    // difference. Refuse rather than report a falsehood.
+    const deterministicModel = req.modelId === "historical-replay";
+    if (multiAsset && deterministicModel &&
+        (req.sampling === "independent" || req.compareSampling)) {
+      return NextResponse.json(
+        {
+          error:
+            "Historical replay is deterministic — it replays real windows " +
+            "rather than drawing paths, so there is no independent variant " +
+            "to compare against and any co-movement figure would be " +
+            "meaningless. Use GBM or the empirical bootstrap to measure the " +
+            "co-movement effect.",
+        },
+        { status: 422 },
+      );
+    }
+    const buildPaths = (mode: SamplingMode) => {
+      if (mode === "independent" && multiAsset) {
+        const perAsset = history!.map((series, a) => {
+          const p = model.calibrate([series], req.config) as { s0: number[] };
+          p.s0 = [s0ByAsset[a]];
+          // Vary the seed per asset; identical seeds would re-couple them.
+          return model.simulatePaths(p, { ...grid, seed: grid.seed + a * 7919 });
+        });
+        // AUDIT #14: per-asset path counts can differ (the route accepts
+        // histories differing by up to 10%, and some models derive their
+        // path count from history length). Claiming asset 0's count while
+        // another asset has fewer rows indexed past the end of the array.
+        const nPaths = Math.min(...perAsset.map((pp) => pp.nPaths));
+        const steps = Math.min(...perAsset.map((pp) => pp.steps));
+        return {
+          assetIds: assetMints,
+          nPaths,
+          steps,
+          prices: perAsset.map((pp) =>
+            pp.prices[0].slice(0, nPaths).map((row) => row.slice(0, steps)),
+          ),
+        };
+      }
+      return model.simulatePaths(params, grid);
+    };
+    const paths = buildPaths(req.sampling);
 
     const rateByPosition = new Map(
       (yieldRates ?? []).map((r) => [r.positionAddress, r.ratePctPerDay]),
     );
-    const positions: SimPosition[] = solViews.map((v) => {
+    const buildPositions = (
+      rp: Map<string, number[][]> | undefined,
+    ): SimPosition[] => simViews.map((v) => {
       const ratePctPerDay = rateByPosition.get(v.positionAddress);
-      const ratePaths = ratePathsByPosition?.get(v.positionAddress);
+      const ratePaths = rp?.get(v.positionAddress);
       return {
-        assetId: "SOL",
+        assetId: v.tokenMintA,
         liquidity: v.liquidity,
         tickLower: v.tickLower,
         tickUpper: v.tickUpper,
@@ -705,12 +939,83 @@ export async function POST(request: NextRequest) {
           : {}),
       };
     });
+    // AUDIT #13: fee rate paths are sized on req.nPaths, but a model may
+    // return FEWER (historical replay caps at the number of available
+    // windows: 2000 requested -> 183 returned at the UI's own defaults).
+    // The engine then rejected the dimension mismatch and the internal
+    // error surfaced as an HTTP 400. The rows are iid bootstrap draws, so
+    // taking the first `paths.nPaths` of them is unbiased.
+    const fitRatePaths = (
+      rp: Map<string, number[][]> | undefined,
+    ): Map<string, number[][]> | undefined => {
+      if (!rp) return rp;
+      const want = paths.nPaths;
+      const wantCols = paths.steps - 1;
+      let needsFit = false;
+      for (const rows of rp.values()) {
+        if (rows.length !== want || (rows[0]?.length ?? 0) !== wantCols) {
+          needsFit = true;
+          break;
+        }
+      }
+      if (!needsFit) return rp;
+      const out = new Map<string, number[][]>();
+      for (const [k, rows] of rp) {
+        out.set(k, rows.slice(0, want).map((r) => r.slice(0, wantCols)));
+      }
+      return out;
+    };
 
-    const paths = model.simulatePaths(params, grid);
+    const positions = buildPositions(fitRatePaths(ratePathsByPosition));
+
+    // Independent mode re-runs the model once per asset on its own seed
+    // and stitches the results, so each asset is drawn from its own
+    // marginal with no co-movement. It exists to be COMPARED against the
+    // joint run — the gap between them is the portfolio's co-movement —
+    // and is never the honest standalone risk figure.
     const report = simulatePortfolio(paths, positions, {
       composition: req.composition,
       stepSeconds: DAY_SECONDS,
     });
+
+    // Co-movement effect: the same portfolio priced BOTH ways, so the
+    // diversification the correlation actually buys (or costs) is a number
+    // rather than an inference. Opt-in — it doubles the simulation.
+    //
+    // Both legs switch together: prices AND fee resampling. Flipping only
+    // the price side would attribute fee co-movement to diversification.
+    let comovement: CoMovementEffect | null = null;
+    if (req.compareSampling && multiAsset) {
+      const otherMode: SamplingMode =
+        req.sampling === "joint" ? "independent" : "joint";
+      let otherRates = ratePathsByPosition;
+      if (req.composition !== "value" && req.feeIntensityMode === "stochastic") {
+        // Candles are cached, so this repeats the resampling, not the I/O.
+        const re = await resolveStochasticFeeIntensity(connection, simViews, {
+          ...req,
+          sampling: otherMode,
+        });
+        if (!("error" in re)) otherRates = re.ratePaths;
+      }
+      const otherReport = simulatePortfolio(
+        buildPaths(otherMode),
+        buildPositions(fitRatePaths(otherRates)),
+        { composition: req.composition, stepSeconds: DAY_SECONDS },
+      );
+      const joint = req.sampling === "joint" ? report : otherReport;
+      const indep = req.sampling === "joint" ? otherReport : report;
+      comovement = {
+        jointStd: joint.terminal.std,
+        independentStd: indep.terminal.std,
+        dispersionRatio:
+          indep.terminal.std > 0 ? joint.terminal.std / indep.terminal.std : 1,
+        jointVar5: joint.terminal.var5,
+        independentVar5: indep.terminal.var5,
+        jointCvar5: joint.terminal.cvar5,
+        independentCvar5: indep.terminal.cvar5,
+        var5DeltaUsd: joint.terminal.var5 - indep.terminal.var5,
+      };
+    }
 
     const body: SimulateResponse = {
       asOf: new Date().toISOString(),
@@ -719,7 +1024,12 @@ export async function POST(request: NextRequest) {
         ...(yieldRates ? { yieldRates } : {}),
         ...(feeIntensityEcho ? { feeIntensity: feeIntensityEcho } : {}),
       },
-      positionsCount: solViews.length,
+      positionsCount: simViews.length,
+      assets: assetMints,
+      correlation:
+        history && history.length > 1 ? correlationReport(history) : null,
+      sampling: req.sampling,
+      comovement,
       report,
     };
     return NextResponse.json(body);
