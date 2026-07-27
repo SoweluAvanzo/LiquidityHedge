@@ -1,8 +1,8 @@
 export * from "./types";
 export { fetchOhlcvPaged, computeCoverage, makeBirdeyeFetcher, makeBirdeyePairFetcher } from "./ingest";
 export type { IngestResult } from "./ingest";
-export { computeRealizedVol, computeRealizedVolGuarded } from "./volatility";
-export type { RealizedVol } from "./volatility";
+export { computeRealizedVol, computeRealizedVolGuarded, computeGarmanKlassVol } from "./volatility";
+export type { RealizedVol, OhlcRealizedVol } from "./volatility";
 export { FileCandleStore } from "./store";
 export type { CandleStore } from "./store";
 export {

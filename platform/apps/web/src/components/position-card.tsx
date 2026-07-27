@@ -142,6 +142,17 @@ function EstimatorLine({ viability }: { viability: PositionViabilityWire }) {
           ? `empirical (${viability.empiricalWindows ?? "?"} windows)`
           : `GBM model (σ ${formatPercent(viability.sigmaAnnualized, 0)})`}
       </span>
+      {viability.sigmaBand && (
+        <span className="lh-prov-item">
+          <span className="lh-prov-key">
+            σ ({viability.sigmaWindowDays}d{" "}
+            {viability.sigmaMethod === "garman-klass" ? "GK-OHLC" : "close-to-close"})
+          </span>
+          {formatPercent(viability.sigmaAnnualized, 1)} (90% CI{" "}
+          {formatPercent(viability.sigmaBand.p05, 1)}–
+          {formatPercent(viability.sigmaBand.p95, 1)})
+        </span>
+      )}
       {py && (
         <span className="lh-prov-item">
           <span className="lh-prov-key">pool yield</span>

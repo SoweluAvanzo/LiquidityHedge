@@ -1,45 +1,51 @@
 {
- "asOf": "2026-07-27T12:57:51.323Z",
+ "asOf": "2026-07-27T13:18:24.587Z",
  "summary": {
   "positionsCount": 4,
-  "inRangeCount": 2,
-  "totalValueUsd": 6.53978998641157,
+  "inRangeCount": 0,
+  "totalValueUsd": 6.520134677580579,
   "unpricedCount": 0
  },
  "positions": {
   "EPRLfJkPvygr4dgMWN92RNXrusaVU3WcHfU1VWgaBdz6": {
-   "price": 76.8110995618312,
+   "price": 76.57979206479648,
    "priceLower": 76.63728521080064,
    "priceUpper": 93.67896501035963,
-   "inRange": true,
+   "inRange": false,
    "liquidity": "62750613",
-   "valueQuote": 1.6630674663911444,
-   "feeOwedA": "765600",
-   "feeOwedB": "63373",
+   "valueQuote": 1.6580818414716412,
+   "feeOwedA": "765792",
+   "feeOwedB": "63381",
    "feesAreExact": true,
    "viability": {
-    "viabilityIndex": 0.07001956354961104,
-    "breakevenDailyYield": 0.0047722104465973076,
-    "measuredDailyYield": 0.0003341480926376379,
+    "viabilityIndex": 0.06369628772277722,
+    "breakevenDailyYield": 0.004786559829558135,
+    "measuredDailyYield": 0.00030488609210582246,
     "bound": "floor",
     "twoSided": {
-     "viabilityIndex": 0.42099492300686264,
-     "breakevenDailyYield": 0.0007937105042765348,
-     "unhedgedBreakevenDailyYield": 0.0007292856632474711,
-     "protocolFeeWedgeDailyYield": 0.00006442484102906366,
-     "expectedValueChangeUsd": -0.008489958821766501,
+     "viabilityIndex": 0.3005219129578249,
+     "breakevenDailyYield": 0.0010145219997604968,
+     "unhedgedBreakevenDailyYield": 0.0009499034420614621,
+     "protocolFeeWedgeDailyYield": 0.00006461855769903482,
+     "expectedValueChangeUsd": -0.011025123539034636,
      "premiumUsd": 0.05
     },
     "fairValueUsd": 0,
-    "sigmaAnnualized": 0.438774681907261,
+    "sigmaAnnualized": 0.5192458481443899,
     "sigmaWindowDays": 30,
-    "poolDailyYield": 0.0007747960834254932,
+    "sigmaBand": {
+     "p05": 0.4142554698863901,
+     "p95": 0.626896211553188
+    },
+    "sigmaMethod": "garman-klass",
+    "sigmaDays": 30,
+    "poolDailyYield": 0.0007812511658390407,
     "poolYield": {
      "source": "measured-snapshots",
-     "coveredSeconds": 75496,
-     "windowSeconds": 75496,
-     "intervals": 86,
-     "lastT": 1785156953,
+     "coveredSeconds": 76399,
+     "windowSeconds": 76399,
+     "intervals": 87,
+     "lastT": 1785157856,
      "fallbackReason": null,
      "tvlSource": "onchain-vaults"
     },
@@ -51,13 +57,13 @@
      "inRangeSeconds": null,
      "feesUsd": null,
      "lastT": null,
-     "fallbackReason": "position coverage 0.7h below the 6h minimum"
+     "fallbackReason": "position coverage 1.1h below the 6h minimum"
     },
-    "inRangeFraction": 0.4796488427773341,
-    "concentrationFactor": 0.8991417602265325,
+    "inRangeFraction": 0.4573024740622504,
+    "concentrationFactor": 0.8533818154611961,
     "tenorDays": 7,
     "inRangeEstimate": {
-     "fraction": 0.4796488427773341,
+     "fraction": 0.4573024740622504,
      "method": "empirical",
      "band": {
       "p05": 0,
@@ -65,9 +71,9 @@
      },
      "reference": {
       "method": "gbm-analytic",
-      "fraction": 0.5227684201028654
+      "fraction": 0.4784066445482389
      },
-     "divergence": 0.08248313338637905,
+     "divergence": 0.04411345604515433,
      "modelRiskFlag": false,
      "description": "Empirical: measured over 358 rolling historical windows — for a range of this width started at each window's opening price, the realized fraction of the following 7 steps spent in range. No price model assumed.",
      "fallbackReason": null
@@ -76,38 +82,44 @@
    }
   },
   "mGADEKrn3HiDrDE9gSnR71RKgAjepP38HSP7DvtepPu": {
-   "price": 76.8110995618312,
+   "price": 76.57979206479648,
    "priceLower": 77.06763634937663,
    "priceUpper": 94.24270012836983,
    "inRange": false,
    "liquidity": "62777217",
-   "valueQuote": 1.6622849055151983,
+   "valueQuote": 1.657279132091218,
    "feeOwedA": "715772",
    "feeOwedB": "59433",
    "feesAreExact": true,
    "viability": {
-    "viabilityIndex": 0.06398841577079781,
-    "breakevenDailyYield": 0.004774457080236883,
-    "measuredDailyYield": 0.00030550994473002704,
+    "viabilityIndex": 0.05855203068543324,
+    "breakevenDailyYield": 0.004788878217813163,
+    "measuredDailyYield": 0.0002803985443581992,
     "bound": "floor",
     "twoSided": {
-     "viabilityIndex": 0.4389629760229799,
-     "breakevenDailyYield": 0.0006959811223669885,
-     "unhedgedBreakevenDailyYield": 0.0006315259517837906,
-     "protocolFeeWedgeDailyYield": 0.00006445517058319792,
-     "expectedValueChangeUsd": -0.007348432399639199,
+     "viabilityIndex": 0.310637890819024,
+     "breakevenDailyYield": 0.0009026540310935794,
+     "unhedgedBreakevenDailyYield": 0.0008380041751531017,
+     "protocolFeeWedgeDailyYield": 0.0000646498559404777,
+     "expectedValueChangeUsd": -0.009721647824605845,
      "premiumUsd": 0.05
     },
     "fairValueUsd": 0,
-    "sigmaAnnualized": 0.438774681907261,
+    "sigmaAnnualized": 0.5192458481443899,
     "sigmaWindowDays": 30,
-    "poolDailyYield": 0.0007747960834254932,
+    "sigmaBand": {
+     "p05": 0.4142554698863901,
+     "p95": 0.626896211553188
+    },
+    "sigmaMethod": "garman-klass",
+    "sigmaDays": 30,
+    "poolDailyYield": 0.0007812511658390407,
     "poolYield": {
      "source": "measured-snapshots",
-     "coveredSeconds": 75496,
-     "windowSeconds": 75496,
-     "intervals": 86,
-     "lastT": 1785156953,
+     "coveredSeconds": 76399,
+     "windowSeconds": 76399,
+     "intervals": 87,
+     "lastT": 1785157856,
      "fallbackReason": null,
      "tvlSource": "onchain-vaults"
     },
@@ -119,13 +131,13 @@
      "inRangeSeconds": null,
      "feesUsd": null,
      "lastT": null,
-     "fallbackReason": "position coverage 0.7h below the 6h minimum"
+     "fallbackReason": "position coverage 1.1h below the 6h minimum"
     },
-    "inRangeFraction": 0.43814844373503586,
-    "concentrationFactor": 0.8999464361706477,
+    "inRangeFraction": 0.4201915403032721,
+    "concentrationFactor": 0.8541571325495909,
     "tenorDays": 7,
     "inRangeEstimate": {
-     "fraction": 0.43814844373503586,
+     "fraction": 0.4201915403032721,
      "method": "empirical",
      "band": {
       "p05": 0,
@@ -133,9 +145,9 @@
      },
      "reference": {
       "method": "gbm-analytic",
-      "fraction": 0.44850316115771577
+      "fraction": 0.42338154772991166
      },
-     "divergence": 0.023087278573358096,
+     "divergence": 0.007534592482227301,
      "modelRiskFlag": false,
      "description": "Empirical: measured over 358 rolling historical windows — for a range of this width started at each window's opening price, the realized fraction of the following 7 steps spent in range. No price model assumed.",
      "fallbackReason": null
@@ -144,38 +156,44 @@
    }
   },
   "38uAbrUpz6JTJDce9txpGGu47V1udWzSYV4nRP8oQxU6": {
-   "price": 76.8110995618312,
+   "price": 76.57979206479648,
    "priceLower": 84.93434708098344,
    "priceUpper": 88.43577221875724,
    "inRange": false,
    "liquidity": "294440659",
-   "valueQuote": 1.5517829214635568,
+   "valueQuote": 1.5471099116309606,
    "feeOwedA": "927401",
    "feeOwedB": "79664",
    "feesAreExact": true,
    "viability": {
-    "viabilityIndex": 0.025146790716127198,
-    "breakevenDailyYield": 0.0051144446988903945,
-    "measuredDailyYield": 0.00012861187047220294,
+    "viabilityIndex": 0.021907287047861723,
+    "breakevenDailyYield": 0.005129892761233288,
+    "measuredDailyYield": 0.00011238203324508562,
     "bound": "floor",
     "twoSided": {
-     "viabilityIndex": 0.805495426388171,
-     "breakevenDailyYield": 0.0001596680331866024,
-     "unhedgedBreakevenDailyYield": 0.00009062302975158209,
-     "protocolFeeWedgeDailyYield": 0.00006904500343502032,
-     "expectedValueChangeUsd": -0.0009843908890185221,
+     "viabilityIndex": 0.41288054453489315,
+     "breakevenDailyYield": 0.0002721901885003643,
+     "unhedgedBreakevenDailyYield": 0.0002029366362237149,
+     "protocolFeeWedgeDailyYield": 0.00006925355227664939,
+     "expectedValueChangeUsd": -0.0021977569693432918,
      "premiumUsd": 0.05
     },
     "fairValueUsd": 0,
-    "sigmaAnnualized": 0.438774681907261,
+    "sigmaAnnualized": 0.5192458481443899,
     "sigmaWindowDays": 30,
-    "poolDailyYield": 0.0007747960834254932,
+    "sigmaBand": {
+     "p05": 0.4142554698863901,
+     "p95": 0.626896211553188
+    },
+    "sigmaMethod": "garman-klass",
+    "sigmaDays": 30,
+    "poolDailyYield": 0.0007812511658390407,
     "poolYield": {
      "source": "measured-snapshots",
-     "coveredSeconds": 75496,
-     "windowSeconds": 75496,
-     "intervals": 86,
-     "lastT": 1785156953,
+     "coveredSeconds": 76399,
+     "windowSeconds": 76399,
+     "intervals": 87,
+     "lastT": 1785157856,
      "fallbackReason": null,
      "tvlSource": "onchain-vaults"
     },
@@ -187,13 +205,13 @@
      "inRangeSeconds": null,
      "feesUsd": null,
      "lastT": null,
-     "fallbackReason": "position coverage 0.7h below the 6h minimum"
+     "fallbackReason": "position coverage 1.1h below the 6h minimum"
     },
-    "inRangeFraction": 0.03671189146049482,
-    "concentrationFactor": 4.521545204210608,
+    "inRangeFraction": 0.03351955307262571,
+    "concentrationFactor": 4.291488838775239,
     "tenorDays": 7,
     "inRangeEstimate": {
-     "fraction": 0.03671189146049482,
+     "fraction": 0.03351955307262571,
      "method": "empirical",
      "band": {
       "p05": 0,
@@ -201,9 +219,9 @@
      },
      "reference": {
       "method": "gbm-analytic",
-      "fraction": 0.012337744665422487
+      "fraction": 0.019659082285526302
      },
-     "divergence": 1.975575557450368,
+     "divergence": 0.7050415978625802,
      "modelRiskFlag": true,
      "description": "Empirical: measured over 358 rolling historical windows — for a range of this width started at each window's opening price, the realized fraction of the following 7 steps spent in range. No price model assumed.",
      "fallbackReason": null
@@ -212,38 +230,44 @@
    }
   },
   "wxWAbASxXvmUwvJVDxt7QVh8nYBLzaEhinkyc2bXC32": {
-   "price": 76.8110995618312,
+   "price": 76.57979206479648,
    "priceLower": 76.66794472342863,
    "priceUpper": 93.71644221747637,
-   "inRange": true,
+   "inRange": false,
    "liquidity": "62747339",
-   "valueQuote": 1.6626546930416701,
-   "feeOwedA": "764027",
-   "feeOwedB": "63260",
+   "valueQuote": 1.6576637923867594,
+   "feeOwedA": "764187",
+   "feeOwedB": "63267",
    "feesAreExact": true,
    "viability": {
-    "viabilityIndex": 0.06937516569029616,
-    "breakevenDailyYield": 0.004773395203299155,
-    "measuredDailyYield": 0.0003311550831341438,
+    "viabilityIndex": 0.06308160084993168,
+    "breakevenDailyYield": 0.0047877669603199145,
+    "measuredDailyYield": 0.0003020200043533916,
     "bound": "floor",
     "twoSided": {
-     "viabilityIndex": 0.4208466139444805,
-     "breakevenDailyYield": 0.0007868783356252235,
-     "unhedgedBreakevenDailyYield": 0.000722437500380685,
-     "protocolFeeWedgeDailyYield": 0.00006444083524453859,
-     "expectedValueChangeUsd": -0.008408148703060675,
+     "viabilityIndex": 0.3001272103278147,
+     "breakevenDailyYield": 0.0010063066391864618,
+     "unhedgedBreakevenDailyYield": 0.0009416717852221429,
+     "protocolFeeWedgeDailyYield": 0.00006463485396431885,
+     "expectedValueChangeUsd": -0.010926826558724631,
      "premiumUsd": 0.05
     },
     "fairValueUsd": 0,
-    "sigmaAnnualized": 0.438774681907261,
+    "sigmaAnnualized": 0.5192458481443899,
     "sigmaWindowDays": 30,
-    "poolDailyYield": 0.0007747960834254932,
+    "sigmaBand": {
+     "p05": 0.4142554698863901,
+     "p95": 0.626896211553188
+    },
+    "sigmaMethod": "garman-klass",
+    "sigmaDays": 30,
+    "poolDailyYield": 0.0007812511658390407,
     "poolYield": {
      "source": "measured-snapshots",
-     "coveredSeconds": 75496,
-     "windowSeconds": 75496,
-     "intervals": 86,
-     "lastT": 1785156953,
+     "coveredSeconds": 76399,
+     "windowSeconds": 76399,
+     "intervals": 87,
+     "lastT": 1785157856,
      "fallbackReason": null,
      "tvlSource": "onchain-vaults"
     },
@@ -255,13 +279,13 @@
      "inRangeSeconds": null,
      "feesUsd": null,
      "lastT": null,
-     "fallbackReason": "position coverage 0.7h below the 6h minimum"
+     "fallbackReason": "position coverage 1.1h below the 6h minimum"
     },
-    "inRangeFraction": 0.47525937749401403,
-    "concentrationFactor": 0.8993180584392481,
+    "inRangeFraction": 0.4529130087789303,
+    "concentrationFactor": 0.8535524950449358,
     "tenorDays": 7,
     "inRangeEstimate": {
-     "fraction": 0.47525937749401403,
+     "fraction": 0.4529130087789303,
      "method": "empirical",
      "band": {
       "p05": 0,
@@ -269,9 +293,9 @@
      },
      "reference": {
       "method": "gbm-analytic",
-      "fraction": 0.5180609550827346
+      "fraction": 0.4744236593727839
      },
-     "divergence": 0.08261880608602354,
+     "divergence": 0.04534059414804891,
      "modelRiskFlag": false,
      "description": "Empirical: measured over 358 rolling historical windows — for a range of this width started at each window's opening price, the realized fraction of the following 7 steps spent in range. No price model assumed.",
      "fallbackReason": null

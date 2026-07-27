@@ -201,3 +201,43 @@ estimator noise — remaining flips are genuine market moves (badge
 hysteresis is §1.7's job).
 
 Golden re-baselined to the 12-57-51 capture.
+
+---
+
+## 2026-07-27 · §1.4 — Garman–Klass σ with stated uncertainty
+
+Diff: `captures/2026-07-27T13-18-04-888Z.json` →
+`captures/2026-07-27T13-18-24-616Z.json`, spot +0.035%.
+
+- **`sigmaAnnualized` +18.26%** (0.4391 → 0.5192): the change under
+  test. Decomposed by independent recomputation on the same candles:
+  partial-candle drop alone moves CC 0.4391 → 0.4458 (+1.5%); the
+  CC → GK estimator switch moves 0.4458 → 0.5192 (+16.5%).
+  **Independently corroborated**: Parkinson (a third, range-based
+  estimator) gives 0.4985 on the same 30 bars — the two range
+  estimators agree against the close-based one. The driver is in the
+  raw data: mean daily high–low range 3.96% vs mean |close move|
+  1.80% — closes systematically miss intraday variance.
+- **New wire fields**: `sigmaBand` [41.4%, 62.7%] (90%, seeded block
+  bootstrap), `sigmaMethod: "garman-klass"`, `sigmaDays: 30`. Note the
+  band COVERS the old CC value — the estimator disagreement is inside
+  σ's own stated uncertainty.
+- **E[ΔV] −41% to −45%**, VI₂ −27% (EPRL 0.41 → 0.30): pure σ²
+  pass-through (1.1826² ≈ 1.40) — divergence loss scales with
+  variance. One-sided VI ±0.9% only (floor-bound; f rises slightly
+  because higher σ raises re-entry probability for these
+  just-out-of-range positions).
+
+**Methodological flag for the owner (feeds 1.6/1.7 and D-review):**
+GK⁄CC = 1.16 means the GBM within-bar assumption is violated
+(intraday mean-reversion / chop). Range-based σ measures the intrabar
+quadratic variation; close-based σ measures what the 7-day TERMINAL
+distribution compounds from. Under chop, GK may overstate tenor-scale
+vol. The plan prescribed GK and the band states the spread honestly,
+but whether corridor pricing should use range- or close-based σ (or a
+blend) is a measure-level choice the same class as 1.6 — recorded
+here rather than decided silently. Also: the hedge QUOTE path's σ
+(regime updater, CC-guarded + Binance IV) now differs from the card's
+GK σ — reconciliation belongs to 1.8's getPricingParams.
+
+Golden re-baselined to the 13-18-24 capture.

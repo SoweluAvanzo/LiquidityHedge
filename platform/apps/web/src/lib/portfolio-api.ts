@@ -59,6 +59,18 @@ export interface PositionViabilityWire {
   sigmaAnnualized: number;
   /** Realized-vol lookback actually used (30d preferred, 90d fallback). */
   sigmaWindowDays: 30 | 90;
+  /**
+   * §1.4: σ's own 90% interval (p05/p95) — block bootstrap on the
+   * Garman–Klass path, analytic 1/√(2n) on the close-to-close fallback.
+   * σ error propagation into the indices is §1.7; until then the band
+   * states the input's resolution rather than implying false precision.
+   */
+  sigmaBand: { p05: number; p95: number };
+  /** "garman-klass" = OHLC estimator (~7.4× close-to-close efficiency);
+   *  "close-to-close" = labelled fallback for corrupt OHLC. */
+  sigmaMethod: "garman-klass" | "close-to-close";
+  /** Bars actually integrated (in-progress day always dropped). */
+  sigmaDays: number;
   poolDailyYield: number;
   /**
    * §1.1 provenance for poolDailyYield. "measured-snapshots" = derived

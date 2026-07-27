@@ -494,7 +494,29 @@ twoSided field ≤ 0.01% — seed-invariance verified by absence of a
 seed. E[ΔV] is now labelled risk-neutral on the card (part of 1.6's
 ask). Closes D-1, F2, F6.
 
-Next: **1.4** (guarded, OHLC-based volatility with stated uncertainty)
+**1.4 — DONE ✅, deployed.** σ for the viability pipeline: coverage now
+gates the estimate (was silently discarded); the in-progress candle is
+dropped (measured bias: CC 0.4391 → 0.4458 without it, +1.5%);
+Garman–Klass OHLC is primary with a seeded moving-block bootstrap 90%
+band on the wire (`sigmaBand`/`sigmaMethod`/`sigmaDays`), shown on the
+card; close-to-close survives only as a labelled fallback with the
+analytic 1/√(2n) band. Measured at deploy: σ 0.439 → 0.519 (+18.3%),
+**corroborated by Parkinson at 0.499 on the same bars** (mean daily
+range 3.96% vs mean |close move| 1.80% — closes miss intraday
+variance). E[ΔV] scaled with σ² (−41…−45%), VI₂ EPRL 0.41 → 0.30.
+
+**⚠ Owner decision queued (measure-level, same class as 1.6):**
+GK⁄CC = 1.16 on live data means the within-bar GBM assumption fails
+(intraday chop). Range-based σ = intrabar quadratic variation;
+close-based σ = what the 7-day terminal distribution compounds. Under
+chop GK may overstate tenor-scale vol. The band [41%, 63%] covers both
+estimators; whether corridor pricing should use range-, close-based or
+blended σ is recorded in REGRESSION_LOG.md rather than decided
+silently. Also: the card's σ (GK) now differs from the hedge quote
+path's σ (regime CC + Binance IV) — reconcile in **1.8
+getPricingParams()**.
+
+Next: **1.5** (honest uncertainty on the empirical in-range fraction)
 … 1.10 in order.
 
 ### Caveat for whoever picks this up

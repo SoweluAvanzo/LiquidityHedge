@@ -37,8 +37,10 @@ import {
   positionValueAtPrice,
 } from "@lh/portfolio";
 import {
+  computeGarmanKlassVol,
   computeRealizedVol,
   empiricalInRangeFractionBounds,
+  type RealizedVol,
 } from "@lh/market-data";
 import { quadratureExpectation } from "@lh/core/src/pricing-engine/pricing";
 import { SECONDS_PER_YEAR } from "@lh/core/src/types";
@@ -159,7 +161,12 @@ async function loadEmpiricalInRange(
 
 interface SigmaEstimate {
   sigma: number;
+  /** 90% interval for σ itself (p05/p95); analytic 1/√(2n) approximation
+   *  on the close-to-close fallback, block bootstrap on Garman–Klass. */
+  band: { p05: number; p95: number };
   windowDays: 30 | 90;
+  method: "garman-klass" | "close-to-close";
+  nDays: number;
 }
 
 /** §1.1 provenance-carrying yield basis — see poolYieldBasis below. */
@@ -350,17 +357,69 @@ export async function computePoolYieldBasis(
   }
 }
 
+/** Minimum candle coverage before σ is computed at all — degraded
+ *  ingestion must refuse loudly, not feed pricing (§E7). */
+const SIGMA_MIN_COVERAGE = 0.97;
+
 /**
- * Realized vol from ingested daily candles: 30d window preferred, 90d
- * fallback; null when even 90d cannot support a vol estimate.
+ * σ for the viability pipeline, reworked per audit §1.4:
+ *
+ *  1. COVERAGE is no longer discarded — degraded ingestion refuses the
+ *     estimate (the guarded contract the regime updater already keeps).
+ *  2. The in-progress trailing candle is DROPPED — annualising a
+ *     partial day as a full one biased σ low (~0.8% at mid-day).
+ *  3. Garman–Klass OHLC is PRIMARY (~7.4× the efficiency of
+ *     close-to-close: 30 days buys ~200 close-days of precision, from
+ *     high/low data we already fetch), and σ ships its own 90% band.
+ *     Close-to-close survives only as a LABELLED fallback for corrupt
+ *     OHLC, with the analytic band σ·(1 ± 1.645/√(2n)).
  */
 async function solSigmaEstimate(): Promise<SigmaEstimate | null> {
-  const { candles } = await getSolDailyCandles(CANDLE_WINDOW_DAYS);
-  const last31 = candles.slice(-31); // 30 daily returns
-  const rv30 = computeRealizedVol(last31, "1D");
-  if (rv30) return { sigma: rv30.sigma, windowDays: 30 };
-  const rv90 = computeRealizedVol(candles, "1D");
-  if (rv90) return { sigma: rv90.sigma, windowDays: 90 };
+  const { candles, coverage } = await getSolDailyCandles(CANDLE_WINDOW_DAYS);
+  if (coverage.coverageRatio < SIGMA_MIN_COVERAGE) {
+    console.error(
+      `[viability] sigma refused: candle coverage ${(coverage.coverageRatio * 100).toFixed(1)}% ` +
+        `(${coverage.received}/${coverage.expected} candles, ${coverage.gaps} gaps)`,
+    );
+    return null;
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  const complete =
+    candles.length > 0 && candles[candles.length - 1].t + 86_400 > nowSec
+      ? candles.slice(0, -1)
+      : candles;
+
+  // The 30d window must be CONTIGUOUS daily bars — slicing a gappy
+  // series would silently span more than 30 calendar days.
+  const last30 = complete.slice(-30);
+  const contiguous30 =
+    last30.length === 30 &&
+    last30.every((c, i) => i === 0 || c.t - last30[i - 1].t === 86_400);
+  if (contiguous30) {
+    const gk = computeGarmanKlassVol(last30, "1D");
+    if (gk) {
+      return { sigma: gk.sigma, band: gk.band, windowDays: 30, method: "garman-klass", nDays: gk.nDays };
+    }
+  }
+  const gk90 = computeGarmanKlassVol(complete, "1D");
+  if (gk90) {
+    return { sigma: gk90.sigma, band: gk90.band, windowDays: 90, method: "garman-klass", nDays: gk90.nDays };
+  }
+
+  const ccEstimate = (rv: RealizedVol, days: 30 | 90): SigmaEstimate => {
+    const rel = 1.645 / Math.sqrt(2 * rv.nReturns);
+    return {
+      sigma: rv.sigma,
+      band: { p05: rv.sigma * (1 - rel), p95: rv.sigma * (1 + rel) },
+      windowDays: days,
+      method: "close-to-close",
+      nDays: rv.nReturns,
+    };
+  };
+  const rv30 = computeRealizedVol(complete.slice(-31), "1D");
+  if (rv30) return ccEstimate(rv30, 30);
+  const rv90 = computeRealizedVol(complete, "1D");
+  if (rv90) return ccEstimate(rv90, 90);
   return null;
 }
 
@@ -592,6 +651,10 @@ export async function computePositionViability(
       fairValueUsd,
       sigmaAnnualized: sigma,
       sigmaWindowDays: windowDays,
+      // §1.4: σ's own uncertainty and provenance travel with it.
+      sigmaBand: sigmaEstimate.band,
+      sigmaMethod: sigmaEstimate.method,
+      sigmaDays: sigmaEstimate.nDays,
       poolDailyYield: poolDaily,
       // §1.1 provenance: which source produced poolDailyYield, over what
       // window, and why the fallback was used when it was. The UI shows
