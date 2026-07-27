@@ -447,7 +447,7 @@ then the modelled r_pool × f × c chain serves, labelled
 `"modelled-chain"` with the reason. Thresholds via
 `POSITION_YIELD_*` / `POOL_YIELD_*` env (defaults in code, `numericEnv`).
 
-Commit: `ed30198`. Live verification passed: served poolDailyYield
+Commit: `2b2a2b0`. Live verification passed: served poolDailyYield
 reproducible bit-for-bit from `lh.pool_snapshots`; stored
 feeGrowthInside matches independent chain reads bit-for-bit; web and
 collector writers agree.
