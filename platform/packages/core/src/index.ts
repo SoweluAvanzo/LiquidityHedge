@@ -19,3 +19,4 @@
  */
 
 export * from "./orchestrator";
+export { feeGrowthInside, uncollectedFees, wrapSub } from "./market-data/fees-owed";

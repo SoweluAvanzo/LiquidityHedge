@@ -17,6 +17,7 @@ import { CertificateLedger } from "./ledger";
 import {
   CertificateRecord,
   LedgerError,
+  FeeCheckpoint,
   ObservedTransfer,
   SettlementPriceReading,
 } from "./types";
@@ -26,8 +27,15 @@ export interface RunnerPorts {
     untilSignature: string | null,
   ): Promise<{ transfers: ObservedTransfer[]; cursor: string | null }>;
   readSettlementPrice(cert: CertificateRecord): Promise<SettlementPriceReading>;
-  /** Accrued LP fees in µUSDC; implementations MUST return 0 on data
-   *  failure (buyer-favorable, Master Terms §7.2). */
+  /**
+   * The position's fee-growth accumulators at ACTIVATION, so settlement
+   * can compute the fees accrued during the certificate. Null when the
+   * position cannot be read — the certificate then settles with a zero
+   * fee share, buyer-favourably.
+   */
+  readFeeCheckpoint(positionMint: string): Promise<FeeCheckpoint | null>;
+  /** Accrued LP fees in µUSDC over the certificate's life; implementations
+   *  MUST return 0 on data failure (buyer-favorable, Master Terms §7.2). */
   readAccruedFees(cert: CertificateRecord): Promise<number>;
   executePayout(payout: {
     to: string;
@@ -103,7 +111,20 @@ export async function runSettlementCycle(
   for (const transfer of scan.transfers) {
     const res = ledger.observePayment(transfer);
     if (res.accepted) report.observedPayments++;
-    if (res.activated) report.activated.push(res.activated.quoteId);
+    if (res.activated) {
+      report.activated.push(res.activated.quoteId);
+      // Take the fee-growth checkpoint NOW. The accumulator exists
+      // on-chain only at the instant it is read, so if this is missed the
+      // certificate's fee share is unrecoverable and settlement must fall
+      // back to zero. A failure here is logged into the ledger as an
+      // absent checkpoint, never as a fabricated one.
+      try {
+        const cp = await ports.readFeeCheckpoint(res.activated.positionMint);
+        if (cp) ledger.recordFeeCheckpoint(res.activated.quoteId, cp);
+      } catch {
+        /* absent checkpoint => zero fee share, buyer-favourable */
+      }
+    }
   }
 
   // 2. Housekeeping.

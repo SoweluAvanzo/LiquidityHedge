@@ -222,10 +222,13 @@ export function SimulateSection({ owner }: { owner: string }) {
       Number.isFinite(overrideNum)
         ? { feeRatePctPerDayOverride: overrideNum }
         : {}),
+      // Cross-asset sampling governs the PRICE paths, so it is meaningful
+      // in every composition — including the default "value". Only the
+      // fee-intensity mode is yield-specific.
+      sampling,
+      compareSampling,
       ...(composition !== "value"
         ? {
-            sampling,
-            compareSampling,
             feeIntensityMode: stochasticFee
               ? ("stochastic" as const)
               : ("constant" as const),
@@ -682,13 +685,21 @@ export function SimulateSection({ owner }: { owner: string }) {
                   — {result.positionsCount} position
                   {result.positionsCount === 1 ? "" : "s"}
                   {result.assets && result.assets.length > 1
-                    ? ` across ${result.assets.length} assets, drawn jointly`
+                    ? ` across ${result.assets.length} assets, drawn ${
+                        result.sampling === "independent"
+                          ? "independently (correlation discarded)"
+                          : "jointly"
+                      }`
                     : ""}
                   , initial {formatUsd(report.initialValue)}
                 </p>
                 <span className="lh-card-meta">
                   {result.echo.modelId} · seed {result.echo.seed} ·{" "}
-                  {result.echo.nPaths.toLocaleString("en-US")} paths ·{" "}
+                  {result.executedPaths.toLocaleString("en-US")} paths
+                  {result.executedPaths !== result.echo.nPaths
+                    ? ` (of ${result.echo.nPaths.toLocaleString("en-US")} requested — this model is capped by available history)`
+                    : ""}{" "}
+                  ·{" "}
                   {result.echo.windowDays}d window
                 </span>
               </div>

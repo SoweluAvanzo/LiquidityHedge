@@ -165,6 +165,14 @@ export interface SimulateResponse {
   /** Sampling mode actually used. */
   sampling: SamplingMode;
   /**
+   * Paths the model ACTUALLY ran. May be far below the requested nPaths:
+   * historical replay is capped by the number of available windows, and
+   * `mode:"latest"` runs exactly one. Echoing the request instead was
+   * reporting "2,000 paths" over a single deterministic path, alongside a
+   * std of 0 and VaR = CVaR.
+   */
+  executedPaths: number;
+  /**
    * Present when `compareSampling` was requested on a multi-asset
    * portfolio: the same positions priced both ways, so the diversification
    * the measured correlation actually buys is a number rather than an

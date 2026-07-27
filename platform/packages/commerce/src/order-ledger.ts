@@ -22,6 +22,7 @@ export type OrderEvent =
   | { kind: "PaymentObserved"; ts: number; orderId: string; payment: PaymentProof }
   | { kind: "OrderFulfilled"; ts: number; orderId: string; downloadToken: string; expiresAtTs: number }
   | { kind: "OrderExpired"; ts: number; orderId: string }
+  | { kind: "DownloadRedeemed"; ts: number; orderId: string; tokenHash: string }
   | {
       kind: "RefundDue";
       ts: number;
@@ -236,12 +237,45 @@ export class OrderLedger {
   }
 
   /** Validate a download token presented by a client (constant-time-ish). */
+  /**
+   * Non-consuming check. Use `redeemDownloadToken` on the delivery path —
+   * this one exists for callers that only need to know whether a grant is
+   * currently valid.
+   */
   checkDownloadToken(orderId: string, rawToken: string): boolean {
     const order = this.orders.get(orderId);
     if (!order?.downloadToken || !order.downloadExpiresAtTs) return false;
     if (this.clock.now() > order.downloadExpiresAtTs) return false;
     const hashed = createHash("sha256").update(rawToken).digest("hex");
     return hashed === order.downloadToken;
+  }
+
+  /**
+   * Verify AND CONSUME a download grant, atomically.
+   *
+   * The UI promises "The link works once and expires"; `checkDownloadToken`
+   * is a pure predicate and neither it nor the route consumed anything, so
+   * a leaked URL stayed live for the full 24h TTL. A buyer told the link
+   * is single-use would reasonably paste it somewhere.
+   *
+   * Consumed at the START of delivery, not the end: that closes the
+   * concurrent-request race, and a failed download is recoverable because
+   * the claim secret can re-issue a fresh grant.
+   */
+  redeemDownloadToken(orderId: string, rawToken: string): boolean {
+    if (!this.checkDownloadToken(orderId, rawToken)) return false;
+    const order = this.orders.get(orderId)!;
+    const tokenHash = order.downloadToken!;
+    // Clear the grant so a replay of the same URL cannot pass again.
+    order.downloadToken = undefined;
+    order.downloadExpiresAtTs = undefined;
+    this.commit({
+      kind: "DownloadRedeemed",
+      ts: this.clock.now(),
+      orderId,
+      tokenHash,
+    });
+    return true;
   }
 
   expireStale(): number {
@@ -288,6 +322,14 @@ export class OrderLedger {
           o.status = "paid";
           o.payment = structuredClone(e.payment);
           ledger.usedSignatures.add(e.payment.txSignature);
+          break;
+        }
+        case "DownloadRedeemed": {
+          const o = ledger.orders.get(e.orderId);
+          if (o) {
+            o.downloadToken = undefined;
+            o.downloadExpiresAtTs = undefined;
+          }
           break;
         }
         case "OrderFulfilled": {

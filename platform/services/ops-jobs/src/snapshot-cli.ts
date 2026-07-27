@@ -16,6 +16,7 @@ import {
   PgPoolSnapshotStore,
   PgTrackedPoolStore,
   safeDsn,
+  numericEnv,
 } from "@lh/storage";
 import { captureSnapshots, resolvePoolMetadata, DEFAULT_POOLS } from "./pool-snapshot-job";
 import { discoverPoolsByVolume, TrackedPool } from "./pool-discovery";
@@ -41,9 +42,9 @@ function envVar(name: string): string | undefined {
 
 async function resolveTrackedPools(dir: string): Promise<TrackedPool[]> {
   const file = join(dir, "tracked-pools.json");
-  const refreshHours = Number(process.env.TRACK_REFRESH_HOURS ?? 24);
-  const minVolume = Number(process.env.MIN_POOL_VOLUME_USD ?? 10_000);
-  const maxPools = Number(process.env.MAX_TRACKED_POOLS ?? 400);
+  const refreshHours = numericEnv("TRACK_REFRESH_HOURS", 24);
+  const minVolume = numericEnv("MIN_POOL_VOLUME_USD", 10_000);
+  const maxPools = numericEnv("MAX_TRACKED_POOLS", 400);
   const nowTs = Math.floor(Date.now() / 1000);
   const explicit = process.env.POOLS?.split(",").map((x) => x.trim()).filter(Boolean);
 
@@ -106,7 +107,7 @@ async function main() {
     console.log(`storage: files ${dir}`);
   }
   const connection = new Connection(rpc, "confirmed");
-  const loopSeconds = Number(process.env.SNAPSHOT_LOOP_SECONDS ?? 0);
+  const loopSeconds = numericEnv("SNAPSHOT_LOOP_SECONDS", 0);
 
   const once = async () => {
     let pools = await resolveTrackedPools(dir);

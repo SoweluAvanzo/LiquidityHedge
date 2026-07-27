@@ -11,6 +11,7 @@ import {
   assertUsdcInt,
   CertificateRecord,
   Clock,
+  FeeCheckpoint,
   HedgedPositionInput,
   LedgerConfig,
   LedgerError,
@@ -31,6 +32,7 @@ export type LedgerEvent =
   | { kind: "QuoteLapsed"; ts: number; quoteId: string }
   | { kind: "PaymentObserved"; ts: number; payment: PaymentRecord }
   | { kind: "CertificateActivated"; ts: number; cert: CertificateRecord; txSignature: string }
+  | { kind: "FeeCheckpointRecorded"; ts: number; quoteId: string; checkpoint: FeeCheckpoint }
   | { kind: "PaymentRefunded"; ts: number; txSignature: string; amountUsdc: number; reason: string }
   | {
       kind: "CertificateSettled";
@@ -225,6 +227,22 @@ export class CertificateLedger {
   }
 
   // ── Model action: lapseQuote ─────────────────────────────────────
+  /**
+   * Attach the activation-time fee-growth checkpoint to a certificate.
+   *
+   * Separate from activation because it needs an RPC read, and the ledger
+   * is pure. Idempotent: a checkpoint is written once and never revised,
+   * so a re-run cannot move the basis the fee share is computed from.
+   */
+  recordFeeCheckpoint(quoteId: string, checkpoint: FeeCheckpoint): void {
+    const cert = this.state.certs.get(quoteId);
+    if (!cert || cert.feeCheckpoint) return;
+    // Mutate live state as well as committing — every other mutator in
+    // this class does both, and commit() only appends to the log.
+    cert.feeCheckpoint = checkpoint;
+    this.commit({ kind: "FeeCheckpointRecorded", ts: this.clock.now(), quoteId, checkpoint });
+  }
+
   lapseExpiredQuotes(): number {
     const now = this.clock.now();
     let lapsed = 0;
@@ -488,6 +506,12 @@ export class CertificateLedger {
         if (!p || !q) throw new LedgerError(`replay: dangling activation ${e.cert.quoteId}`);
         p.matched = true;
         q.status = "consumed";
+        break;
+      }
+      case "FeeCheckpointRecorded": {
+        const cert = s.certs.get(e.quoteId);
+        // Write-once: replay must reproduce the original basis exactly.
+        if (cert && !cert.feeCheckpoint) cert.feeCheckpoint = e.checkpoint;
         break;
       }
       case "PaymentRefunded": {

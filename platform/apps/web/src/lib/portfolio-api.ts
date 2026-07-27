@@ -25,6 +25,28 @@ export interface PositionViabilityWire {
   measuredDailyYield: number;
   /** Which premium branch bound the breakeven. */
   bound: "formula" | "floor";
+  /**
+   * Paper §2.4.3–2.4.4 two-sided viability — the OTHER index.
+   *
+   * The fields above answer "do fees beat the hedge's markup drag?" and
+   * contain NO ΔV term. This one answers "is the position viable at all,
+   * for both sides, once divergence loss is counted?" and is therefore
+   * materially stricter. Both are shown; neither replaces the other.
+   */
+  twoSided: {
+    /** measured / r*; null encodes Infinity (position expected to gain). */
+    viabilityIndex: number | null;
+    /** r* = r_u + φP/(V·T). */
+    breakevenDailyYield: number;
+    /** r_u = −E[ΔV]/(V·T): fees vs divergence loss alone (φ = 0 case). */
+    unhedgedBreakevenDailyYield: number;
+    /** Corollary 2.1 wedge r* − r_u; the paper measures < 0.65 bps/day. */
+    protocolFeeWedgeDailyYield: number;
+    /** E[ΔV] over the tenor, USD. Negative = expected divergence loss. */
+    expectedValueChangeUsd: number;
+    /** Premium at the measured fee yield, USD — the P in the wedge. */
+    premiumUsd: number;
+  };
   /** MC fair value of the 7-day corridor payoff, USD. */
   fairValueUsd: number;
   /** Annualized realized vol used for the MC and in-range fraction. */
@@ -57,6 +79,13 @@ export type PortfolioPositionWire = Omit<
   liquidity: string;
   amountA: string;
   amountB: string;
+  /**
+   * True when fees were reconstructed from the tick accounts (exact).
+   * False/absent means only the position's stale checkpoint was readable,
+   * which is a LOWER BOUND — the card must say so rather than imply the
+   * figure is complete.
+   */
+  feesAreExact?: boolean;
   feeOwedA: string;
   feeOwedB: string;
   curve: ValueCurvePoint[];

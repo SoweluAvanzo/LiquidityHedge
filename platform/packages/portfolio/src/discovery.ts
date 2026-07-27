@@ -13,10 +13,17 @@ import {
   decodeWhirlpoolAccount,
   PositionData,
   WhirlpoolData,
+  readTickFeeGrowthOutside,
 } from "@lh/core/src/market-data/decoder";
+import {
+  feeGrowthInside,
+  uncollectedFees,
+} from "@lh/core/src/market-data/fees-owed";
 import {
   WHIRLPOOL_PROGRAM_ID,
   deriveOrcaPositionPda,
+  deriveTickArrayPda,
+  tickArrayStartIndex,
 } from "@lh/core/src/config/chain";
 import { buildPositionView } from "./views";
 import { PortfolioPositionView } from "./types";
@@ -127,6 +134,77 @@ export async function fetchPortfolio(
     if (info) decimals.set(k, parseMintDecimals(info.data));
   });
 
+  // Tick arrays holding each position's lower/upper tick. Needed because
+  // a position's `feeOwedA/B` is only a CHECKPOINT, written when the
+  // position was last touched — everything earned since then lives in
+  // these accounts. Without them the dashboard reports "0 SOL + 0 USDC"
+  // on a position that has plainly been earning.
+  const tickArrayKeys = new Map<string, PublicKey>();
+  for (const r of raw) {
+    const pool = pools.get(r.position.whirlpool.toBase58());
+    if (!pool) continue;
+    for (const tick of [r.position.tickLowerIndex, r.position.tickUpperIndex]) {
+      const start = tickArrayStartIndex(tick, pool.tickSpacing);
+      const [pda] = deriveTickArrayPda(r.position.whirlpool, start);
+      tickArrayKeys.set(pda.toBase58(), pda);
+    }
+  }
+  const taKeys = [...tickArrayKeys.keys()];
+  const tickArrays = new Map<string, Buffer>();
+  for (let i = 0; i < taKeys.length; i += 100) {
+    const slice = taKeys.slice(i, i + 100);
+    const infos = await connection.getMultipleAccountsInfo(
+      slice.map((k) => tickArrayKeys.get(k)!),
+    );
+    slice.forEach((k, j) => {
+      const info = infos[j];
+      if (info) tickArrays.set(k, info.data as Buffer);
+    });
+  }
+
+  /** Real uncollected fees, or null when the tick data is unavailable. */
+  const realFees = (
+    position: PositionData,
+    pool: WhirlpoolData,
+  ): { feesA: bigint; feesB: bigint } | null => {
+    try {
+      const read = (tick: number) => {
+        const start = tickArrayStartIndex(tick, pool.tickSpacing);
+        const [pda] = deriveTickArrayPda(position.whirlpool, start);
+        const key = pda.toBase58();
+        const data = tickArrays.get(key);
+        return data
+          ? readTickFeeGrowthOutside(data, tick, start, pool.tickSpacing)
+          : null;
+      };
+      const lower = read(position.tickLowerIndex);
+      const upper = read(position.tickUpperIndex);
+      if (!lower || !upper) return null;
+      const inside = feeGrowthInside({
+        tickCurrentIndex: pool.tickCurrentIndex,
+        tickLowerIndex: position.tickLowerIndex,
+        tickUpperIndex: position.tickUpperIndex,
+        feeGrowthGlobalA: pool.feeGrowthGlobalA,
+        feeGrowthGlobalB: pool.feeGrowthGlobalB,
+        lowerOutsideA: lower.feeGrowthOutsideA,
+        lowerOutsideB: lower.feeGrowthOutsideB,
+        upperOutsideA: upper.feeGrowthOutsideA,
+        upperOutsideB: upper.feeGrowthOutsideB,
+      });
+      return uncollectedFees({
+        liquidity: position.liquidity,
+        feeOwedA: position.feeOwedA,
+        feeOwedB: position.feeOwedB,
+        feeGrowthCheckpointA: position.feeGrowthCheckpointA,
+        feeGrowthCheckpointB: position.feeGrowthCheckpointB,
+        insideA: inside.insideA,
+        insideB: inside.insideB,
+      });
+    } catch {
+      return null; // a fee display must never break the portfolio
+    }
+  };
+
   const views: PortfolioPositionView[] = [];
   for (const r of raw) {
     const poolKey = r.position.whirlpool.toBase58();
@@ -135,16 +213,21 @@ export async function fetchPortfolio(
     const decA = decimals.get(pool.tokenMintA.toBase58());
     const decB = decimals.get(pool.tokenMintB.toBase58());
     if (decA === undefined || decB === undefined) continue;
-    views.push(
-      buildPositionView({
-        positionAddress: r.positionAddress.toBase58(),
-        position: r.position,
-        whirlpool: pool,
-        whirlpoolAddress: poolKey,
-        decimalsA: decA,
-        decimalsB: decB,
-      }),
-    );
+    const view = buildPositionView({
+      positionAddress: r.positionAddress.toBase58(),
+      position: r.position,
+      whirlpool: pool,
+      whirlpoolAddress: poolKey,
+      decimalsA: decA,
+      decimalsB: decB,
+    });
+    const fees = realFees(r.position, pool);
+    if (fees) {
+      view.feeOwedA = fees.feesA;
+      view.feeOwedB = fees.feesB;
+      view.feesAreExact = true;
+    }
+    views.push(view);
   }
   return views;
 }

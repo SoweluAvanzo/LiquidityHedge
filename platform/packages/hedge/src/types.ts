@@ -108,7 +108,29 @@ export interface CertificateRecord {
   activatedAtTs: number;
   expiryTs: number;
   status: CertStatus;
+  /**
+   * The position's fee-growth-inside accumulators and liquidity AT
+   * ACTIVATION.
+   *
+   * The Risk Taker's share is y x the fees accrued DURING the
+   * certificate, so settlement needs the accumulator value at t0. It
+   * cannot be recovered afterwards: the counter exists on-chain only at
+   * the instant it is read. Absent (older certificates, or an unreadable
+   * position) means the fee share cannot be computed and settlement must
+   * fall back to zero, buyer-favourably.
+   */
+  feeCheckpoint?: FeeCheckpoint;
   settlement?: SettlementRecord;
+}
+
+/** u128 values as decimal strings — JSON-safe, lossless. */
+export interface FeeCheckpoint {
+  feeGrowthInsideA: string;
+  feeGrowthInsideB: string;
+  liquidity: string;
+  decimalsA: number;
+  decimalsB: number;
+  takenAtTs: number;
 }
 
 export interface SettlementRecord {

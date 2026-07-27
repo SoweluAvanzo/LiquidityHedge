@@ -125,6 +125,7 @@ export async function GET(request: NextRequest) {
       liquidity: view.liquidity.toString(),
       amountA: view.amountA.toString(),
       amountB: view.amountB.toString(),
+      feesAreExact: view.feesAreExact === true,
       feeOwedA: view.feeOwedA.toString(),
       feeOwedB: view.feeOwedB.toString(),
       curve: buildValueCurve(view, { points: CURVE_POINTS }),

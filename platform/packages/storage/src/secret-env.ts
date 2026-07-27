@@ -82,3 +82,33 @@ export function databaseUrl(): string | undefined {
   }
   return fromFile;
 }
+
+/**
+ * A numeric setting, where an EMPTY string means "unset".
+ *
+ * `Number("") === 0` and `""` is not nullish, so the idiomatic
+ * `Number(process.env.X ?? default)` silently yields **0** whenever the
+ * variable is present-but-empty — which is exactly what
+ * `docker-compose`'s `${X:-}` produces for every unset variable.
+ *
+ * That is not hypothetical. It set `SETTLEMENT_INTERVAL_SECONDS` to 0,
+ * whose guard is `if (seconds <= 0) return;` — so the settlement watcher
+ * never started, silently undoing a critical fix; and
+ * `HEDGE_TENOR_SECONDS` to 0, making the fair value $0.00. It is also the
+ * second time an empty string has slipped past `??` in this codebase.
+ *
+ * Non-numeric junk is refused loudly rather than becoming NaN, which
+ * would propagate into a displayed figure.
+ */
+export function numericEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    throw new Error(
+      `${name}="${raw}" is not a finite number — refusing to start rather ` +
+        `than substitute ${fallback}`,
+    );
+  }
+  return value;
+}

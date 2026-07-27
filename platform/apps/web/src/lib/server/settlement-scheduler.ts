@@ -30,6 +30,11 @@ import {
   type SettlementPriceReading,
 } from "@lh/hedge";
 import { getHedgeConfig, withHedge, HedgeUnavailableError } from "./hedge-ledger";
+import { numericEnv } from "@lh/storage";
+import {
+  readFeeCheckpoint,
+  readAccruedFees as readAccruedFeesImpl,
+} from "./fee-reader";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const OUTBOX = path.join(DATA_DIR, "payout-outbox.jsonl");
@@ -108,15 +113,22 @@ export async function runCycleOnce(): Promise<{ ok: boolean; summary: string }> 
         return { transfers: r.transfers, cursor: r.cursor };
       },
       readSettlementPrice: (cert) => readSettlementPrice(connection, cert),
-      // AUDIT #4: this is a STUB, not a fallback. The port doc says
-      // implementations must return 0 *on data failure*; here there is no
-      // primary reader at all — the real one (core's fee-refresher) was
-      // never wired to @lh/hedge. Returning 0 is buyer-favourable and safe
-      // in itself, but the premium must not be discounted for a fee split
-      // that will never be collected, so `feeSplitRate` is pinned to 0 in
-      // hedge-ledger's buildConfig(). The assertion below keeps the two
-      // facts welded together.
-      readAccruedFees: async () => 0,
+      readFeeCheckpoint: (positionMint) =>
+        readFeeCheckpoint(connection, positionMint),
+      // AUDIT #4, now a REAL reader. The RT's share is y x the LP fees
+      // accrued DURING the certificate, so this is the delta of the
+      // position's fee-growth-inside between the activation checkpoint and
+      // now — exactly the quantity the Whirlpool program itself would pay
+      // out on a collect. Token A is valued at the settlement price; token
+      // B is the USDC leg.
+      //
+      // Returns 0 on ANY data failure, per the port contract: a missing
+      // checkpoint, an unreadable position, or an unusable price all mean
+      // "no fee share", which is buyer-favourable. It never estimates.
+      readAccruedFees: async (cert) => {
+        const p = await readSettlementPrice(connection, cert).catch(() => null);
+        return readAccruedFeesImpl(connection, cert, p?.priceUsd);
+      },
       // dryRun is always true here — this process never signs.
       executePayout: async () => {
         throw new Error("web process must never sign payouts");
@@ -132,9 +144,9 @@ export async function runCycleOnce(): Promise<{ ok: boolean; summary: string }> 
         ledger,
         ports,
         {
-          hotWalletFloatCapUsdc: Number(process.env.HOT_WALLET_FLOAT_CAP_USDC ?? 2_000_000_000),
-          minRefundUsdc: Number(process.env.MIN_REFUND_USDC ?? 500_000),
-          maxDivergenceBps: Number(process.env.MAX_DIVERGENCE_BPS ?? 100),
+          hotWalletFloatCapUsdc: numericEnv("HOT_WALLET_FLOAT_CAP_USDC", 2_000_000_000),
+          minRefundUsdc: numericEnv("MIN_REFUND_USDC", 500_000),
+          maxDivergenceBps: numericEnv("MAX_DIVERGENCE_BPS", 100),
           dryRun: true, // plan only — the executor signs
         },
         cursor,
@@ -168,7 +180,7 @@ export async function runCycleOnce(): Promise<{ ok: boolean; summary: string }> 
 
 /** Start the resident loop (called once at boot when hedging is enabled). */
 export function startSettlementScheduler(): void {
-  const seconds = Number(process.env.SETTLEMENT_INTERVAL_SECONDS ?? 60);
+  const seconds = numericEnv("SETTLEMENT_INTERVAL_SECONDS", 60);
   if (seconds <= 0) return;
   let cfg;
   try {
@@ -178,19 +190,10 @@ export function startSettlementScheduler(): void {
     throw e;
   }
 
-  // AUDIT #4: a non-zero fee split means the premium was discounted for
-  // revenue the settlement path is supposed to collect. `readAccruedFees`
-  // above returns 0 unconditionally, so that revenue cannot arrive.
-  // Selling at a discount for income that structurally never comes is a
-  // loss on every certificate — refuse to run rather than bleed quietly.
-  if (cfg.feeSplitRate > 0) {
-    throw new Error(
-      `feeSplitRate is ${cfg.feeSplitRate} but readAccruedFees is a stub that ` +
-        `always returns 0 — the premium would be discounted for fee revenue ` +
-        `that is never collected. Wire a real fee-growth reader before ` +
-        `setting HEDGE_FEE_SPLIT_RATE above zero.`,
-    );
-  }
+  // AUDIT #4 is now closed: `readAccruedFees` above reads real
+  // fee-growth deltas, so a non-zero fee split is backed by revenue the
+  // settlement path actually collects. The assertion that used to refuse
+  // a non-zero split is gone with the stub it guarded.
   const tick = () => {
     runCycleOnce()
       .then((r) => console.log(`[settler] ${r.summary}`))

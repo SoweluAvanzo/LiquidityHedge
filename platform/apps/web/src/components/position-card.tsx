@@ -61,6 +61,21 @@ function viabilityBand(vi: number | null): { label: string; tone: StatusTone } {
 }
 
 /**
+ * Band for the two-sided index. Different wording on purpose: this one is
+ * about whether PROVIDING THE LIQUIDITY pays once divergence loss is
+ * counted, not about whether fees cover the hedge's markup.
+ */
+function twoSidedBand(vi: number | null): { label: string; tone: StatusTone } {
+  if (vi === null || vi >= 1) {
+    return { label: "fees cover divergence loss", tone: "good" };
+  }
+  if (vi >= 0.5) {
+    return { label: "partially covers divergence loss", tone: "warning" };
+  }
+  return { label: "fees below divergence loss", tone: "critical" };
+}
+
+/**
  * Estimator provenance (policy 2026-07-08): states VERBATIM which
  * estimator produced the in-range fraction. Empirical shows its window
  * count + uncertainty band; the GBM fallback shows sigma + why the
@@ -130,6 +145,8 @@ function ViabilityRow({
   const vi = viability.viabilityIndex;
   const band = viabilityBand(vi);
   const viLabel = vi === null ? "∞" : vi.toFixed(2);
+  const ts = viability.twoSided.viabilityIndex;
+  const tsLabel = ts === null ? "∞" : ts.toFixed(2);
 
   return (
     <div className="lh-card-sub" style={{ marginTop: "1rem" }}>
@@ -159,6 +176,59 @@ function ViabilityRow({
           />
         </span>
       </div>
+      {/* Second index — the paper's two-sided breakeven (§2.4.3-2.4.4),
+          which counts divergence loss. Shown ALONGSIDE, never instead:
+          the two answer different questions and a reader who conflates
+          them will overestimate how well the position is doing. */}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: "0.4rem 0.9rem",
+          marginTop: "0.5rem",
+        }}
+      >
+        <span className="lh-label">
+          Two-sided viability ({viability.tenorDays}d)
+        </span>
+        <StatusBadge
+          tone={twoSidedBand(ts).tone}
+          label={`VI ${tsLabel} — ${twoSidedBand(ts).label}`}
+        />
+        <span className="lh-prov">
+          <span className="lh-prov-item">
+            <span className="lh-prov-key">measured</span>
+            {formatDailyYield(viability.measuredDailyYield)}
+          </span>
+          <span className="lh-prov-item">
+            <span className="lh-prov-key">breakeven r*</span>
+            {formatDailyYield(viability.twoSided.breakevenDailyYield)}
+          </span>
+          <span className="lh-prov-item">
+            <span className="lh-prov-key">E[ΔV] 7d</span>
+            {formatUsd(viability.twoSided.expectedValueChangeUsd)}
+          </span>
+          <InfoTip
+            text={`INCLUDES DIVERGENCE LOSS — this is the difference from the index above, which does not. Paper §2.4.3-2.4.4: two-sided viability needs the unhedged LP PnL to cover the protocol fee leakage, sum(dV_w + V_w*r*7) = phi*sum(P_w), giving r* = (phi*P - E[dV])/(V*T). Here E[dV] = ${formatUsd(viability.twoSided.expectedValueChangeUsd)} is the expected 7-day mark-to-market change from the same seeded Monte-Carlo as the fair value. The unhedged breakeven (phi = 0, fees vs divergence loss alone) is ${formatDailyYield(viability.twoSided.unhedgedBreakevenDailyYield)}; the protocol-fee wedge of Corollary 2.1 adds ${formatDailyYield(viability.twoSided.protocolFeeWedgeDailyYield)} on top. Model output, not a prediction.`}
+          />
+        </span>
+      </div>
+
+      <p className="lh-note" style={{ marginTop: "0.5rem" }}>
+        The two indices measure different things.{" "}
+        <b>Viability index</b> asks only whether fee income beats the
+        hedge&rsquo;s cost above fair value — it contains{" "}
+        <b>no divergence-loss term</b>.{" "}
+        <b>Two-sided viability</b> is the paper&rsquo;s §2.4.4 breakeven and{" "}
+        <b>does count divergence loss</b>, so it is the honest test of
+        whether providing the liquidity pays at all. Which of the two binds
+        harder depends on the premium floor relative to position size — on a
+        small position the floor dominates the first index, on a large one
+        divergence loss dominates the second. Read both; neither subsumes
+        the other.
+      </p>
+
       <div style={{ marginTop: "0.4rem" }}>
         <EstimatorLine viability={viability} />
       </div>
@@ -227,7 +297,13 @@ export function PositionCard({
             <span className="lh-help"> (non-USDC quote)</span>
           )}
         </Fact>
-        <Fact label="Fees owed — on-chain checkpoint, lower bound">
+        <Fact
+          label={
+            position.feesAreExact
+              ? "Fees owed — reconstructed from tick accounts, exact"
+              : "Fees owed — on-chain checkpoint only, LOWER BOUND"
+          }
+        >
           {formatTokenAmount(position.feeOwedA, position.decimalsA)} {symbolA}
           {" + "}
           {formatTokenAmount(position.feeOwedB, position.decimalsB)} {symbolB}

@@ -29,6 +29,7 @@ import { verifyPayment, PRODUCTS } from "@lh/commerce";
 
 import { commerceConfig, CommerceUnavailableError, withOrders } from "./order-ledger";
 import { serverConnection } from "./payment-lookup";
+import { numericEnv } from "@lh/storage";
 
 /** Signatures inspected per cycle. Orders expire long before this rolls. */
 const SCAN_LIMIT = 100;
@@ -158,7 +159,7 @@ export async function scanRevenueWalletOnce(): Promise<OrderScanReport> {
  * is safe to call unconditionally at boot.
  */
 export function startOrderWatcher(): void {
-  const seconds = Number(process.env.ORDER_WATCH_INTERVAL_SECONDS ?? 30);
+  const seconds = numericEnv("ORDER_WATCH_INTERVAL_SECONDS", 30);
   if (seconds <= 0) return;
   try {
     commerceConfig();

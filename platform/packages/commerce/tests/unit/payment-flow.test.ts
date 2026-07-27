@@ -421,3 +421,68 @@ describe("order claim secret", () => {
     expect(() => l.reissueDownloadToken(order.orderId)).to.throw(/not fulfilled/);
   });
 });
+
+/**
+ * Single-use download grants (AUDIT B2).
+ *
+ * The checkout says "The link works once and expires". It did not:
+ * `checkDownloadToken` is a pure predicate and the route consumed
+ * nothing, so a leaked URL stayed live for the full 24h TTL — and a buyer
+ * told the link is single-use will reasonably paste it somewhere.
+ */
+describe("download grant is single-use", () => {
+  const cfg = {
+    revenueWallet: "Rev1111111111111111111111111111111111111111",
+    usdcMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    orderTtlSeconds: 900,
+    downloadTtlSeconds: 86_400,
+    minRefundUsdc: 100_000,
+  };
+  const clock = { now: () => 1_700_000_000 };
+
+  function fulfilled() {
+    const l = new OrderLedger(cfg, clock);
+    const { order, claimSecret } = l.createOrder({ productId: "dataset-2026-forward" });
+    l.observePayment(order.orderId, {
+      txSignature: "sig-redeem",
+      amountUsdc: order.amountUsdc,
+      senderWallet: "Buyer111111111111111111111111111111111111111",
+      slot: 1,
+      observedAtTs: clock.now(),
+    });
+    const token = l.fulfil(order.orderId).downloadToken;
+    return { l, orderId: order.orderId, token, claimSecret };
+  }
+
+  it("redeems once, then refuses the same token", () => {
+    const { l, orderId, token } = fulfilled();
+    expect(l.redeemDownloadToken(orderId, token)).to.equal(true);
+    expect(l.redeemDownloadToken(orderId, token)).to.equal(false);
+    expect(l.checkDownloadToken(orderId, token)).to.equal(false);
+  });
+
+  it("refuses a wrong token without consuming the real one", () => {
+    const { l, orderId, token } = fulfilled();
+    expect(l.redeemDownloadToken(orderId, token + "x")).to.equal(false);
+    expect(l.redeemDownloadToken(orderId, token)).to.equal(true);
+  });
+
+  it("stays redeemed across replay — a restart cannot revive a used link", () => {
+    const { l, orderId, token } = fulfilled();
+    expect(l.redeemDownloadToken(orderId, token)).to.equal(true);
+    const replayed = OrderLedger.fromEvents(cfg, clock, l.getEvents());
+    expect(replayed.checkDownloadToken(orderId, token)).to.equal(false);
+  });
+
+  it("the claim secret re-issues a working grant after redemption", () => {
+    // Consuming on delivery is only safe because this path exists.
+    const { l, orderId, token, claimSecret } = fulfilled();
+    expect(l.redeemDownloadToken(orderId, token)).to.equal(true);
+    expect(l.verifyClaim(orderId, claimSecret)).to.equal(true);
+    const fresh = l.reissueDownloadToken(orderId).downloadToken;
+    expect(fresh).to.not.equal(token);
+    expect(l.redeemDownloadToken(orderId, fresh)).to.equal(true);
+    // …and the old one is still dead.
+    expect(l.checkDownloadToken(orderId, token)).to.equal(false);
+  });
+});

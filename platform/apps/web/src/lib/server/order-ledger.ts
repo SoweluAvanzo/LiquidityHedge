@@ -13,6 +13,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs";
 import path from "path";
+import { numericEnv } from "@lh/storage";
 import {
   CommerceConfig,
   OrderLedger,
@@ -49,9 +50,9 @@ export function commerceConfig(): CommerceConfig {
   return {
     revenueWallet,
     usdcMint: process.env.USDC_MINT ?? USDC_MINT,
-    orderTtlSeconds: Number(process.env.ORDER_TTL_SECONDS ?? 3600),
-    downloadTtlSeconds: Number(process.env.DOWNLOAD_TTL_SECONDS ?? 86_400),
-    minRefundUsdc: Number(process.env.MIN_REFUND_USDC ?? 500_000),
+    orderTtlSeconds: numericEnv("ORDER_TTL_SECONDS", 3600),
+    downloadTtlSeconds: numericEnv("DOWNLOAD_TTL_SECONDS", 86_400),
+    minRefundUsdc: numericEnv("MIN_REFUND_USDC", 500_000),
   };
 }
 

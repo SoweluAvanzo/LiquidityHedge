@@ -1029,6 +1029,7 @@ export async function POST(request: NextRequest) {
       correlation:
         history && history.length > 1 ? correlationReport(history) : null,
       sampling: req.sampling,
+      executedPaths: paths.nPaths,
       comovement,
       report,
     };

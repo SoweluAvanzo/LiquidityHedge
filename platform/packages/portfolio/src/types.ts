@@ -34,6 +34,12 @@ export interface PortfolioPositionView {
    * Fees owed as last checkpointed ON-CHAIN. Stale until the pool's
    * update_fees_and_rewards has run — treat as a lower bound (FR-M2 note).
    */
+  /**
+   * True when fees were reconstructed from the tick accounts (the real
+   * collectable amount). False means only the position's stale checkpoint
+   * was available, which is a LOWER BOUND — see market-data/fees-owed.ts.
+   */
+  feesAreExact?: boolean;
   feeOwedA: bigint;
   feeOwedB: bigint;
 }

@@ -18,6 +18,7 @@
 import { randomBytes, randomUUID } from "crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs";
 import path from "path";
+import { numericEnv } from "@lh/storage";
 import {
   CertificateLedger,
   sha256Hex,
@@ -126,22 +127,20 @@ function buildConfig(): LedgerConfig {
     // Governance parameter (docs/03 §3.3): $0.05 default. A high floor makes
     // small positions uneconomical to hedge (it dominates the fair value);
     // override per environment with HEDGE_PREMIUM_FLOOR_USDC (µUSDC).
-    premiumFloorUsdc: Number(process.env.HEDGE_PREMIUM_FLOOR_USDC ?? 50_000),
+    premiumFloorUsdc: numericEnv("HEDGE_PREMIUM_FLOOR_USDC", 50_000),
     // A2/A3 guards: bound griefing and unbounded ledger growth.
-    maxOpenQuotesPerOwner: Number(process.env.MAX_OPEN_QUOTES_PER_OWNER ?? 3),
-    maxLifetimeQuotes: Number(process.env.MAX_LIFETIME_QUOTES ?? 50_000),
+    maxOpenQuotesPerOwner: numericEnv("MAX_OPEN_QUOTES_PER_OWNER", 3),
+    maxLifetimeQuotes: numericEnv("MAX_LIFETIME_QUOTES", 50_000),
     markupFloor: 1.05,
-    // AUDIT #4: the premium formula discounts by `y · E[F]` BECAUSE the
-    // Risk Taker collects y × realised LP fees at settlement. Every
-    // production `readAccruedFees` returns 0 unconditionally (the real
-    // fee-growth reader is never wired to @lh/hedge), so that revenue
-    // never arrives — the discount was pure, structural loss: ~$35 given
-    // away on a $10k position against $1 of protocol fee.
-    //
-    // Until a real reader is wired, the split is ZERO and the premium is
-    // not discounted for it. Re-enable ONLY together with a reader that
-    // actually returns accrued fees; the two must move as one.
-    feeSplitRate: Number(process.env.HEDGE_FEE_SPLIT_RATE ?? 0),
+    // AUDIT #4, CLOSED. The premium discounts by `y · E[F]` because the
+    // Risk Taker collects y × realised LP fees at settlement. That
+    // revenue used to be structurally uncollectable — every production
+    // `readAccruedFees` returned 0 — so the discount was pure loss and the
+    // split was pinned to 0. It is now backed by a real reader
+    // (lib/server/fee-reader.ts) that takes a fee-growth checkpoint at
+    // activation and measures the delta at settlement, so the split is
+    // restored to the protocol default.
+    feeSplitRate: numericEnv("HEDGE_FEE_SPLIT_RATE", 0.1),
     // AUDIT #5: this was hardcoded at 0.5%/day while the platform's own
     // live measurement of the canonical SOL/USDC pool is ~0.042%/day —
     // 12x. E[F] = V · expectedDailyFee · tenorDays feeds the same discount
@@ -149,11 +148,11 @@ function buildConfig(): LedgerConfig {
     // conservative governance default is now an order of magnitude lower
     // and overridable; a measurement-driven value is the proper fix
     // (computeInRangeDailyRate already exists in lib/server/viability).
-    expectedDailyFee: Number(process.env.HEDGE_EXPECTED_DAILY_FEE ?? 0.0005),
-    tenorSeconds: Number(process.env.HEDGE_TENOR_SECONDS ?? 604_800),
+    expectedDailyFee: numericEnv("HEDGE_EXPECTED_DAILY_FEE", 0.0005),
+    tenorSeconds: numericEnv("HEDGE_TENOR_SECONDS", 604_800),
     quoteTtlSeconds: 120,
     regimeMaxAgeSeconds: 900,
-    perBuyerCapDownLimitUsdc: Number(process.env.HEDGE_PER_BUYER_CAP_USDC ?? 0),
+    perBuyerCapDownLimitUsdc: numericEnv("HEDGE_PER_BUYER_CAP_USDC", 0),
     masterTermsVersion,
     masterTermsHash: sha256Hex(masterTerms),
     treasuryAddress,

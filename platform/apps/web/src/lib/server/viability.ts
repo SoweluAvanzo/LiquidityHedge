@@ -29,25 +29,34 @@ import type {
 import {
   composeInRangeEstimate,
   computeViability,
+  computeTwoSidedViability,
   positionValueAtPrice,
 } from "@lh/portfolio";
-import { computeRealizedVol, empiricalInRangeFraction } from "@lh/market-data";
+import {
+  computeRealizedVol,
+  empiricalInRangeFractionBounds,
+} from "@lh/market-data";
 import { GbmModel } from "@lh/risk-models";
 import type { WhirlpoolData } from "@lh/core/src/market-data/decoder";
 import {
   computeConcentrationFactor,
   estimatePoolDailyYield,
-  estimatePositionDailyYield,
+  inRangeFractionBounds,
+  lpFeeTier,
   type PoolOverview,
 } from "@lh/core/src/market-data/orca-volume-adapter";
 import { getPoolOverview, getSolDailyCandles, birdeyeApiKey } from "./birdeye";
 import type { PositionViabilityWire } from "@/lib/portfolio-api";
+import { numericEnv } from "@lh/storage";
 
 const TENOR_DAYS = 7;
 const TENOR_SECONDS = TENOR_DAYS * 86_400;
 const EFFECTIVE_MARKUP = 1.08;
 const PREMIUM_FLOOR_USD =
-  Number(process.env.HEDGE_PREMIUM_FLOOR_USDC ?? 50_000) / 1e6;
+  numericEnv("HEDGE_PREMIUM_FLOOR_USDC", 50_000) / 1e6;
+/** Protocol treasury fee φ — the only leakage in the paper's §2.4.2
+ * redistribution identity, and the whole of Corollary 2.1's wedge. */
+const PROTOCOL_FEE_RATE = numericEnv("HEDGE_PROTOCOL_FEE_RATE", 0.015);
 const FEE_SPLIT_RATE = 0.1;
 
 const FV_PATHS = 20_000;
@@ -116,14 +125,25 @@ function empiricalFailureReason(error: unknown): string {
  * analytic and labels itself accordingly; values are never faked.
  */
 async function loadEmpiricalInRange(
-  widthBps: number,
+  priceLower: number,
+  priceUpper: number,
+  spot: number,
   horizonSteps: number,
 ): Promise<{ empirical: EmpiricalInRangeInput | null; reason: string | null }> {
   try {
     const { candles } = await getSolDailyCandles(EMPIRICAL_WINDOW_DAYS);
     const closes = candles.map((c) => c.c);
     return {
-      empirical: empiricalInRangeFraction(closes, widthBps, horizonSteps),
+      // Actual bounds, not a width re-centred on spot — the empirical
+      // estimator is PRIMARY once ~60 windows exist, so fixing only the
+      // GBM reference leg would have left the served number unchanged.
+      empirical: empiricalInRangeFractionBounds(
+        closes,
+        priceLower,
+        priceUpper,
+        spot,
+        horizonSteps,
+      ),
       reason: null,
     };
   } catch (error) {
@@ -149,22 +169,35 @@ interface SigmaEstimate {
 async function poolYieldBasis(
   view: PortfolioPositionView,
   whirlpool: WhirlpoolData,
-): Promise<{ overview: PoolOverview; concentrationFactor: number }> {
-  // Whirlpool fee_rate is parts-per-million (SOL/USDC 0.04% pool = 400).
-  const feeTier = whirlpool.feeRate / 1_000_000;
+): Promise<{ overview: PoolOverview; concentrationFactor: number } | null> {
+  // NET of Orca's protocol share — LPs do not accrue the whole swap fee.
+  // Using the gross rate overstated every measured yield by ~14.9%.
+  const feeTier = lpFeeTier(whirlpool.feeRate, whirlpool.protocolFeeRate);
   const overview = await getPoolOverview(view.whirlpool, feeTier);
 
-  // Concentration factor from on-chain L-share vs USD V-share, with the
-  // same sanity window + c=1 fallback as the live measurement script.
+  // Concentration factor from on-chain L-share vs USD V-share. An
+  // out-of-band value is reported UNAVAILABLE, never replaced with 1.
   const cRaw = computeConcentrationFactor({
     L_position: view.liquidity,
     L_active: whirlpool.liquidity,
     V_position_usd: view.valueQuote,
     TVL_usd: overview.liquidityUsd,
   });
-  const concentrationFactor =
-    cRaw !== null && cRaw >= C_SANITY_MIN && cRaw <= C_SANITY_MAX ? cRaw : 1;
-  return { overview, concentrationFactor };
+  // Substituting 1 here silently discarded the real value for the two
+  // commonest shapes — full-range (c well below the floor) and very tight
+  // (c well above the ceiling) — and then printed "concentration factor
+  // 1.00" as if measured, flipping the viability verdict in BOTH
+  // directions. This file's own policy is that a value is never faked, so
+  // an out-of-band c makes the whole record unavailable.
+  if (cRaw === null || cRaw < C_SANITY_MIN || cRaw > C_SANITY_MAX) {
+    console.warn(
+      `[viability] concentration factor ${cRaw} outside [${C_SANITY_MIN}, ` +
+        `${C_SANITY_MAX}] for ${view.positionAddress} — reporting unavailable ` +
+        `rather than substituting 1`,
+    );
+    return null;
+  }
+  return { overview, concentrationFactor: cRaw };
 }
 
 /**
@@ -238,7 +271,7 @@ function fairValueMc(
   view: PortfolioPositionView,
   sigma: number,
   closes: number[],
-): number {
+): { fairValueUsd: number; expectedValueChangeUsd: number } {
   const model = new GbmModel();
   const params = model.calibrate(
     [{ assetId: "SOL", closes, stepSeconds: 86_400 }],
@@ -254,13 +287,30 @@ function fairValueMc(
 
   const v0 = positionValueAtPrice(view, view.price);
   let sum = 0;
+  // E[ΔV] = E[V(S_T)] − V(S_0), UNCLAMPED — the position's real
+  // mark-to-market change, which is what the paper's two-sided breakeven
+  // needs (§2.4.4). Accumulated from the same draws as FV so the two are
+  // mutually consistent rather than two independent samples.
+  let sumDelta = 0;
   const solPaths = paths.prices[0];
   for (let p = 0; p < FV_PATHS; p++) {
     const sT = solPaths[p][1];
     const clamped = Math.min(Math.max(sT, view.priceLower), view.priceUpper);
     sum += v0 - positionValueAtPrice(view, clamped);
+    sumDelta += positionValueAtPrice(view, sT) - v0;
   }
-  return sum / FV_PATHS;
+  // §3.1 asserts FV >= 0. That proof needs S0 inside [p_l, p_u]: below the
+  // range, V(S0) < V(p_l) <= V(clamp(S_T)) pathwise, so the raw mean is
+  // negative and then INFLATES the floor-branch breakeven
+  // (P_floor - FV)/(1-y). Clamped here to match computeQuadratureFV and
+  // @lh/hedge's pricing, which both already floor at zero.
+  //
+  // E[dV] is NOT clamped — it is a mark-to-market expectation and is
+  // legitimately negative (that is the divergence loss).
+  return {
+    fairValueUsd: Math.max(0, sum / FV_PATHS),
+    expectedValueChangeUsd: sumDelta / FV_PATHS,
+  };
 }
 
 /**
@@ -275,10 +325,11 @@ export async function computePositionViability(
   try {
     if (view.valueQuote <= 0) return null;
 
-    const { overview, concentrationFactor: c } = await poolYieldBasis(
-      view,
-      whirlpool,
-    );
+    const basis = await poolYieldBasis(view, whirlpool);
+    // Null means an input was unavailable — report nothing rather than a
+    // substituted value the card would label "measured".
+    if (!basis) return null;
+    const { overview, concentrationFactor: c } = basis;
 
     // Symmetric-width equivalent of the position's range around the
     // current price (the adapter's in-range model is symmetric in w).
@@ -288,20 +339,35 @@ export async function computePositionViability(
     );
 
     const { sigma, windowDays, closes } = sigmaEstimate;
-    const est = estimatePositionDailyYield(
-      overview,
-      widthBps,
+    // The GBM in-range fraction now uses the range's ACTUAL bounds rather
+    // than a half-width re-centred on spot. The old form reported a
+    // position as ~98% in range while its price sat entirely outside the
+    // range, and that fraction multiplies straight into measuredDailyYield
+    // — the numerator of BOTH viability indices.
+    const gbmFractionBounds = inRangeFractionBounds(
+      view.priceLower,
+      view.priceUpper,
+      view.price,
       sigma,
       TENOR_SECONDS,
-      c,
     );
+    const poolDaily = estimatePoolDailyYield(overview);
+    const est = {
+      poolDailyYield: poolDaily,
+      inRangeFraction: gbmFractionBounds,
+      concentrationFactor: c,
+      positionDailyYield: poolDaily * gbmFractionBounds * c,
+      tenorDays: TENOR_SECONDS / 86_400,
+      source: overview,
+    };
 
-    // Empirical estimator width: symmetric half-width of the position's
-    // range as a fraction of the range MIDPOINT — (pU − pL)/(pU + pL) =
-    // halfWidth/midpoint. This is the symmetric-equivalent of the actual
-    // [pL, pU] range, the same ±w symmetric-band convention the GBM path
-    // assumes (inRangeProbabilityAt models [S·(1−w), S·(1+w)]), so both
-    // estimators answer the same question about the same range shape.
+    // Empirical estimator width: half-width as a fraction of the range
+    // MIDPOINT. The GBM side now integrates the ACTUAL bounds, so the two
+    // are no longer forced onto one symmetric convention — but the
+    // divergence metric below compares them, and a previous comment here
+    // wrongly claimed they already used the same width. They differ by
+    // exactly price/midpoint, which manufactured "model divergence" for
+    // any position sitting off its own midpoint.
     const empiricalWidthBps = Math.round(
       ((view.priceUpper - view.priceLower) /
         (view.priceUpper + view.priceLower)) *
@@ -313,7 +379,9 @@ export async function computePositionViability(
     // disagreement is surfaced (never averaged), and the method used is
     // labeled on the wire for verbatim display in the UI.
     const { empirical, reason } = await loadEmpiricalInRange(
-      empiricalWidthBps,
+      view.priceLower,
+      view.priceUpper,
+      view.price,
       TENOR_DAYS, // 7 daily steps — the 7-day tenor
     );
     const inRangeEstimate = composeInRangeEstimate({
@@ -327,13 +395,41 @@ export async function computePositionViability(
     const measuredDailyYield =
       est.poolDailyYield * inRangeEstimate.fraction * c;
 
-    const fairValueUsd = fairValueMc(view, sigma, closes);
+    const { fairValueUsd, expectedValueChangeUsd } = fairValueMc(view, sigma, closes);
+    // A NaN anywhere upstream used to travel as `null`, which the card
+    // reads as "unbounded" and paints GREEN — a silent numeric failure
+    // displayed as the strongest possible pass. Refuse instead.
+    if (!Number.isFinite(fairValueUsd) || !Number.isFinite(expectedValueChangeUsd)) {
+      console.error(
+        `[viability] non-finite FV/E[dV] for ${view.positionAddress} — ` +
+          `reporting unavailable`,
+      );
+      return null;
+    }
+    if (!Number.isFinite(measuredDailyYield)) return null;
 
     const result = computeViability({
       fairValueUsd,
       effectiveMarkup: EFFECTIVE_MARKUP,
       premiumFloorUsd: PREMIUM_FLOOR_USD,
       feeSplitRate: FEE_SPLIT_RATE,
+      positionValueUsd: view.valueQuote,
+      tenorDays: TENOR_DAYS,
+      measuredDailyYield,
+    });
+
+    // Paper §2.4.4 two-sided breakeven — the index that DOES count
+    // divergence loss. Premium is evaluated at the measured fee yield,
+    // matching the paper's use of realised premiums.
+    const expectedFeesUsd = view.valueQuote * measuredDailyYield * TENOR_DAYS;
+    const premiumUsd = Math.max(
+      PREMIUM_FLOOR_USD,
+      fairValueUsd * EFFECTIVE_MARKUP - FEE_SPLIT_RATE * expectedFeesUsd,
+    );
+    const twoSided = computeTwoSidedViability({
+      expectedValueChangeUsd,
+      premiumUsd,
+      protocolFeeRate: PROTOCOL_FEE_RATE,
       positionValueUsd: view.valueQuote,
       tenorDays: TENOR_DAYS,
       measuredDailyYield,
@@ -361,6 +457,17 @@ export async function computePositionViability(
       breakevenDailyYield: result.breakevenDailyYield,
       measuredDailyYield,
       bound: result.bound,
+      // Second index: includes divergence loss (paper §2.4.3-2.4.4).
+      twoSided: {
+        viabilityIndex: Number.isFinite(twoSided.viabilityIndex)
+          ? twoSided.viabilityIndex
+          : null,
+        breakevenDailyYield: twoSided.breakevenDailyYield,
+        unhedgedBreakevenDailyYield: twoSided.unhedgedBreakevenDailyYield,
+        protocolFeeWedgeDailyYield: twoSided.protocolFeeWedgeDailyYield,
+        expectedValueChangeUsd: twoSided.expectedValueChangeUsd,
+        premiumUsd,
+      },
       fairValueUsd,
       sigmaAnnualized: sigma,
       sigmaWindowDays: windowDays,

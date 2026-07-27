@@ -21,6 +21,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { buildDataReport } from "./data-report";
 import { sendReportViaResend } from "./email-transport";
+import { numericEnv } from "@lh/storage";
 
 /** Read a var from the environment, falling back to lh-protocol/.env —
  *  the same convention the other CLIs use for local runs. */
@@ -89,7 +90,7 @@ async function main() {
   });
 
   if (loop) {
-    const hours = Number(process.env.REPORT_INTERVAL_HOURS ?? 48);
+    const hours = numericEnv("REPORT_INTERVAL_HOURS", 48);
     console.log(`resident mode: sending every ${hours} h`);
     setInterval(
       () => {

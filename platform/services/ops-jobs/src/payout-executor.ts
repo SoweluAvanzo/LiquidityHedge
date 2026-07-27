@@ -27,6 +27,7 @@ import {
 } from "@solana/web3.js";
 import { getAccount, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { buildPayoutInstructions } from "@lh/hedge";
+import { numericEnv } from "@lh/storage";
 
 interface OutboxEntry {
   kind: "settlement" | "refund";
@@ -92,7 +93,7 @@ async function main() {
   const usdcMint = new PublicKey(
     process.env.USDC_MINT ?? "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
   );
-  const floatCap = Number(process.env.HOT_WALLET_FLOAT_CAP_USDC ?? 2_000_000_000);
+  const floatCap = numericEnv("HOT_WALLET_FLOAT_CAP_USDC", 2_000_000_000);
   const dryRun = process.env.PAYOUT_DRY_RUN === "1";
   const connection = new Connection(rpc, "finalized");
   mkdirSync(dataDir, { recursive: true });
@@ -168,7 +169,7 @@ async function main() {
   };
 
   await cycle();
-  const loop = Number(process.env.PAYOUT_LOOP_SECONDS ?? 0);
+  const loop = numericEnv("PAYOUT_LOOP_SECONDS", 0);
   if (loop > 0) {
     console.log(`[executor] resident mode — every ${loop}s`);
     const tick = () => {

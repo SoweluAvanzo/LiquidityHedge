@@ -68,6 +68,7 @@ function makePorts(opts?: {
       crossCheckPriceUsd: opts?.priceUsd ?? 150,
       divergenceBps: opts?.divergenceBps ?? 0,
     }),
+    readFeeCheckpoint: async () => null,
     readAccruedFees: async () => 1_000_000, // $1
     executePayout: async (p) => {
       if (opts?.failPayoutFor && p.memo.includes(opts.failPayoutFor)) {
@@ -221,5 +222,67 @@ describe("@lh/hedge settlement runner (production money loop)", () => {
     expect(r.failedPayouts[0].error).to.match(/rpc exploded/);
     // Ledger already recorded the settlement — the monitor keeps invariants.
     expect(r.invariantsOk).to.equal(true);
+  });
+});
+
+/**
+ * Fee-checkpoint capture (AUDIT #4).
+ *
+ * The RT's fee share is y x fees accrued DURING the certificate, so the
+ * accumulator must be snapshotted at activation — it cannot be recovered
+ * afterwards, because the counter exists on-chain only at the instant it
+ * is read. These pin that the runner takes it, that it is write-once, and
+ * that a reader failure leaves NO checkpoint rather than a fabricated one.
+ */
+describe("fee checkpoint at activation (AUDIT #4)", () => {
+  const CP = {
+    feeGrowthInsideA: "1000",
+    feeGrowthInsideB: "2000",
+    liquidity: "5000",
+    decimalsA: 9,
+    decimalsB: 6,
+    takenAtTs: 111,
+  };
+
+  async function activated(checkpoint: typeof CP | null) {
+    const clock = makeClock();
+    const ledger = new CertificateLedger(CONFIG, clock, makeIds(), 100_000_000_000);
+    const quote = ledger.issueQuote(position(), {
+      sigmaAnnual: 0.6, ivRvRatio: 1.08, regimeUpdatedAtTs: clock.now(),
+    });
+    const { ports, queue } = makePorts({ priceUsd: 150 });
+    ports.readFeeCheckpoint = async () => checkpoint;
+    queue.push({
+      txSignature: "txCP", referenceKey: quote.referenceKey,
+      senderWallet: "buyer1", amountUsdc: quote.totalPayableUsdc,
+    });
+    await runSettlementCycle(ledger, ports, RUN, null);
+    return { ledger, quoteId: quote.quoteId };
+  }
+
+  it("the runner takes a checkpoint the moment a certificate activates", async () => {
+    const { ledger, quoteId } = await activated(CP);
+    expect(ledger.getState().certs.get(quoteId)!.feeCheckpoint).to.deep.equal(CP);
+  });
+
+  it("is write-once — a re-run cannot move the fee basis", async () => {
+    const { ledger, quoteId } = await activated(CP);
+    ledger.recordFeeCheckpoint(quoteId, { ...CP, feeGrowthInsideA: "9999" });
+    expect(
+      ledger.getState().certs.get(quoteId)!.feeCheckpoint!.feeGrowthInsideA,
+    ).to.equal("1000");
+  });
+
+  it("survives replay, so a restart cannot lose the basis", async () => {
+    const { ledger, quoteId } = await activated(CP);
+    const replayed = CertificateLedger.fromEvents(
+      CONFIG, makeClock(), makeIds(), ledger.getEvents(),
+    );
+    expect(replayed.getState().certs.get(quoteId)!.feeCheckpoint).to.deep.equal(CP);
+  });
+
+  it("a reader failure leaves NO checkpoint rather than a fabricated one", async () => {
+    const { ledger, quoteId } = await activated(null);
+    expect(ledger.getState().certs.get(quoteId)!.feeCheckpoint).to.equal(undefined);
   });
 });

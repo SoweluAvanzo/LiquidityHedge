@@ -117,12 +117,23 @@ export async function fetchPoolOverview(
     );
   }
   const d = json.data;
+  // A missing field is UNAVAILABLE, not zero. Defaulting to 0 produced a
+  // fully-populated record whose pool yield was 0, which the dashboard
+  // then rendered as "measured 0.000%/day" with a critical verdict — an
+  // invented measurement. Refuse instead; every caller already handles a
+  // failed overview by reporting unavailable.
+  if (d.liquidity === undefined || d.liquidity === null) {
+    throw new Error(`pool overview for ${poolAddress}: 'liquidity' absent`);
+  }
+  if (d.volume_24h === undefined || d.volume_24h === null) {
+    throw new Error(`pool overview for ${poolAddress}: 'volume_24h' absent`);
+  }
   return {
     address: d.address ?? poolAddress,
     tokenMintA: d.base?.address ?? "",
     tokenMintB: d.quote?.address ?? "",
-    liquidityUsd: Number(d.liquidity ?? 0),
-    volume24hUsd: Number(d.volume_24h ?? 0),
+    liquidityUsd: Number(d.liquidity),
+    volume24hUsd: Number(d.volume_24h),
     volume7dUsd,
     feeTier,
     priceUsd: Number(d.price ?? 0),
@@ -142,6 +153,21 @@ export async function fetchPoolOverview(
  * Uses 24h volume by default (freshest). Pass `window = "7d"` for a
  * smoother estimate (less noise from single-day outliers).
  */
+/**
+ * The fee tier LPs actually accrue, net of Orca's protocol share.
+ *
+ * `Whirlpool.fee_rate` is the TOTAL swap fee; `protocol_fee_rate` is the
+ * cut the Orca treasury keeps, in bps OF that fee. Treating the gross rate
+ * as LP revenue overstates every yield by 1/(1−pfr/1e4) — 14.94% on the
+ * canonical SOL/USDC pool. This is anti-conservative for the LP, so it
+ * cannot be filed under "conservative simplification".
+ */
+export function lpFeeTier(feeRatePpm: number, protocolFeeRateBps: number): number {
+  const gross = feeRatePpm / 1_000_000;
+  const share = Math.min(Math.max(protocolFeeRateBps, 0), 10_000) / 10_000;
+  return gross * (1 - share);
+}
+
 export function estimatePoolDailyYield(
   stats: PoolOverview,
   window: "24h" | "7d" = "24h",
@@ -168,6 +194,39 @@ export function estimatePoolDailyYield(
  *
  *   P = Φ((ln(1+w) − μ·t) / (σ·√t))  −  Φ((ln(1−w) − μ·t) / (σ·√t))
  */
+/**
+ * P(p_l ≤ S_t ≤ p_u) under the same risk-neutral GBM, using the range's
+ * ACTUAL bounds.
+ *
+ * `inRangeProbabilityAt` below models a range symmetric about spot,
+ * `[S₀(1−w), S₀(1+w)]`. Callers were deriving `w` as half-width ÷ spot and
+ * passing it, which silently RE-CENTRED the range on the current price —
+ * so a position whose price had left its range still reported ~98%
+ * in-range. That figure multiplies straight into the measured fee yield,
+ * i.e. the numerator of both viability indices.
+ *
+ * Same measure, same drift (μ = −σ²/2), no new assumptions — it simply
+ * does not assume the position is centred where the price happens to be.
+ */
+export function inRangeProbabilityBounds(
+  priceLower: number,
+  priceUpper: number,
+  spot: number,
+  sigmaAnnualized: number,
+  tYears: number,
+): number {
+  if (!(spot > 0) || !(priceLower > 0) || !(priceUpper > priceLower)) return 0;
+  if (tYears <= 0) {
+    return spot >= priceLower && spot < priceUpper ? 1 : 0;
+  }
+  const mu = -0.5 * sigmaAnnualized * sigmaAnnualized;
+  const s = sigmaAnnualized * Math.sqrt(tYears);
+  if (!(s > 0)) return spot >= priceLower && spot < priceUpper ? 1 : 0;
+  const zUpper = (Math.log(priceUpper / spot) - mu * tYears) / s;
+  const zLower = (Math.log(priceLower / spot) - mu * tYears) / s;
+  return Math.max(0, normalCdf(zUpper) - normalCdf(zLower));
+}
+
 export function inRangeProbabilityAt(
   widthBps: number,
   sigmaAnnualized: number,
@@ -192,6 +251,34 @@ export function inRangeProbabilityAt(
  * Numerical integration via composite Simpson (40 sub-intervals —
  * more than enough for a monotone integrand over a short tenor).
  */
+/**
+ * Time-averaged in-range fraction over the tenor, using the range's ACTUAL
+ * bounds. Same Simpson averaging as `inRangeFraction`, but without the
+ * symmetric-about-spot assumption (see `inRangeProbabilityBounds`).
+ */
+export function inRangeFractionBounds(
+  priceLower: number,
+  priceUpper: number,
+  spot: number,
+  sigmaAnnualized: number,
+  tenorSeconds: number,
+  simpsonN: number = 40,
+): number {
+  if (tenorSeconds <= 0) {
+    return spot >= priceLower && spot < priceUpper ? 1 : 0;
+  }
+  const T = tenorSeconds / SECONDS_PER_YEAR;
+  const n = simpsonN % 2 === 0 ? simpsonN : simpsonN + 1;
+  const h = T / n;
+  const P = (t: number) =>
+    inRangeProbabilityBounds(priceLower, priceUpper, spot, sigmaAnnualized, t);
+  let sum = P(0) + P(T);
+  for (let i = 1; i < n; i++) {
+    sum += (i % 2 === 0 ? 2 : 4) * P(i * h);
+  }
+  return Math.min(1, Math.max(0, ((h / 3) * sum) / T));
+}
+
 export function inRangeFraction(
   widthBps: number,
   sigmaAnnualized: number,

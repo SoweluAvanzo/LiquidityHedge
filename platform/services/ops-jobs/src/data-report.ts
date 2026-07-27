@@ -413,7 +413,7 @@ export function buildDataReport(inputs: ReportInputs, nowIso: string): DataRepor
  * the event log rather than importing the live ledger, so the reporting
  * job stays read-only and needs no shared process state.
  */
-function summariseOrdersNeedingAttention(dir: string | undefined): string[] {
+export function summariseOrdersNeedingAttention(dir: string | undefined): string[] {
   if (!dir) return [];
   const file = path.join(dir, "order-events.jsonl");
   if (!fs.existsSync(file)) return [];
@@ -422,22 +422,36 @@ function summariseOrdersNeedingAttention(dir: string | undefined): string[] {
     if (!line.trim()) continue;
     let e: Record<string, unknown>;
     try { e = JSON.parse(line); } catch { continue; }
-    const id = String(e.orderId ?? "");
+    // OrderCreated nests the id under `order`; every later event carries
+    // it at the top level.
+    const nested = (e.order ?? {}) as Record<string, unknown>;
+    const id = String(e.orderId ?? nested.orderId ?? "");
     if (!id) continue;
     const prev = state.get(id) ?? { status: "", amount: 0, product: "" };
     switch (e.kind) {
-      case "OrderCreated":
+      case "OrderCreated": {
+        // The order's fields are NESTED under `e.order`; reading them from
+        // the top level left every entry at 0.000000 USDC with an empty
+        // product, so a 200 USDC pre-order and a $1.03 refund looked
+        // identical on the operator's action list.
+        const order = (e.order ?? {}) as Record<string, unknown>;
         state.set(id, {
           status: "awaiting-payment",
-          amount: Number(e.amountUsdc ?? 0),
-          product: String(e.productId ?? ""),
+          amount: Number(order.amountUsdc ?? 0),
+          product: String(order.productId ?? ""),
         });
         break;
+      }
       case "PaymentObserved": state.set(id, { ...prev, status: "paid" }); break;
-      case "Fulfilled":       state.set(id, { ...prev, status: "fulfilled" }); break;
+      // The ledger emits OrderFulfilled / OrderExpired — matching the
+      // shorter names meant fulfilled orders NEVER cleared from the list.
+      case "OrderFulfilled":  state.set(id, { ...prev, status: "fulfilled" }); break;
+      case "OrderExpired":    state.set(id, { ...prev, status: "expired" }); break;
       case "RefundDue":       state.set(id, { ...prev, status: "refund-due" }); break;
-      case "Refunded":        state.set(id, { ...prev, status: "refunded" }); break;
-      case "Expired":         state.set(id, { ...prev, status: "expired" }); break;
+      // NOTE: the ledger has no "refund paid" event, so a refund-due order
+      // stays on this list until one exists. That is the right default —
+      // an unresolved refund should remain visible — but it does mean the
+      // list cannot be cleared by paying the refund. Tracked as an open item.
       default: break;
     }
   }

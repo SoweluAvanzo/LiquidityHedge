@@ -45,6 +45,13 @@ export interface WhirlpoolData {
   tokenVaultA: PublicKey;
   tokenVaultB: PublicKey;
   feeRate: number;
+  /**
+   * Orca's share of the swap fee, in basis points OF THE FEE (u16 at 47).
+   * LPs accrue `feeRate × (1 − protocolFeeRate/10_000)`; using the gross
+   * `feeRate` as if it all reached LPs overstates measured yield — 1300
+   * on the canonical SOL/USDC pool, i.e. 14.94%.
+   */
+  protocolFeeRate: number;
   /** Total in-range liquidity at the current tick (u128). This is the
    *  denominator for concentration-factor calculations. */
   liquidity: bigint;
@@ -111,6 +118,7 @@ export function decodeWhirlpoolAccount(data: Buffer): WhirlpoolData {
 
   const tickSpacing = data.readUInt16LE(41);
   const feeRate = data.readUInt16LE(45);
+  const protocolFeeRate = data.readUInt16LE(47);
 
   const liquidity = readU128LE(data, 49);
 
@@ -136,6 +144,7 @@ export function decodeWhirlpoolAccount(data: Buffer): WhirlpoolData {
     tokenVaultA,
     tokenVaultB,
     feeRate,
+    protocolFeeRate,
     liquidity,
     feeGrowthGlobalA,
     feeGrowthGlobalB,

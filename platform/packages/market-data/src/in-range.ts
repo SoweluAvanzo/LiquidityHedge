@@ -70,6 +70,57 @@ export interface EmpiricalInRangeResult {
   horizonSteps: number;
 }
 
+/**
+ * Empirical in-range fraction for a range at its ACTUAL position relative
+ * to spot, rather than a ±w band re-centred on each window's open.
+ *
+ * The width-based form below asks "how often does a band around spot hold
+ * the price". For a position whose range does not straddle spot that is a
+ * question about a different range: all four live positions sat entirely
+ * below their own ranges and were still credited with 86% in-range time.
+ * That fraction multiplies straight into measured fee yield, the numerator
+ * of both viability indices.
+ *
+ * Fix: carry the range's MULTIPLICATIVE offsets from spot into each
+ * window, so window i tests [close_i·(pL/S0), close_i·(pU/S0)]. Same
+ * rolling-window estimator, same windows, no new assumptions — it simply
+ * stops assuming the position is centred where the price is now.
+ */
+export function empiricalInRangeFractionBounds(
+  closes: number[],
+  priceLower: number,
+  priceUpper: number,
+  spot: number,
+  horizonSteps: number,
+): EmpiricalInRangeResult {
+  if (!(spot > 0) || !(priceLower > 0) || !(priceUpper > priceLower)) {
+    throw new Error(
+      `invalid range [${priceLower}, ${priceUpper}] at spot ${spot}`,
+    );
+  }
+  if (horizonSteps < 1) throw new Error("horizonSteps must be >= 1");
+  const nWindows = closes.length - horizonSteps;
+  if (nWindows < 1) {
+    throw new Error(
+      `history too short: ${closes.length} closes for horizon ${horizonSteps}`,
+    );
+  }
+  const loMul = priceLower / spot;
+  const hiMul = priceUpper / spot;
+  const fractions: number[] = new Array(nWindows);
+  for (let i = 0; i < nWindows; i++) {
+    const lower = closes[i] * loMul;
+    const upper = closes[i] * hiMul;
+    let inCount = 0;
+    for (let st = 1; st <= horizonSteps; st++) {
+      const p = closes[i + st];
+      if (p >= lower && p <= upper) inCount++;
+    }
+    fractions[i] = inCount / horizonSteps;
+  }
+  return summariseFractions(fractions, horizonSteps);
+}
+
 export function empiricalInRangeFraction(
   closes: number[],
   widthBps: number,
@@ -97,6 +148,15 @@ export function empiricalInRangeFraction(
     }
     fractions[i] = inCount / horizonSteps;
   }
+  return summariseFractions(fractions, horizonSteps);
+}
+
+/** Shared summary so both estimators report identically. */
+function summariseFractions(
+  fractions: number[],
+  horizonSteps: number,
+): EmpiricalInRangeResult {
+  const nWindows = fractions.length;
   const sorted = [...fractions].sort((a, b) => a - b);
   const q = (p: number) => {
     const pos = p * (sorted.length - 1);

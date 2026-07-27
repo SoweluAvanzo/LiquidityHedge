@@ -202,7 +202,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid download link." }, { status: 400 });
   }
 
-  const ok = await withOrders((l) => l.checkDownloadToken(orderId, token));
+  // Consume the grant, atomically. The link is advertised as single-use;
+  // a pure check left it live for the full 24h TTL. Consumed BEFORE the
+  // stream so concurrent requests cannot both pass — a failed download is
+  // recoverable via the claim secret, which re-issues a fresh grant.
+  const ok = await withOrders((l) => l.redeemDownloadToken(orderId, token));
   if (!ok) {
     // One message for wrong/expired/unknown — no oracle for probing.
     return NextResponse.json({ error: "This download link is invalid or has expired." }, { status: 403 });
