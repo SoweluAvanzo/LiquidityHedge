@@ -3,10 +3,11 @@ import {
   computePremium,
   computeFeeDiscount,
   computeQuadratureFV,
+  quadratureExpectation,
 } from "../../src/pricing-engine/pricing";
 import { computeHeuristicFV } from "../../src/pricing-engine/heuristic-fv";
 import { resolveEffectiveMarkup } from "../../src/risk-analyser/regime";
-import { naturalCap } from "../../src/pricing-engine/position-value";
+import { naturalCap, lhPayoff } from "../../src/pricing-engine/position-value";
 import { makePool, makeTemplate, makeRegime } from "../helpers";
 
 describe("Pricing Engine", () => {
@@ -195,6 +196,44 @@ describe("Pricing Engine", () => {
       const fvHigh = computeQuadratureFV(S0, 0.65, L, pL, pU);
       const fvLow = computeQuadratureFV(S0, 0.05, L, pL, pU);
       expect(fvLow).to.be.lessThan(fvHigh * 0.1);
+    });
+  });
+
+  // ── Generic quadrature expectation (§1.3) ─────────────────
+
+  describe("quadratureExpectation (E_Q[g(S_T)] under risk-neutral GBM)", () => {
+    const S0 = 150;
+    const sigma = 0.65;
+    const T = 7 / 365;
+
+    it("martingale: E[S_T − S_0] ≈ 0 — the term that broke the MC estimator", () => {
+      // Under 20k-path MC this linear term had 8–108% relative SE; the
+      // quadrature resolves it to numerical noise.
+      const e = quadratureExpectation((sT) => sT - S0, S0, sigma, T);
+      expect(Math.abs(e)).to.be.lessThan(S0 * 1e-9);
+    });
+
+    it("normalisation: E[1] = 1 up to the z∈[−6,6] truncation (2Φ(−6) ≈ 2e-9)", () => {
+      const e = quadratureExpectation(() => 1, S0, sigma, T);
+      expect(e).to.be.closeTo(1, 1e-8);
+      expect(e).to.be.lessThan(1); // truncation only ever removes mass
+    });
+
+    it("computeQuadratureFV ≡ max(0, quadratureExpectation(payoff)) exactly", () => {
+      const L = 10_000;
+      const pL = 135;
+      const pU = 165;
+      const viaGeneric = Math.max(
+        0,
+        quadratureExpectation((sT) => lhPayoff(sT, S0, L, pL, pU), S0, sigma, T),
+      );
+      expect(computeQuadratureFV(S0, sigma, L, pL, pU, T)).to.equal(viaGeneric);
+    });
+
+    it("known value: lognormal mean under drift −σ²T/2 · e^{σ²T} leg", () => {
+      // E[S_T²] = S0²·e^{σ²T} exactly for GBM (martingale in S, not S²).
+      const e2 = quadratureExpectation((sT) => sT * sT, S0, sigma, T);
+      expect(e2).to.be.closeTo(S0 * S0 * Math.exp(sigma * sigma * T), S0 * S0 * 1e-6);
     });
   });
 

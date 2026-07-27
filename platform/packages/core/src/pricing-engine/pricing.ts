@@ -156,6 +156,35 @@ export function computeQuadratureFV(
   tenor: number = 7 / 365,
   nPoints: number = SIMPSON_N,
 ): number {
+  const fv = quadratureExpectation(
+    (ST) => lhPayoff(ST, S0, L, pL, pU),
+    S0,
+    sigma,
+    tenor,
+    nPoints,
+  );
+  return Math.max(0, fv);
+}
+
+/**
+ * Generic Simpson expectation E_Q[g(S_T)] under the same risk-neutral
+ * GBM as `computeQuadratureFV` — extracted (§1.3) so the dashboard's
+ * viability integrals (FV over its OWN position-value function, and the
+ * UNCLAMPED E[ΔV]) use the paper's §3.2 quadrature instead of seeded
+ * Monte-Carlo. The 20k-path MC gave E[ΔV] an 8–108% standard error
+ * because its variance is dominated by a linear term whose expectation
+ * is exactly zero; the same term costs the quadrature nothing.
+ *
+ * The loop structure is exactly the former computeQuadratureFV body —
+ * the differential parity suite asserts bit-identical FV results.
+ */
+export function quadratureExpectation(
+  g: (sT: number) => number,
+  S0: number,
+  sigma: number,
+  tenor: number,
+  nPoints: number = SIMPSON_N,
+): number {
   if (nPoints % 2 !== 0) nPoints++;
 
   const drift = -0.5 * sigma * sigma * tenor;
@@ -164,8 +193,7 @@ export function computeQuadratureFV(
 
   function integrand(z: number): number {
     const ST = S0 * Math.exp(drift + vol * z);
-    const payoff = lhPayoff(ST, S0, L, pL, pU);
-    return payoff * normalPdf(z);
+    return g(ST) * normalPdf(z);
   }
 
   let sum = integrand(-Z_BOUND) + integrand(Z_BOUND);
@@ -174,8 +202,7 @@ export function computeQuadratureFV(
     sum += (i % 2 === 0 ? 2 : 4) * integrand(z);
   }
 
-  const fv = (h / 3) * sum;
-  return Math.max(0, fv);
+  return (h / 3) * sum;
 }
 
 /**

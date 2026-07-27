@@ -12,9 +12,10 @@
  *                        estimator (empirical primary / GBM fallback,
  *                        see composeInRangeEstimate) — which method
  *                        produced it travels on the wire verbatim;
- *   fairValueUsd       — small seeded GBM Monte-Carlo of the corridor
- *                        payoff E[V(S0) − V(clamp(S_T, p_l, p_u))] at a
- *                        7-day horizon (zero drift, σ = realized vol);
+ *   fairValueUsd       — deterministic Simpson quadrature (§1.3, the
+ *                        paper's §3.2 method) of the corridor payoff
+ *                        E[V(S0) − V(clamp(S_T, p_l, p_u))] at a 7-day
+ *                        horizon (risk-neutral GBM, σ = realized vol);
  *   VI                 — computeViability() from @lh/portfolio.
  *
  * Failure policy: any missing input (no BIRDEYE_API_KEY, pool-overview
@@ -39,7 +40,8 @@ import {
   computeRealizedVol,
   empiricalInRangeFractionBounds,
 } from "@lh/market-data";
-import { GbmModel } from "@lh/risk-models";
+import { quadratureExpectation } from "@lh/core/src/pricing-engine/pricing";
+import { SECONDS_PER_YEAR } from "@lh/core/src/types";
 import type { WhirlpoolData } from "@lh/core/src/market-data/decoder";
 import {
   computeConcentrationFactor,
@@ -63,9 +65,6 @@ const PREMIUM_FLOOR_USD =
  * redistribution identity, and the whole of Corollary 2.1's wedge. */
 const PROTOCOL_FEE_RATE = numericEnv("HEDGE_PROTOCOL_FEE_RATE", 0.015);
 const FEE_SPLIT_RATE = 0.1;
-
-const FV_PATHS = 20_000;
-const FV_SEED = 1;
 
 /** Concentration-factor sanity window (same policy as live-orca-test). */
 const C_SANITY_MIN = 0.5;
@@ -161,7 +160,6 @@ async function loadEmpiricalInRange(
 interface SigmaEstimate {
   sigma: number;
   windowDays: 30 | 90;
-  closes: number[];
 }
 
 /** §1.1 provenance-carrying yield basis — see poolYieldBasis below. */
@@ -358,64 +356,62 @@ export async function computePoolYieldBasis(
  */
 async function solSigmaEstimate(): Promise<SigmaEstimate | null> {
   const { candles } = await getSolDailyCandles(CANDLE_WINDOW_DAYS);
-  const closes = candles.map((c) => c.c);
   const last31 = candles.slice(-31); // 30 daily returns
   const rv30 = computeRealizedVol(last31, "1D");
-  if (rv30) return { sigma: rv30.sigma, windowDays: 30, closes };
+  if (rv30) return { sigma: rv30.sigma, windowDays: 30 };
   const rv90 = computeRealizedVol(candles, "1D");
-  if (rv90) return { sigma: rv90.sigma, windowDays: 90, closes };
+  if (rv90) return { sigma: rv90.sigma, windowDays: 90 };
   return null;
 }
 
 /**
- * Fair value of the 7-day corridor hedge payoff via seeded GBM MC:
- * FV = mean over paths of [V(S0) − V(clamp(S_T, p_l, p_u))] (plain,
- * signed mean — the payoff is bilateral by design).
+ * FV and E[ΔV] of the 7-day corridor payoff via the paper's §3.2
+ * Simpson quadrature (§1.3) — deterministic, ~400 evaluations of the
+ * SAME position-value function the card charts, over the same
+ * risk-neutral GBM the hedge quote path integrates.
+ *
+ * Replaces the 20k-path seeded MC, which was adequate for FV (0.9% SE)
+ * but hopeless for E[ΔV]: unclamped, its variance is dominated by a
+ * linear term whose expectation is exactly zero, giving 8–108% SE —
+ * VI₂ for one real position spanned 3.90–12.66 on the seed alone
+ * (audit D-1/F2/F6). The same linear term costs the quadrature nothing
+ * (martingale identity, resolved to ~1e-9).
  */
-function fairValueMc(
+function fairValueQuadrature(
   view: PortfolioPositionView,
   sigma: number,
-  closes: number[],
 ): { fairValueUsd: number; expectedValueChangeUsd: number } {
-  const model = new GbmModel();
-  const params = model.calibrate(
-    [{ assetId: "SOL", closes, stepSeconds: 86_400 }],
-    { driftMode: "zero", sigmaOverride: [sigma] },
-  );
-  params.s0 = [view.price]; // rebase to the live pool price
-  const paths = model.simulatePaths(params, {
-    horizonSteps: 1,
-    stepSeconds: TENOR_SECONDS,
-    nPaths: FV_PATHS,
-    seed: FV_SEED,
-  });
-
   const v0 = positionValueAtPrice(view, view.price);
-  let sum = 0;
-  // E[ΔV] = E[V(S_T)] − V(S_0), UNCLAMPED — the position's real
-  // mark-to-market change, which is what the paper's two-sided breakeven
-  // needs (§2.4.4). Accumulated from the same draws as FV so the two are
-  // mutually consistent rather than two independent samples.
-  let sumDelta = 0;
-  const solPaths = paths.prices[0];
-  for (let p = 0; p < FV_PATHS; p++) {
-    const sT = solPaths[p][1];
-    const clamped = Math.min(Math.max(sT, view.priceLower), view.priceUpper);
-    sum += v0 - positionValueAtPrice(view, clamped);
-    sumDelta += positionValueAtPrice(view, sT) - v0;
-  }
-  // §3.1 asserts FV >= 0. That proof needs S0 inside [p_l, p_u]: below the
-  // range, V(S0) < V(p_l) <= V(clamp(S_T)) pathwise, so the raw mean is
-  // negative and then INFLATES the floor-branch breakeven
-  // (P_floor - FV)/(1-y). Clamped here to match computeQuadratureFV and
-  // @lh/hedge's pricing, which both already floor at zero.
-  //
-  // E[dV] is NOT clamped — it is a mark-to-market expectation and is
-  // legitimately negative (that is the divergence loss).
-  return {
-    fairValueUsd: Math.max(0, sum / FV_PATHS),
-    expectedValueChangeUsd: sumDelta / FV_PATHS,
-  };
+  const tenorYears = TENOR_SECONDS / SECONDS_PER_YEAR;
+  // §3.1 asserts FV >= 0. That proof needs S0 inside [p_l, p_u]: below
+  // the range, V(S0) < V(p_l) <= V(clamp(S_T)) pointwise, so the raw
+  // integral is negative and would INFLATE the floor-branch breakeven
+  // (P_floor - FV)/(1-y). Clamped at zero exactly like
+  // computeQuadratureFV and @lh/hedge's pricing.
+  const fairValueUsd = Math.max(
+    0,
+    quadratureExpectation(
+      (sT) =>
+        v0 -
+        positionValueAtPrice(
+          view,
+          Math.min(Math.max(sT, view.priceLower), view.priceUpper),
+        ),
+      view.price,
+      sigma,
+      tenorYears,
+    ),
+  );
+  // E[ΔV] = E[V(S_T)] − V(S_0), NOT clamped — a mark-to-market
+  // expectation, legitimately negative (that is the divergence loss),
+  // which is what the paper's two-sided breakeven needs (§2.4.4).
+  const expectedValueChangeUsd = quadratureExpectation(
+    (sT) => positionValueAtPrice(view, sT) - v0,
+    view.price,
+    sigma,
+    tenorYears,
+  );
+  return { fairValueUsd, expectedValueChangeUsd };
 }
 
 /**
@@ -443,7 +439,7 @@ export async function computePositionViability(
       ((view.priceUpper - view.priceLower) / 2 / view.price) * 10_000,
     );
 
-    const { sigma, windowDays, closes } = sigmaEstimate;
+    const { sigma, windowDays } = sigmaEstimate;
     // The GBM in-range fraction now uses the range's ACTUAL bounds rather
     // than a half-width re-centred on spot. The old form reported a
     // position as ~98% in range while its price sat entirely outside the
@@ -499,7 +495,7 @@ export async function computePositionViability(
       (realised.ok ? realised.inRangeDailyRate : poolDaily * c) *
       inRangeEstimate.fraction;
 
-    const { fairValueUsd, expectedValueChangeUsd } = fairValueMc(view, sigma, closes);
+    const { fairValueUsd, expectedValueChangeUsd } = fairValueQuadrature(view, sigma);
     // A NaN anywhere upstream used to travel as `null`, which the card
     // reads as "unbounded" and paints GREEN — a silent numeric failure
     // displayed as the strongest possible pass. Refuse instead.

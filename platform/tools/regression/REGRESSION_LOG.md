@@ -163,3 +163,41 @@ Every movement explained:
   — the torn-read stability gate passes cleanly in production.
 
 Golden re-baselined to the 12-41-00 capture.
+
+---
+
+## 2026-07-27 · §1.3 — deterministic quadrature for FV and E[ΔV]
+
+Diff: `captures/2026-07-27T12-56-58-834Z.json` (seeded 20k-path MC) →
+`captures/2026-07-27T12-57-20-628Z.json` (Simpson quadrature, the
+paper's §3.2 method via `quadratureExpectation`, shared with the hedge
+quote path — differential parity suite confirms computeQuadratureFV is
+bit-identical after the refactor). Spot −0.035%.
+
+Every movement explained:
+
+- **`twoSided.expectedValueChangeUsd` −2.15% / −2.56% / −29.10% /
+  −2.1%** across the 4 positions: THE change — the seed-1 MC bias
+  eliminated. E[ΔV]'s MC variance was dominated by a linear term with
+  zero expectation (8–108% SE); the quadrature resolves that term to
+  ~1e-9 (martingale identity, asserted in tests). 38uAbrUp — the
+  position the audit cited (VI₂ spanning 3.90–12.66 on the seed alone)
+  — shows the largest correction: E[ΔV] −$0.000763 → −$0.000984, VI₂
+  0.923 → 0.806. The MC had been flattering it by ~13%.
+- `twoSided.breakeven`/`unhedgedBreakeven` move linearly with E[ΔV];
+  one-sided VI moves ±0.3–0.7% (market only: spot −0.035%, empirical f
+  refresh).
+- `fairValueUsd` unchanged at 0 within the captures (positions
+  hovering at their lower bound; the clamp behaves identically in both
+  methods). NOTE: positions re-entered range around this deploy (spot
+  76.84 > lower 76.64) — `feeOwedA` is ticking again; expect the
+  realised-yield flip once 6h of in-range history accrues.
+
+**Stability check (plan: "verify VI₂ is seed-invariant"):** two
+captures 31s apart, spot +0.000% → every twoSided field moves ≤ 0.01%
+(σ candle-refresh jitter only). There is no seed left to vary; the
+12-minute badge-flip pathology (mGADEK) is now impossible from
+estimator noise — remaining flips are genuine market moves (badge
+hysteresis is §1.7's job).
+
+Golden re-baselined to the 12-57-51 capture.

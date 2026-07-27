@@ -51,7 +51,9 @@ export interface PositionViabilityWire {
     /** Premium at the measured fee yield, USD — the P in the wedge. */
     premiumUsd: number;
   };
-  /** MC fair value of the 7-day corridor payoff, USD. */
+  /** Fair value of the 7-day corridor payoff, USD — deterministic
+   * Simpson quadrature under risk-neutral GBM (§1.3), same method as
+   * the hedge quote path; no sampling noise. */
   fairValueUsd: number;
   /** Annualized realized vol used for the MC and in-range fraction. */
   sigmaAnnualized: number;

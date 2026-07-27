@@ -230,7 +230,7 @@ function ViabilityRow({
             {formatDailyYield(viability.breakevenDailyYield)}
           </span>
           <InfoTip
-            text={`Model-based estimate (range breakeven; see product-design docs). Breakeven is ${viability.bound}-bound from a seeded Monte-Carlo fair value of the 7-day range payoff at sigma ${formatPercent(viability.sigmaAnnualized, 1)} (${viability.sigmaWindowDays}d realized vol). ${measuredYieldMethodology(viability)}. Not a prediction.`}
+            text={`Model-based estimate (range breakeven; see product-design docs). Breakeven is ${viability.bound}-bound from a deterministic quadrature fair value of the 7-day range payoff (risk-neutral GBM) at sigma ${formatPercent(viability.sigmaAnnualized, 1)} (${viability.sigmaWindowDays}d realized vol). ${measuredYieldMethodology(viability)}. Not a prediction.`}
           />
         </span>
       </div>
@@ -268,7 +268,7 @@ function ViabilityRow({
             {formatUsd(viability.twoSided.expectedValueChangeUsd)}
           </span>
           <InfoTip
-            text={`INCLUDES DIVERGENCE LOSS — this is the difference from the index above, which does not. Paper §2.4.3-2.4.4: two-sided viability needs the unhedged LP PnL to cover the protocol fee leakage, sum(dV_w + V_w*r*7) = phi*sum(P_w), giving r* = (phi*P - E[dV])/(V*T). Here E[dV] = ${formatUsd(viability.twoSided.expectedValueChangeUsd)} is the expected 7-day mark-to-market change from the same seeded Monte-Carlo as the fair value. The unhedged breakeven (phi = 0, fees vs divergence loss alone) is ${formatDailyYield(viability.twoSided.unhedgedBreakevenDailyYield)}; the protocol-fee wedge of Corollary 2.1 adds ${formatDailyYield(viability.twoSided.protocolFeeWedgeDailyYield)} on top. Model output, not a prediction.`}
+            text={`INCLUDES DIVERGENCE LOSS — this is the difference from the index above, which does not. Paper §2.4.3-2.4.4: two-sided viability needs the unhedged LP PnL to cover the protocol fee leakage, sum(dV_w + V_w*r*7) = phi*sum(P_w), giving r* = (phi*P - E[dV])/(V*T). Here E[dV] = ${formatUsd(viability.twoSided.expectedValueChangeUsd)} is the RISK-NEUTRAL expected 7-day mark-to-market change (pure divergence loss, no directional view), from the same deterministic quadrature as the fair value. The unhedged breakeven (phi = 0, fees vs divergence loss alone) is ${formatDailyYield(viability.twoSided.unhedgedBreakevenDailyYield)}; the protocol-fee wedge of Corollary 2.1 adds ${formatDailyYield(viability.twoSided.protocolFeeWedgeDailyYield)} on top. Model output, not a prediction.`}
           />
         </span>
       </div>

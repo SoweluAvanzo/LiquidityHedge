@@ -482,8 +482,20 @@ Phase 5 cleanup (no DELETE grant exists — needs a maintenance role);
 `hedge-ledger`'s governance `expectedDailyFee` vs the card's E[F] →
 1.8 `getPricingParams()`.
 
-Next: **1.3** (deterministic quadrature for FV and E[ΔV]) … 1.10 in
-order.
+**1.3 — DONE ✅, deployed.** The viability card's FV and E[ΔV] now come
+from the paper's §3.2 Simpson quadrature via `quadratureExpectation`
+(extracted from `computeQuadratureFV`, which now delegates to it — the
+differential parity suite confirms bit-identical results, so the hedge
+quote path is untouched). The 20k-path seeded MC is gone from the card.
+Measured effect at deploy: E[ΔV] corrected −2.2% to **−29%** (38uAbr,
+the position whose VI₂ spanned 3.90–12.66 on seed — the MC had
+flattered it; VI₂ 0.92 → 0.81). Two captures 31s apart move every
+twoSided field ≤ 0.01% — seed-invariance verified by absence of a
+seed. E[ΔV] is now labelled risk-neutral on the card (part of 1.6's
+ask). Closes D-1, F2, F6.
+
+Next: **1.4** (guarded, OHLC-based volatility with stated uncertainty)
+… 1.10 in order.
 
 ### Caveat for whoever picks this up
 
