@@ -9,9 +9,12 @@ export {
   computeRangeFeeYield,
   rangeYieldUsd,
   feeGrowthDelta,
+  measurePoolDailyYield,
   FilePoolSnapshotStore,
 } from "./pool-snapshots";
 export { snapshotTvlQuote, isUsdQuote, USD_QUOTE_MINTS } from "./pool-snapshots";
-export type { PoolSnapshot, PoolSnapshotStore, RangeYieldResult } from "./pool-snapshots";
+export type { PoolSnapshot, PoolSnapshotStore, RangeYieldResult, MeasuredPoolYield } from "./pool-snapshots";
+export { measurePositionFees } from "./position-fees";
+export type { PositionFeeSnapshot, MeasuredPositionFees } from "./position-fees";
 export { realizedInRangeFraction, empiricalInRangeFraction, empiricalInRangeFractionBounds } from "./in-range";
 export type { RealizedInRange, EmpiricalInRangeResult } from "./in-range";

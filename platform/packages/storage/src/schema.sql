@@ -41,6 +41,42 @@ ALTER TABLE lh.pool_snapshots SET (
   autovacuum_vacuum_insert_threshold = 10000
 );
 
+-- ── Position fee snapshots (§1.2 realised position yield) ────────────
+-- Per tracked position per tick: feeGrowthInside for the position's own
+-- range (from the pool + tick accounts — the accumulator a collectFees
+-- would pay from), its liquidity, pool price and in-range flag. Realised
+-- position fees over any window are then L × Δinside / 2^64 — no vendor,
+-- no in-range model, no concentration factor.
+CREATE TABLE IF NOT EXISTS lh.position_fee_snapshots (
+  position             text   NOT NULL,
+  t                    bigint NOT NULL,
+  whirlpool            text   NOT NULL,
+  liquidity            numeric(40,0) NOT NULL,
+  fee_growth_inside_a  numeric(40,0) NOT NULL,
+  fee_growth_inside_b  numeric(40,0) NOT NULL,
+  price                double precision NOT NULL,
+  in_range             boolean NOT NULL,
+  PRIMARY KEY (position, t)
+);
+ALTER TABLE lh.position_fee_snapshots SET (
+  autovacuum_vacuum_insert_scale_factor = 0.02,
+  autovacuum_vacuum_insert_threshold = 10000
+);
+
+-- ── Tracked positions (auto-registered by the portfolio dashboard) ───
+-- Small mutable projection, like tracked_pools: the web app upserts a row
+-- whenever a viability-eligible position is served; the collector
+-- snapshots the most recently seen ones each cycle.
+CREATE TABLE IF NOT EXISTS lh.tracked_positions (
+  position      text PRIMARY KEY,
+  position_mint text NOT NULL,
+  whirlpool     text NOT NULL,
+  decimals_a    smallint NOT NULL,
+  decimals_b    smallint NOT NULL,
+  added_at      bigint NOT NULL,
+  last_seen     bigint NOT NULL
+);
+
 -- ── OHLCV candles ────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS lh.candles (
   address   text   NOT NULL,
@@ -84,8 +120,11 @@ BEGIN
     GRANT USAGE ON SCHEMA lh TO lh_writer;
     -- INSERT only: no UPDATE, no DELETE, no TRUNCATE anywhere.
     GRANT INSERT, SELECT ON lh.pool_snapshots, lh.candles, lh.events TO lh_writer;
-    -- tracked_pools is a small mutable projection, not an event log.
+    GRANT INSERT, SELECT ON lh.position_fee_snapshots TO lh_writer;
+    -- tracked_pools / tracked_positions are small mutable projections,
+    -- not event logs.
     GRANT INSERT, SELECT, UPDATE ON lh.tracked_pools TO lh_writer;
+    GRANT INSERT, SELECT, UPDATE ON lh.tracked_positions TO lh_writer;
     GRANT USAGE, SELECT ON SEQUENCE lh.events_id_seq TO lh_writer;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lh_reader') THEN

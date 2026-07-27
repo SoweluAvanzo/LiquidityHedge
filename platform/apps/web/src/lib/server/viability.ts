@@ -2,9 +2,12 @@
  * Per-position Viability Index (FR-M8), computed server-side for
  * /api/portfolio on each SOL/USDC position:
  *
- *   measuredDailyYield — Birdeye pool overview × in-range fraction ×
- *                        on-chain concentration factor (mirrors the
- *                        live-orca-test measurement pipeline). The
+ *   measuredDailyYield — pool daily yield × in-range fraction × on-chain
+ *                        concentration factor. The pool yield is MEASURED
+ *                        from our own feeGrowthGlobal snapshots (§1.1)
+ *                        when coverage allows, with the Birdeye
+ *                        volume-model retained only as a labelled
+ *                        fallback; provenance travels on the wire. The
  *                        in-range fraction comes from the composed
  *                        estimator (empirical primary / GBM fallback,
  *                        see composeInRangeEstimate) — which method
@@ -46,6 +49,8 @@ import {
   type PoolOverview,
 } from "@lh/core/src/market-data/orca-volume-adapter";
 import { getPoolOverview, getSolDailyCandles, birdeyeApiKey } from "./birdeye";
+import { readMeasuredPoolYield } from "./pool-yield";
+import { readRealisedPositionYield } from "./position-yield";
 import type { PositionViabilityWire } from "@/lib/portfolio-api";
 import { numericEnv } from "@lh/storage";
 
@@ -159,21 +164,85 @@ interface SigmaEstimate {
   closes: number[];
 }
 
+/** §1.1 provenance-carrying yield basis — see poolYieldBasis below. */
+export interface PoolYieldBasis {
+  /** The pool daily yield actually used downstream. */
+  poolDailyYield: number;
+  source: "measured-snapshots" | "modelled-birdeye";
+  /** Measured-window metadata (null on the modelled path). */
+  window: {
+    coveredSeconds: number;
+    windowSeconds: number;
+    intervals: number;
+    firstT: number;
+    lastT: number;
+  } | null;
+  /** Why the modelled fallback was used (null on the measured path). */
+  fallbackReason: string | null;
+  /** TVL used for the concentration factor, and where it came from. */
+  tvlQuote: number;
+  tvlSource: "onchain-vaults" | "birdeye";
+  concentrationFactor: number;
+  /** Birdeye overview when reachable — still needed by the simulate
+   *  route's stochastic fee-intensity SHAPE (pair volume history); null
+   *  when Birdeye is down and the measured path carries the basis. */
+  overview: PoolOverview | null;
+}
+
 /**
- * Shared measurement basis for a position's fee yield: Birdeye pool
- * overview + on-chain concentration factor (same sanity window + c=1
- * fallback as the live measurement script). Used by BOTH the viability
- * computation below and the simulate route's in-range rate — one code
- * path, never two divergent measurements.
+ * Shared measurement basis for a position's fee yield, used by BOTH the
+ * viability computation below and the simulate route's in-range rate —
+ * one code path, never two divergent measurements.
+ *
+ * §1.1: the PRIMARY source is direct measurement from our own 15-minute
+ * `feeGrowthGlobal` snapshots — the accumulator the Whirlpool program
+ * itself pays LPs from. It is vendor-free and net of the protocol fee by
+ * construction. The Birdeye volume×feeTier/TVL model is retained ONLY as
+ * a labelled fallback for pools whose snapshot coverage is too short.
  */
 async function poolYieldBasis(
   view: PortfolioPositionView,
   whirlpool: WhirlpoolData,
-): Promise<{ overview: PoolOverview; concentrationFactor: number } | null> {
-  // NET of Orca's protocol share — LPs do not accrue the whole swap fee.
-  // Using the gross rate overstated every measured yield by ~14.9%.
-  const feeTier = lpFeeTier(whirlpool.feeRate, whirlpool.protocolFeeRate);
-  const overview = await getPoolOverview(view.whirlpool, feeTier);
+): Promise<PoolYieldBasis | null> {
+  const measured = await readMeasuredPoolYield(
+    view.whirlpool,
+    view.decimalsA,
+    view.decimalsB,
+    view.tokenMintB,
+  );
+
+  // The Birdeye overview is fetched even when the measured path succeeds:
+  // the simulate route needs its pair-volume SHAPE, and the concentration
+  // factor needs a TVL fallback when the newest snapshot is stale.
+  let overview: PoolOverview | null = null;
+  if (birdeyeApiKey()) {
+    try {
+      // NET of Orca's protocol share — LPs do not accrue the whole swap
+      // fee. Using the gross rate overstated every yield by ~14.9%.
+      const feeTier = lpFeeTier(whirlpool.feeRate, whirlpool.protocolFeeRate);
+      overview = await getPoolOverview(view.whirlpool, feeTier);
+    } catch (error) {
+      console.error(
+        `[viability] pool overview unavailable for ${view.whirlpool}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
+  // TVL for the concentration factor: exact on-chain vaults when the
+  // newest snapshot is fresh, Birdeye otherwise. c is a current-state
+  // quantity, so it takes the freshest TVL regardless of yield source.
+  let tvlQuote: number;
+  let tvlSource: PoolYieldBasis["tvlSource"];
+  if (measured.ok && measured.latestTvlQuote !== null && measured.latestTvlQuote > 0) {
+    tvlQuote = measured.latestTvlQuote;
+    tvlSource = "onchain-vaults";
+  } else if (overview) {
+    tvlQuote = overview.liquidityUsd;
+    tvlSource = "birdeye";
+  } else {
+    return null; // no TVL from either source — c cannot be computed
+  }
 
   // Concentration factor from on-chain L-share vs USD V-share. An
   // out-of-band value is reported UNAVAILABLE, never replaced with 1.
@@ -181,7 +250,7 @@ async function poolYieldBasis(
     L_position: view.liquidity,
     L_active: whirlpool.liquidity,
     V_position_usd: view.valueQuote,
-    TVL_usd: overview.liquidityUsd,
+    TVL_usd: tvlQuote,
   });
   // Substituting 1 here silently discarded the real value for the two
   // commonest shapes — full-range (c well below the floor) and very tight
@@ -197,7 +266,42 @@ async function poolYieldBasis(
     );
     return null;
   }
-  return { overview, concentrationFactor: cRaw };
+
+  if (measured.ok) {
+    return {
+      poolDailyYield: measured.measured.dailyYield,
+      source: "measured-snapshots",
+      window: {
+        coveredSeconds: measured.measured.coveredSeconds,
+        windowSeconds: measured.measured.windowSeconds,
+        intervals: measured.measured.intervals,
+        firstT: measured.measured.firstT,
+        lastT: measured.measured.lastT,
+      },
+      fallbackReason: null,
+      tvlQuote,
+      tvlSource,
+      concentrationFactor: cRaw,
+      overview,
+    };
+  }
+  if (overview) {
+    console.warn(
+      `[viability] measured pool yield unavailable for ${view.whirlpool} ` +
+        `(${measured.reason}) — falling back to the Birdeye model, labelled`,
+    );
+    return {
+      poolDailyYield: estimatePoolDailyYield(overview),
+      source: "modelled-birdeye",
+      window: null,
+      fallbackReason: measured.reason,
+      tvlQuote,
+      tvlSource,
+      concentrationFactor: cRaw,
+      overview,
+    };
+  }
+  return null; // neither measured nor modelled available
 }
 
 /**
@@ -220,7 +324,7 @@ export async function computeInRangeDailyRate(
 ): Promise<number | null> {
   const basis = await computePoolYieldBasis(view, whirlpool);
   if (!basis) return null;
-  return estimatePoolDailyYield(basis.overview) * basis.concentrationFactor;
+  return basis.poolDailyYield * basis.concentrationFactor;
 }
 
 /**
@@ -233,8 +337,9 @@ export async function computeInRangeDailyRate(
 export async function computePoolYieldBasis(
   view: PortfolioPositionView,
   whirlpool: WhirlpoolData,
-): Promise<{ overview: PoolOverview; concentrationFactor: number } | null> {
-  if (!birdeyeApiKey()) return null;
+): Promise<PoolYieldBasis | null> {
+  // No Birdeye gate here any more: the measured-snapshot path works
+  // without a vendor key; each source degrades independently.
   try {
     if (view.valueQuote <= 0) return null;
     return await poolYieldBasis(view, whirlpool);
@@ -329,7 +434,7 @@ export async function computePositionViability(
     // Null means an input was unavailable — report nothing rather than a
     // substituted value the card would label "measured".
     if (!basis) return null;
-    const { overview, concentrationFactor: c } = basis;
+    const { concentrationFactor: c } = basis;
 
     // Symmetric-width equivalent of the position's range around the
     // current price (the adapter's in-range model is symmetric in w).
@@ -351,15 +456,7 @@ export async function computePositionViability(
       sigma,
       TENOR_SECONDS,
     );
-    const poolDaily = estimatePoolDailyYield(overview);
-    const est = {
-      poolDailyYield: poolDaily,
-      inRangeFraction: gbmFractionBounds,
-      concentrationFactor: c,
-      positionDailyYield: poolDaily * gbmFractionBounds * c,
-      tenorDays: TENOR_SECONDS / 86_400,
-      source: overview,
-    };
+    const poolDaily = basis.poolDailyYield;
 
     // Empirical estimator width: half-width as a fraction of the range
     // MIDPOINT. The GBM side now integrates the ACTUAL bounds, so the two
@@ -386,14 +483,19 @@ export async function computePositionViability(
     );
     const inRangeEstimate = composeInRangeEstimate({
       empirical,
-      gbm: { fraction: est.inRangeFraction, sigmaAnnual: sigma },
+      gbm: { fraction: gbmFractionBounds, sigmaAnnual: sigma },
       ...(reason ? { empiricalUnavailableReason: reason } : {}),
     });
 
-    // Measured yield uses the PRIMARY estimator's fraction (identical to
-    // the previous GBM-only value whenever the fallback is in effect).
-    const measuredDailyYield =
-      est.poolDailyYield * inRangeEstimate.fraction * c;
+    // §1.2: the position's OWN realised yield replaces the three-estimate
+    // product r_pool × f × c whenever enough feeGrowthInside history
+    // exists — occupancy and concentration are then measured, not
+    // modelled. The modelled chain remains as the labelled fallback.
+    const realised = await readRealisedPositionYield(view);
+    const modelledDailyYield = poolDaily * inRangeEstimate.fraction * c;
+    const measuredDailyYield = realised.ok
+      ? realised.dailyYield
+      : modelledDailyYield;
 
     const { fairValueUsd, expectedValueChangeUsd } = fairValueMc(view, sigma, closes);
     // A NaN anywhere upstream used to travel as `null`, which the card
@@ -442,7 +544,7 @@ export async function computePositionViability(
       priceUpper: view.priceUpper,
       widthBps: empiricalWidthBps,
       horizonDays: TENOR_DAYS,
-      gbmFraction: est.inRangeFraction,
+      gbmFraction: gbmFractionBounds,
       gbmSigma: sigma,
       empiricalMean: empirical ? empirical.mean : null,
       empiricalWindows: empirical ? empirical.windows : null,
@@ -471,7 +573,39 @@ export async function computePositionViability(
       fairValueUsd,
       sigmaAnnualized: sigma,
       sigmaWindowDays: windowDays,
-      poolDailyYield: est.poolDailyYield,
+      poolDailyYield: poolDaily,
+      // §1.1 provenance: which source produced poolDailyYield, over what
+      // window, and why the fallback was used when it was. The UI shows
+      // this verbatim — a modelled number must never look measured.
+      poolYield: {
+        source: basis.source,
+        coveredSeconds: basis.window?.coveredSeconds ?? null,
+        windowSeconds: basis.window?.windowSeconds ?? null,
+        intervals: basis.window?.intervals ?? null,
+        fallbackReason: basis.fallbackReason,
+        tvlSource: basis.tvlSource,
+      },
+      // §1.2 provenance: whether measuredDailyYield is the position's own
+      // realised yield or the modelled r_pool × f × c chain.
+      positionYield: realised.ok
+        ? {
+            source: "realised-inside",
+            coveredSeconds: realised.measured.coveredSeconds,
+            windowSeconds: realised.measured.windowSeconds,
+            intervals: realised.measured.intervals,
+            inRangeSeconds: realised.measured.inRangeSeconds,
+            feesUsd: realised.measured.feesQuote,
+            fallbackReason: null,
+          }
+        : {
+            source: "modelled-chain",
+            coveredSeconds: null,
+            windowSeconds: null,
+            intervals: null,
+            inRangeSeconds: null,
+            feesUsd: null,
+            fallbackReason: realised.reason,
+          },
       inRangeFraction: inRangeEstimate.fraction,
       concentrationFactor: c,
       tenorDays: TENOR_DAYS,

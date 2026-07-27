@@ -15,10 +15,13 @@ import {
   createPool,
   PgPoolSnapshotStore,
   PgTrackedPoolStore,
+  PgPositionFeeStore,
+  PgTrackedPositionStore,
   safeDsn,
   numericEnv,
 } from "@lh/storage";
 import { captureSnapshots, resolvePoolMetadata, DEFAULT_POOLS } from "./pool-snapshot-job";
+import { capturePositionSnapshots } from "./position-snapshot-job";
 import { discoverPoolsByVolume, TrackedPool } from "./pool-discovery";
 
 interface TrackedFile {
@@ -96,11 +99,16 @@ async function main() {
   const dsn = envVar("DATABASE_URL");
   let store: PoolSnapshotStore;
   let trackedStore: PgTrackedPoolStore | null = null;
+  let positionFeeStore: PgPositionFeeStore | null = null;
+  let trackedPositionStore: PgTrackedPositionStore | null = null;
   if (dsn) {
     const pgPool = createPool({ connectionString: dsn, maxConnections: 4 });
     store = new PgPoolSnapshotStore(pgPool);
     // AUDIT #6: the metadata projection the dataset export joins against.
     trackedStore = new PgTrackedPoolStore(pgPool);
+    // §1.2: per-position feeGrowthInside series for realised yield.
+    positionFeeStore = new PgPositionFeeStore(pgPool);
+    trackedPositionStore = new PgTrackedPositionStore(pgPool);
     console.log(`storage: postgres ${safeDsn(dsn)}`);
   } else {
     store = new FilePoolSnapshotStore(dir);
@@ -193,6 +201,37 @@ async function main() {
           `(${(coverage * 100).toFixed(1)}% coverage) — gap recorded for backfill`,
       );
       if (!loopSeconds && result.captured.length === 0) process.exit(2);
+    }
+
+    // §1.2: snapshot every tracked position's feeGrowthInside. Postgres
+    // only (positions are registered by the production dashboard); a
+    // failure here must never cost the pool cycle above.
+    if (positionFeeStore && trackedPositionStore) {
+      try {
+        const trackedPositions = await trackedPositionStore.list(
+          numericEnv("MAX_TRACKED_POSITIONS", 200),
+        );
+        if (trackedPositions.length > 0) {
+          const posResult = await capturePositionSnapshots(
+            connection,
+            trackedPositions,
+            Math.floor(Date.now() / 1000),
+          );
+          const written = await positionFeeStore.appendMany(posResult.captured);
+          console.log(
+            `positions: captured ${posResult.captured.length}/${trackedPositions.length}, ` +
+              `wrote ${written}` +
+              (posResult.missing.length > 0
+                ? ` — MISSING ${posResult.missing.length}: ${posResult.missing.slice(0, 3).join(", ")}${posResult.missing.length > 3 ? "…" : ""}`
+                : ""),
+          );
+        }
+      } catch (e) {
+        console.error(
+          "position snapshot cycle failed:",
+          e instanceof Error ? e.message : e,
+        );
+      }
     }
   };
 

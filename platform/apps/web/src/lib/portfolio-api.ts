@@ -54,6 +54,46 @@ export interface PositionViabilityWire {
   /** Realized-vol lookback actually used (30d preferred, 90d fallback). */
   sigmaWindowDays: 30 | 90;
   poolDailyYield: number;
+  /**
+   * §1.1 provenance for poolDailyYield. "measured-snapshots" = derived
+   * from our own 15-minute feeGrowthGlobal snapshots (the accumulator the
+   * Whirlpool program pays LPs from; vendor-free, net of protocol fee by
+   * construction) over the reported window. "modelled-birdeye" = the
+   * legacy volume × LP-fee-tier ÷ TVL model, served ONLY when snapshot
+   * coverage is insufficient, with the reason attached.
+   */
+  poolYield: {
+    source: "measured-snapshots" | "modelled-birdeye";
+    /** Seconds actually integrated (gaps excluded); null when modelled. */
+    coveredSeconds: number | null;
+    /** Wall-clock span of the snapshot window; null when modelled. */
+    windowSeconds: number | null;
+    /** Snapshot intervals integrated; null when modelled. */
+    intervals: number | null;
+    /** Why the modelled fallback was used; null on the measured path. */
+    fallbackReason: string | null;
+    /** TVL source for the concentration factor. */
+    tvlSource: "onchain-vaults" | "birdeye";
+  };
+  /**
+   * §1.2 provenance for measuredDailyYield itself. "realised-inside" =
+   * the position's own L × Δ feeGrowthInside / 2⁶⁴ over the reported
+   * window — occupancy and concentration measured, not modelled.
+   * "modelled-chain" = poolDailyYield × inRangeFraction ×
+   * concentrationFactor, used until enough position history exists.
+   */
+  positionYield: {
+    source: "realised-inside" | "modelled-chain";
+    coveredSeconds: number | null;
+    windowSeconds: number | null;
+    intervals: number | null;
+    /** Covered seconds the position spent in range (realised only). */
+    inRangeSeconds: number | null;
+    /** Fees actually earned over the window, USD (realised only). */
+    feesUsd: number | null;
+    /** Why the modelled chain was used; null on the realised path. */
+    fallbackReason: string | null;
+  };
   /** The in-range fraction actually USED in measuredDailyYield (primary
    * estimator's value — see inRangeEstimate.method for which one). */
   inRangeFraction: number;

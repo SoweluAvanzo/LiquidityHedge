@@ -33,6 +33,7 @@ import {
   computePositionViability,
   loadViabilityInputs,
 } from "@/lib/server/viability";
+import { recordPositionObservations } from "@/lib/server/position-yield";
 
 // Every response is a live RPC snapshot — never cache.
 export const dynamic = "force-dynamic";
@@ -118,6 +119,10 @@ export async function GET(request: NextRequest) {
     );
     const views = await fetchPortfolio(connection, owner);
     const summary = aggregatePortfolio(views);
+    // §1.2: register served positions for collector tracking and persist
+    // their feeGrowthInside as an opportunistic snapshot (best-effort —
+    // errors are swallowed inside, never breaking the response).
+    await recordPositionObservations(views);
     const viabilities = await computeViabilities(connection, views);
 
     const positions: PortfolioPositionWire[] = views.map((view) => ({

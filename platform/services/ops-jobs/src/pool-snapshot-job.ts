@@ -120,7 +120,7 @@ function chunk<T>(xs: T[], n: number): T[][] {
  * retried; a batch that still fails yields undefined entries so the rest of
  * the cycle is preserved and the affected pools are reported as missing.
  */
-async function readAccounts(
+export async function readAccounts(
   connection: Connection,
   keys: PublicKey[],
   attempts = 3,

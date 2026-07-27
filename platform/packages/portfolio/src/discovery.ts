@@ -166,7 +166,7 @@ export async function fetchPortfolio(
   const realFees = (
     position: PositionData,
     pool: WhirlpoolData,
-  ): { feesA: bigint; feesB: bigint } | null => {
+  ): { feesA: bigint; feesB: bigint; insideA: bigint; insideB: bigint } | null => {
     try {
       const read = (tick: number) => {
         const start = tickArrayStartIndex(tick, pool.tickSpacing);
@@ -191,7 +191,7 @@ export async function fetchPortfolio(
         upperOutsideA: upper.feeGrowthOutsideA,
         upperOutsideB: upper.feeGrowthOutsideB,
       });
-      return uncollectedFees({
+      const fees = uncollectedFees({
         liquidity: position.liquidity,
         feeOwedA: position.feeOwedA,
         feeOwedB: position.feeOwedB,
@@ -200,6 +200,9 @@ export async function fetchPortfolio(
         insideA: inside.insideA,
         insideB: inside.insideB,
       });
+      // §1.2: the inside accumulator itself travels on the view so the
+      // web app can persist it as a position-fee snapshot.
+      return { ...fees, insideA: inside.insideA, insideB: inside.insideB };
     } catch {
       return null; // a fee display must never break the portfolio
     }
@@ -226,6 +229,8 @@ export async function fetchPortfolio(
       view.feeOwedA = fees.feesA;
       view.feeOwedB = fees.feesB;
       view.feesAreExact = true;
+      view.feeGrowthInsideA = fees.insideA.toString();
+      view.feeGrowthInsideB = fees.insideB.toString();
     }
     views.push(view);
   }

@@ -45,7 +45,6 @@ import {
   decodeWhirlpoolAccount,
   type WhirlpoolData,
 } from "@lh/core/src/market-data/decoder";
-import { estimatePoolDailyYield } from "@lh/core/src/market-data/orca-volume-adapter";
 import {
   getPoolDailyCandles,
   getTokenDailyCandles,
@@ -444,6 +443,15 @@ async function resolveStochasticFeeIntensity(
 
     if (cal.has(view.whirlpool)) continue;
     const { overview } = basis;
+    if (!overview) {
+      // The measured snapshot path can carry the LEVEL without Birdeye,
+      // but the stochastic fluctuation SHAPE needs pair-volume history.
+      return {
+        error:
+          "Stochastic fee intensity unavailable (pair-volume history " +
+          'unreachable). Use feeIntensityMode "constant" or retry later.',
+      };
+    }
     try {
       const { candles } = await getPoolDailyCandles(view.whirlpool, req.windowDays);
       // Pair-OHLCV `v` is BASE-TOKEN volume, so v × close = USD volume
@@ -467,8 +475,12 @@ async function resolveStochasticFeeIntensity(
       calibrateFeeIntensity([...byDay.values()]);
       cal.set(view.whirlpool, {
         byDay,
+        // §1.1: the LEVEL anchor is the basis's pool yield — measured
+        // from snapshots when available, Birdeye-modelled otherwise —
+        // matching constant mode. The candle series above sets only the
+        // fluctuation SHAPE.
         anchorMean:
-          override !== undefined ? override / 100 : estimatePoolDailyYield(overview),
+          override !== undefined ? override / 100 : basis.poolDailyYield,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -555,9 +567,9 @@ async function resolveStochasticFeeIntensity(
   const positionMeans: number[] = [];
   for (const view of views) {
     const entry = basisByPosition.get(view.positionAddress)!;
-    const { overview, concentrationFactor: c } = entry.basis;
+    const { concentrationFactor: c } = entry.basis;
     const poolEntry = perPool.get(entry.pool)!;
-    const measuredLevel = estimatePoolDailyYield(overview) * c;
+    const measuredLevel = entry.basis.poolDailyYield * c;
     yieldRates.push({
       positionAddress: view.positionAddress,
       ratePctPerDay: override !== undefined ? override : measuredLevel * 100,
@@ -572,14 +584,26 @@ async function resolveStochasticFeeIntensity(
     positionMeans.push(override !== undefined ? override / 100 : measuredLevel);
   }
 
+  // The level source is labelled from the ACTUAL basis: "measured" only
+  // when every pool's yield came from fee-growth snapshots (§1.1).
+  const levelSources = new Set(
+    [...basisByPosition.values()].map((e) => e.basis.source),
+  );
+  const levelLabel =
+    override !== undefined
+      ? "user override"
+      : levelSources.size === 1 && levelSources.has("measured-snapshots")
+        ? "measured pool rate (fee-growth snapshots)"
+        : levelSources.size === 1
+          ? "modelled pool rate (birdeye fallback)"
+          : "mixed measured/modelled pool rates";
   const basisLabel =
     `birdeye-pool-volume shape (${nObs}d), ` +
     (entries.length > 1
       ? `${req.sampling === "joint" ? "shared-date" : "independent"} resample across ` +
         `${entries.length} pools, `
       : "") +
-    "level anchored to " +
-    (override !== undefined ? "user override" : "current measured rate");
+    `level anchored to ${levelLabel}`;
   return {
     yieldRates,
     feeIntensity: {

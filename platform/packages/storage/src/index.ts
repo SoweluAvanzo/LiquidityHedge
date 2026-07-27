@@ -1,5 +1,12 @@
 export { createPool, migrate, safeDsn } from "./pool";
 export type { StorageConfig } from "./pool";
-export { PgPoolSnapshotStore, PgCandleStore, PgEventStore, PgTrackedPoolStore } from "./stores";
-export type { TrackedPoolRow } from "./stores";
+export {
+  PgPoolSnapshotStore,
+  PgCandleStore,
+  PgEventStore,
+  PgTrackedPoolStore,
+  PgPositionFeeStore,
+  PgTrackedPositionStore,
+} from "./stores";
+export type { TrackedPoolRow, TrackedPositionRow } from "./stores";
 export { secretEnv, requireSecret, databaseUrl, numericEnv } from "./secret-env";

@@ -6,6 +6,7 @@ import {
   PoolSnapshot,
   computeRangeFeeYield,
   feeGrowthDelta,
+  measurePoolDailyYield,
   rangeYieldUsd,
   FilePoolSnapshotStore,
 } from "../../src/pool-snapshots";
@@ -97,6 +98,97 @@ describe("@lh/market-data pool snapshots (Tier-C exact yield)", () => {
     const r = { feesA: 2_000_000_000n, feesB: 3_000_000n, inRangeSeconds: 0, totalSeconds: 0, intervals: 0, crossings: 0 };
     // 2 SOL-lamports-e9 = 2e9/1e9 = 2 SOL at $75 + $3 USDC = $153
     expect(rangeYieldUsd(r, 75, 9, 6)).to.be.closeTo(2 * 75 + 3, 1e-9);
+  });
+
+  describe("measurePoolDailyYield (§1.1 direct measurement)", () => {
+    /** decimals 9/6 (SOL/USDC-shaped); growth in native-units-per-L. */
+    const DEC_A = 9;
+    const DEC_B = 6;
+    /** Vaults for a $2M TVL pool at price 100: 10k SOL × $100 + $1M USDC. */
+    const vaulted = (
+      t: number,
+      price: number,
+      growthA: bigint,
+      growthB: bigint,
+      liq = 10n ** 12n,
+      vaultA = (10_000n * 10n ** 9n).toString(),
+      vaultB = (1_000_000n * 10n ** 6n).toString(),
+    ): PoolSnapshot => ({ ...snap(t, price, growthA, growthB, liq), vaultA, vaultB });
+
+    it("computes the documented formula exactly over two intervals", () => {
+      const L = 10n ** 6n;
+      // Interval 1 (900s): feesA = 1000/L × 1e6 = 1e9 native = 1 SOL = $100;
+      //                    feesB = 100/L × 1e6 = 1e8 native = $100. TVL $2M.
+      // Interval 2 (900s): feesA = 0; feesB = 300/L × 1e6 = 3e8 native = $300.
+      const s = [
+        vaulted(0, 100, 0n, 0n, L),
+        vaulted(900, 100, 1000n * Q64, 100n * Q64, L),
+        vaulted(1800, 100, 1000n * Q64, 400n * Q64, L),
+      ];
+      const r = measurePoolDailyYield(s, DEC_A, DEC_B)!;
+      expect(r.intervals).to.equal(2);
+      expect(r.coveredSeconds).to.equal(1800);
+      expect(r.feesQuote).to.be.closeTo(200 + 300, 1e-9);
+      // rate per interval: 200/2e6 + 300/2e6 = 2.5e-4 over 1800s
+      // daily = 2.5e-4 / (1800/86400) = 0.012
+      expect(r.dailyYield).to.be.closeTo(0.012, 1e-12);
+      expect(r.avgTvlQuote).to.be.closeTo(2_000_000, 1e-6);
+    });
+
+    it("token-A fees are valued at the interval mid price", () => {
+      const L = 10n ** 6n;
+      const s = [
+        vaulted(0, 90, 0n, 0n, L),
+        vaulted(900, 110, 1000n * Q64, 0n, L), // 1 SOL of fees, mid price $100
+      ];
+      const r = measurePoolDailyYield(s, DEC_A, DEC_B)!;
+      expect(r.feesQuote).to.be.closeTo(100, 1e-9); // 1 SOL × $(90+110)/2
+    });
+
+    it("gaps longer than maxGapSeconds are excluded from covered time", () => {
+      const L = 10n ** 6n;
+      const s = [
+        vaulted(0, 100, 0n, 0n, L),
+        vaulted(900, 100, 1000n * Q64, 0n, L),          // used: $100
+        vaulted(900 + 7200, 100, 9000n * Q64, 0n, L),   // 2h gap: skipped
+        vaulted(900 + 7200 + 900, 100, 10_000n * Q64, 0n, L), // used: $100
+      ];
+      const r = measurePoolDailyYield(s, DEC_A, DEC_B)!;
+      expect(r.intervals).to.equal(2);
+      expect(r.gapIntervals).to.equal(1);
+      expect(r.coveredSeconds).to.equal(1800);
+      expect(r.feesQuote).to.be.closeTo(200, 1e-9);
+      // window still reports full wall-clock span
+      expect(r.windowSeconds).to.equal(9000);
+    });
+
+    it("snapshots without vaults yield null (never a guessed TVL)", () => {
+      const L = 10n ** 6n;
+      const bare = snap(900, 100, 1000n * Q64, 0n, L); // no vaultA/B
+      // Both intervals touch the vaultless snapshot → nothing usable.
+      const s = [vaulted(0, 100, 0n, 0n, L), bare, vaulted(1800, 100, 2000n * Q64, 0n, L)];
+      expect(measurePoolDailyYield(s, DEC_A, DEC_B)).to.equal(null);
+    });
+
+    it("a wrapped/reset accumulator is rejected as implausible, never included", () => {
+      const L = 10n ** 6n;
+      const s = [
+        // Backwards accumulator (pool re-deploy) → wrap-delta ≈ 2^128 → rejected.
+        vaulted(0, 100, 5000n * Q64, 0n, L),
+        vaulted(900, 100, 10n * Q64, 0n, L),
+        // Sane again: Δ = 1000/L native → 1 SOL = $100 fees → kept.
+        vaulted(1800, 100, 1010n * Q64, 0n, L),
+      ];
+      const r = measurePoolDailyYield(s, DEC_A, DEC_B)!;
+      expect(r.implausibleIntervals).to.equal(1);
+      expect(r.intervals).to.equal(1);
+      expect(r.feesQuote).to.be.closeTo(100, 1e-9);
+    });
+
+    it("returns null when fewer than two snapshots exist", () => {
+      expect(measurePoolDailyYield([vaulted(0, 100, 0n, 0n)], DEC_A, DEC_B)).to.equal(null);
+      expect(measurePoolDailyYield([], DEC_A, DEC_B)).to.equal(null);
+    });
   });
 
   it("store: append/read/latest roundtrip, time-filtered and sorted", async () => {

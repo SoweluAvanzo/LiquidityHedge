@@ -13,6 +13,7 @@ import {
   CandleStore,
   PoolSnapshot,
   PoolSnapshotStore,
+  PositionFeeSnapshot,
   Timeframe,
 } from "@lh/market-data";
 
@@ -101,6 +102,114 @@ function toSnapshot(r: Record<string, unknown>): PoolSnapshot {
     vaultA: r.vault_a === null ? undefined : String(r.vault_a),
     vaultB: r.vault_b === null ? undefined : String(r.vault_b),
   };
+}
+
+// ── §1.2: position fee snapshots + tracked-position projection ────────
+
+export class PgPositionFeeStore {
+  constructor(private readonly pool: Pool) {}
+
+  /** Batch insert for a collector cycle; idempotent on (position, t). */
+  async appendMany(
+    rows: { position: string; snapshot: PositionFeeSnapshot }[],
+  ): Promise<number> {
+    if (rows.length === 0) return 0;
+    const res = await this.pool.query(
+      `INSERT INTO lh.position_fee_snapshots
+         (position, t, whirlpool, liquidity, fee_growth_inside_a, fee_growth_inside_b, price, in_range)
+       SELECT * FROM UNNEST(
+         $1::text[], $2::bigint[], $3::text[], $4::numeric[],
+         $5::numeric[], $6::numeric[], $7::double precision[], $8::boolean[])
+       ON CONFLICT (position, t) DO NOTHING`,
+      [
+        rows.map((r) => r.position),
+        rows.map((r) => r.snapshot.t),
+        rows.map((r) => r.snapshot.whirlpool),
+        rows.map((r) => r.snapshot.liquidity),
+        rows.map((r) => r.snapshot.feeGrowthInsideA),
+        rows.map((r) => r.snapshot.feeGrowthInsideB),
+        rows.map((r) => r.snapshot.price),
+        rows.map((r) => r.snapshot.inRange),
+      ],
+    );
+    return res.rowCount ?? 0;
+  }
+
+  async read(
+    position: string,
+    timeFrom: number,
+    timeTo: number,
+  ): Promise<PositionFeeSnapshot[]> {
+    const { rows } = await this.pool.query(
+      `SELECT t, whirlpool, liquidity, fee_growth_inside_a, fee_growth_inside_b, price, in_range
+         FROM lh.position_fee_snapshots
+        WHERE position = $1 AND t BETWEEN $2 AND $3
+        ORDER BY t`,
+      [position, timeFrom, timeTo],
+    );
+    return rows.map((r: Record<string, unknown>) => ({
+      t: Number(r.t),
+      whirlpool: String(r.whirlpool),
+      liquidity: String(r.liquidity),
+      feeGrowthInsideA: String(r.fee_growth_inside_a),
+      feeGrowthInsideB: String(r.fee_growth_inside_b),
+      price: Number(r.price),
+      inRange: Boolean(r.in_range),
+    }));
+  }
+}
+
+export interface TrackedPositionRow {
+  position: string;
+  positionMint: string;
+  whirlpool: string;
+  decimalsA: number;
+  decimalsB: number;
+}
+
+/**
+ * Tracked-position projection: the web app upserts whenever a
+ * viability-eligible position is served; the collector snapshots the
+ * most recently seen ones each cycle. Mutable like tracked_pools.
+ */
+export class PgTrackedPositionStore {
+  constructor(private readonly pool: Pool) {}
+
+  async touch(rows: TrackedPositionRow[], seenAt: number): Promise<void> {
+    if (rows.length === 0) return;
+    await this.pool.query(
+      `INSERT INTO lh.tracked_positions
+         (position, position_mint, whirlpool, decimals_a, decimals_b, added_at, last_seen)
+       SELECT *, $6::bigint, $6::bigint FROM UNNEST(
+         $1::text[], $2::text[], $3::text[], $4::smallint[], $5::smallint[])
+       ON CONFLICT (position) DO UPDATE SET last_seen = EXCLUDED.last_seen`,
+      [
+        rows.map((r) => r.position),
+        rows.map((r) => r.positionMint),
+        rows.map((r) => r.whirlpool),
+        rows.map((r) => r.decimalsA),
+        rows.map((r) => r.decimalsB),
+        seenAt,
+      ],
+    );
+  }
+
+  /** Most recently seen first — the collector's snapshot set. */
+  async list(limit = 200): Promise<(TrackedPositionRow & { lastSeen: number })[]> {
+    const { rows } = await this.pool.query(
+      `SELECT position, position_mint, whirlpool, decimals_a, decimals_b, last_seen
+         FROM lh.tracked_positions ORDER BY last_seen DESC LIMIT $1`,
+      [Math.min(limit, 1000)],
+    );
+    return rows.map((r: Record<string, unknown>) => ({
+      position: String(r.position),
+      positionMint: String(r.position_mint),
+      whirlpool: String(r.whirlpool),
+      decimalsA: Number(r.decimals_a),
+      decimalsB: Number(r.decimals_b),
+      lastSeen: Number(r.last_seen),
+    }));
+  }
 }
 
 export class PgCandleStore implements CandleStore {

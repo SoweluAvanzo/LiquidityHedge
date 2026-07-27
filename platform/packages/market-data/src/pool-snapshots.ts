@@ -165,6 +165,127 @@ export function computeRangeFeeYield(
   };
 }
 
+// ── Direct pool-yield measurement (remediation plan §1.1) ─────────────
+//
+// Replaces the vendor-modelled r_pool = volume₂₄ₕ × feeTier / TVL with a
+// measurement from the chain's own fee ledger. Per snapshot interval:
+//
+//   LP fees paid = Δ feeGrowthGlobal × L_active / 2⁶⁴   (per token)
+//
+// valued at the interval's price, divided by the interval's vault-derived
+// TVL. The protocol's fee share never appears because feeGrowthGlobal is
+// incremented NET of it — the correction is inside the accumulator, not a
+// modelling step.
+
+export interface MeasuredPoolYield {
+  /** LP fee yield per unit of TVL per DAY, averaged over covered time. */
+  dailyYield: number;
+  /** Wall-clock span from first to last snapshot considered. */
+  windowSeconds: number;
+  /** Seconds actually integrated (gaps and unusable intervals excluded). */
+  coveredSeconds: number;
+  /** Intervals integrated. */
+  intervals: number;
+  /** Intervals skipped: longer than maxGapSeconds (collector outage). */
+  gapIntervals: number;
+  /** Intervals skipped: no vault balances (pre-TVL-capture snapshots). */
+  noTvlIntervals: number;
+  /** Intervals skipped: fee delta implausible for the elapsed time
+   *  (wrapped or reset accumulator — never silently included). */
+  implausibleIntervals: number;
+  /** Total LP fees over covered time, quote units (USD for USDC pools). */
+  feesQuote: number;
+  /** Time-weighted TVL over covered time, quote units. */
+  avgTvlQuote: number;
+  firstT: number;
+  lastT: number;
+}
+
+/** An interval yielding more than this fraction of TVL is a broken
+ *  accumulator (reset/wrap), not fees — 50% of TVL between snapshots. */
+const IMPLAUSIBLE_INTERVAL_YIELD = 0.5;
+
+/**
+ * Measured pool-average daily fee yield from fee-growth snapshots.
+ *
+ * Approximation note: Δgrowth × L_active(start) equals fees paid only
+ * while L_active is constant within the interval; the error is bounded
+ * by the snapshot cadence and L variation, the same first-order status
+ * as `computeRangeFeeYield`. Returns null when not a single interval is
+ * usable — the caller falls back to the modelled estimate and says so.
+ */
+export function measurePoolDailyYield(
+  snapshots: PoolSnapshot[],
+  decimalsA: number,
+  decimalsB: number,
+  opts?: { maxGapSeconds?: number },
+): MeasuredPoolYield | null {
+  if (snapshots.length < 2) return null;
+  const maxGap = opts?.maxGapSeconds ?? 3600;
+
+  let sumRate = 0;
+  let covered = 0;
+  let feesQuote = 0;
+  let tvlSeconds = 0;
+  let intervals = 0;
+  let gapIntervals = 0;
+  let noTvlIntervals = 0;
+  let implausibleIntervals = 0;
+
+  for (let i = 1; i < snapshots.length; i++) {
+    const a = snapshots[i - 1];
+    const b = snapshots[i];
+    const dt = b.t - a.t;
+    if (dt <= 0) continue;
+    if (dt > maxGap) {
+      gapIntervals++;
+      continue;
+    }
+    const tvlA = snapshotTvlQuote(a, decimalsA, decimalsB);
+    const tvlB = snapshotTvlQuote(b, decimalsA, decimalsB);
+    if (tvlA === null || tvlB === null || tvlA <= 0 || tvlB <= 0) {
+      noTvlIntervals++;
+      continue;
+    }
+    const tvlMid = (tvlA + tvlB) / 2;
+
+    const L = BigInt(a.liquidity);
+    const dA = feeGrowthDelta(BigInt(b.feeGrowthGlobalA), BigInt(a.feeGrowthGlobalA));
+    const dB = feeGrowthDelta(BigInt(b.feeGrowthGlobalB), BigInt(a.feeGrowthGlobalB));
+    const feesA = Number((dA * L) / Q64) / 10 ** decimalsA;
+    const feesB = Number((dB * L) / Q64) / 10 ** decimalsB;
+    const priceMid = (a.price + b.price) / 2;
+    const fees = feesA * priceMid + feesB;
+
+    const rate = fees / tvlMid;
+    if (!Number.isFinite(rate) || rate < 0 || rate > IMPLAUSIBLE_INTERVAL_YIELD) {
+      implausibleIntervals++;
+      continue;
+    }
+
+    sumRate += rate;
+    feesQuote += fees;
+    covered += dt;
+    tvlSeconds += tvlMid * dt;
+    intervals++;
+  }
+
+  if (intervals === 0 || covered <= 0) return null;
+  return {
+    dailyYield: sumRate / (covered / 86_400),
+    windowSeconds: snapshots[snapshots.length - 1].t - snapshots[0].t,
+    coveredSeconds: covered,
+    intervals,
+    gapIntervals,
+    noTvlIntervals,
+    implausibleIntervals,
+    feesQuote,
+    avgTvlQuote: tvlSeconds / covered,
+    firstT: snapshots[0].t,
+    lastT: snapshots[snapshots.length - 1].t,
+  };
+}
+
 /** Convert a yield result to USD using an average accrual price. */
 export function rangeYieldUsd(
   result: RangeYieldResult,

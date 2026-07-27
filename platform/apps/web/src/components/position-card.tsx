@@ -76,6 +76,36 @@ function twoSidedBand(vi: number | null): { label: string; tone: StatusTone } {
 }
 
 /**
+ * §1.1 pool-yield provenance for the methodology tooltip: measured from
+ * our own on-chain fee-growth snapshots, or the labelled Birdeye
+ * fallback — a modelled number must never read as a measurement.
+ */
+function poolYieldLabel(viability: PositionViabilityWire): string {
+  const py = viability.poolYield;
+  if (py && py.source === "measured-snapshots") {
+    const hours =
+      py.coveredSeconds !== null ? (py.coveredSeconds / 3600).toFixed(1) : "?";
+    return `pool fee yield measured from on-chain fee-growth snapshots (${hours}h window)`;
+  }
+  return "Birdeye-modelled pool fee yield (snapshot history unavailable)";
+}
+
+/**
+ * §1.2: how measuredDailyYield itself was produced — the position's own
+ * realised fees, or the modelled pool × in-range × concentration chain.
+ */
+function measuredYieldMethodology(viability: PositionViabilityWire): string {
+  const pos = viability.positionYield;
+  if (pos && pos.source === "realised-inside") {
+    const hours =
+      pos.coveredSeconds !== null ? (pos.coveredSeconds / 3600).toFixed(1) : "?";
+    const fees = pos.feesUsd !== null ? `$${pos.feesUsd.toFixed(4)}` : "?";
+    return `Measured yield = the position's own realised fees (${fees} over the last ${hours}h, from its feeGrowthInside accumulator) / position value — occupancy and concentration measured, not modelled`;
+  }
+  return `Measured yield = ${poolYieldLabel(viability)} x in-range fraction ${viability.inRangeFraction.toFixed(2)} x concentration factor ${viability.concentrationFactor.toFixed(2)}`;
+}
+
+/**
  * Estimator provenance (policy 2026-07-08): states VERBATIM which
  * estimator produced the in-range fraction. Empirical shows its window
  * count + uncertainty band; the GBM fallback shows sigma + why the
@@ -92,6 +122,7 @@ function EstimatorLine({ viability }: { viability: PositionViabilityWire }) {
       ? `${est.description}\n\nEmpirical ${formatFraction(est.fraction)} vs GBM ${formatFraction(est.reference.fraction)}`
       : est.description;
 
+  const py = viability.poolYield;
   return (
     <p className="lh-prov">
       <span className="lh-prov-item">
@@ -100,6 +131,22 @@ function EstimatorLine({ viability }: { viability: PositionViabilityWire }) {
           ? `empirical (${viability.empiricalWindows ?? "?"} windows)`
           : `GBM model (σ ${formatPercent(viability.sigmaAnnualized, 0)})`}
       </span>
+      {py && (
+        <span className="lh-prov-item">
+          <span className="lh-prov-key">pool yield</span>
+          {py.source === "measured-snapshots"
+            ? `measured (${py.coveredSeconds !== null ? (py.coveredSeconds / 3600).toFixed(1) : "?"}h of snapshots)`
+            : "modelled (Birdeye fallback)"}
+        </span>
+      )}
+      {viability.positionYield && (
+        <span className="lh-prov-item">
+          <span className="lh-prov-key">position yield</span>
+          {viability.positionYield.source === "realised-inside"
+            ? `realised (${viability.positionYield.coveredSeconds !== null ? (viability.positionYield.coveredSeconds / 3600).toFixed(1) : "?"}h of own fees)`
+            : "modelled (pool × in-range × concentration)"}
+        </span>
+      )}
       {empirical && est.band && (
         <span className="lh-prov-item">
           <span className="lh-prov-key">in range {viability.tenorDays}d</span>
@@ -172,7 +219,7 @@ function ViabilityRow({
             {formatDailyYield(viability.breakevenDailyYield)}
           </span>
           <InfoTip
-            text={`Model-based estimate (range breakeven; see product-design docs). Breakeven is ${viability.bound}-bound from a seeded Monte-Carlo fair value of the 7-day range payoff at sigma ${formatPercent(viability.sigmaAnnualized, 1)} (${viability.sigmaWindowDays}d realized vol). Measured yield = Birdeye pool fee yield x in-range fraction ${viability.inRangeFraction.toFixed(2)} x concentration factor ${viability.concentrationFactor.toFixed(2)}. Not a prediction.`}
+            text={`Model-based estimate (range breakeven; see product-design docs). Breakeven is ${viability.bound}-bound from a seeded Monte-Carlo fair value of the 7-day range payoff at sigma ${formatPercent(viability.sigmaAnnualized, 1)} (${viability.sigmaWindowDays}d realized vol). ${measuredYieldMethodology(viability)}. Not a prediction.`}
           />
         </span>
       </div>

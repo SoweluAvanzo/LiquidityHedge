@@ -42,6 +42,15 @@ export interface PortfolioPositionView {
   feesAreExact?: boolean;
   feeOwedA: bigint;
   feeOwedB: bigint;
+  /**
+   * §1.2: the position's CURRENT feeGrowthInside (Q64.64 u128,
+   * stringified), reconstructed from the pool + tick accounts during
+   * discovery — the same intermediate the exact-fee computation uses.
+   * Present only when feesAreExact; persisted as an opportunistic
+   * position-fee snapshot so realised yield can be measured over time.
+   */
+  feeGrowthInsideA?: string;
+  feeGrowthInsideB?: string;
 }
 
 export interface PortfolioSummary {
