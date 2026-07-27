@@ -545,8 +545,25 @@ derived in words in the card tooltip. Effect at deploy: σ 0.519 →
 0.403, E[ΔV] magnitude ×0.60, VI₂ EPRL 0.35 → 0.59. New market-data
 primitives: `computeNonOverlappingTenorVol`, `varianceRatio`.
 
-Next: **1.7** (propagate uncertainty; display at resolved precision;
-badge hysteresis) … 1.10 in order.
+**1.7 — DONE ✅, deployed.** Both viability indices now ship a 90% band
+(`viabilityIndexBand`) propagated from the three quantified inputs — σ
+band, empirical in-range mean CI, and new fee-flow bootstrap CIs
+(`dailyYieldCi` on the measured pool yield, `feesQuoteCi` on realised
+position fees) — each re-evaluated through the SAME code path as the
+point estimate (`evaluateIndices`; deploy diff proved 0.00% point
+movement) and combined in quadrature, asymmetric, with +∞ legs
+unbounding the upper edge. `uncertaintyDominatedBy` names the largest
+source ("band driver" on the card; σ, as the plan predicted).
+**Verdict badges now use a CI dead-band**: a verdict is asserted only
+when the whole band clears a threshold; band-straddling states are
+labelled "borderline" — the mGADEK 12-minute badge-flip is impossible
+from noise by construction (stateless, statistically-principled
+hysteresis). Unquantified sources (Birdeye fallback yield) leave their
+leg EMPTY rather than pretending zero error. At deploy, EPRL's VI₂
+0.87 [0.47–1.44] straddles breakeven and says so.
+
+Next: **1.8** (one source for premium parameters — getPricingParams,
+settles D1, closes A7/D-5/part of C6) … 1.10 in order.
 
 ### Caveat for whoever picks this up
 

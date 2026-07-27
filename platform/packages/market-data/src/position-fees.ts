@@ -20,6 +20,8 @@
  * never included.
  */
 
+import { movingBlockResampleMeans, quantileSortedFloor } from "./bootstrap";
+
 const Q64 = 1n << 64n;
 const U128 = 1n << 128n;
 
@@ -67,6 +69,9 @@ export interface MeasuredPositionFees {
   inRangeSeconds: number;
   firstT: number;
   lastT: number;
+  /** §1.7: 90% moving-block bootstrap CI for feesQuote (fee flow is
+   *  bursty). Null when the window is too thin (< 8 intervals). */
+  feesQuoteCi: { p05: number; p95: number } | null;
 }
 
 /** Absolute per-interval ceiling — the last-resort default when the
@@ -107,6 +112,7 @@ export function measurePositionFees(
   let gapIntervals = 0;
   let liquidityChangeIntervals = 0;
   let implausibleIntervals = 0;
+  const intervalFees: number[] = [];
 
   for (let i = 1; i < snapshots.length; i++) {
     const a = snapshots[i - 1];
@@ -143,11 +149,27 @@ export function measurePositionFees(
     if (a.inRange && b.inRange) inRangeSeconds += dt;
     else if (a.inRange !== b.inRange) inRangeSeconds += dt / 2;
     intervals++;
+    intervalFees.push(fees);
   }
 
   if (intervals === 0 || covered <= 0) return null;
+  // §1.7: feesQuote = mean(interval fees) × n; bootstrap the mean with
+  // ~1h blocks (fee bursts cluster) and scale by n. Seeded.
+  let feesQuoteCi: { p05: number; p95: number } | null = null;
+  if (intervalFees.length >= 8) {
+    const means = movingBlockResampleMeans(intervalFees, {
+      blockLength: 4,
+      resamples: 400,
+      seed: 0xfee2,
+    }).sort((a, b) => a - b);
+    feesQuoteCi = {
+      p05: quantileSortedFloor(means, 0.05) * intervalFees.length,
+      p95: quantileSortedFloor(means, 0.95) * intervalFees.length,
+    };
+  }
   return {
     feesQuote,
+    feesQuoteCi,
     feesA,
     feesB,
     coveredSeconds: covered,

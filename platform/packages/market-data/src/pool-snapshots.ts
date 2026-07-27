@@ -22,6 +22,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { movingBlockResampleMeans, quantileSortedFloor } from "./bootstrap";
 
 const Q64 = 1n << 64n;
 const U128 = 1n << 128n;
@@ -202,6 +203,10 @@ export interface MeasuredPoolYield {
   avgTvlQuote: number;
   firstT: number;
   lastT: number;
+  /** §1.7: 90% moving-block bootstrap CI for dailyYield — fee flow is
+   *  bursty, so the window mean has real sampling error. Null when the
+   *  window is too thin to resample (< 8 intervals). */
+  dailyYieldCi: { p05: number; p95: number } | null;
 }
 
 /** An interval yielding more than this fraction of TVL is a broken
@@ -234,6 +239,7 @@ export function measurePoolDailyYield(
   let gapIntervals = 0;
   let noTvlIntervals = 0;
   let implausibleIntervals = 0;
+  const intervalRates: number[] = [];
 
   for (let i = 1; i < snapshots.length; i++) {
     const a = snapshots[i - 1];
@@ -277,9 +283,28 @@ export function measurePoolDailyYield(
     covered += dt;
     tvlSeconds += tvlMid * dt;
     intervals++;
+    intervalRates.push(rate);
   }
 
   if (intervals === 0 || covered <= 0) return null;
+  // §1.7: fee flow is bursty and autocorrelated (volume clusters), so
+  // the window-mean yield has real sampling error. Moving-block
+  // bootstrap over the per-interval rates, blocks ≈ 1h of cadence.
+  // dailyYield = Σr_i / days = mean(r_i) × n/days, so the CI scales the
+  // resampled means by the same factor. Seeded — regression contract.
+  let dailyYieldCi: { p05: number; p95: number } | null = null;
+  if (intervalRates.length >= 8) {
+    const scale = intervalRates.length / (covered / 86_400);
+    const means = movingBlockResampleMeans(intervalRates, {
+      blockLength: 4,
+      resamples: 400,
+      seed: 0xfee1,
+    }).sort((a, b) => a - b);
+    dailyYieldCi = {
+      p05: quantileSortedFloor(means, 0.05) * scale,
+      p95: quantileSortedFloor(means, 0.95) * scale,
+    };
+  }
   return {
     // Convention: time-average of the instantaneous rate, Σ(fees_i/TVL_i)
     // over covered days — the estimand for a constant-SHARE LP. It
@@ -287,6 +312,7 @@ export function measurePoolDailyYield(
     // weekly ±5% TVL variation); consumers must not recompute a second
     // "daily yield" from the components and expect equality.
     dailyYield: sumRate / (covered / 86_400),
+    dailyYieldCi,
     windowSeconds: snapshots[snapshots.length - 1].t - snapshots[0].t,
     coveredSeconds: covered,
     intervals,

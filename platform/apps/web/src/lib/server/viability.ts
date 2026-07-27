@@ -201,6 +201,10 @@ interface SigmaEstimate {
 export interface PoolYieldBasis {
   /** The pool daily yield actually used downstream. */
   poolDailyYield: number;
+  /** §1.7: 90% CI on the measured yield; null on the Birdeye fallback
+   *  (the vendor number carries no quantified uncertainty — the band
+   *  then simply omits this source and says so). */
+  poolDailyYieldCi: { p05: number; p95: number } | null;
   source: "measured-snapshots" | "modelled-birdeye";
   /** Measured-window metadata (null on the modelled path). */
   window: {
@@ -303,6 +307,7 @@ async function poolYieldBasis(
   if (measured.ok) {
     return {
       poolDailyYield: measured.measured.dailyYield,
+      poolDailyYieldCi: measured.measured.dailyYieldCi,
       source: "measured-snapshots",
       window: {
         coveredSeconds: measured.measured.coveredSeconds,
@@ -325,6 +330,7 @@ async function poolYieldBasis(
     );
     return {
       poolDailyYield: estimatePoolDailyYield(overview),
+      poolDailyYieldCi: null,
       source: "modelled-birdeye",
       window: null,
       fallbackReason: measured.reason,
@@ -524,15 +530,10 @@ async function solSigmaEstimate(): Promise<SigmaEstimate | null> {
  * (audit D-1/F2/F6). The same linear term costs the quadrature nothing
  * (martingale identity, resolved to ~1e-9).
  */
-function fairValueQuadrature(
+function fairValueCore(
   view: PortfolioPositionView,
   sigma: number,
-): {
-  fairValueUsd: number;
-  expectedValueChangeUsd: number;
-  expectedValueChangeUsdAtMinusDrift: number;
-  expectedValueChangeUsdAtPlusDrift: number;
-} {
+): { fairValueUsd: number; expectedValueChangeUsd: number } {
   const v0 = positionValueAtPrice(view, view.price);
   const tenorYears = TENOR_SECONDS / SECONDS_PER_YEAR;
   // §3.1 asserts FV >= 0. That proof needs S0 inside [p_l, p_u]: below
@@ -557,29 +558,71 @@ function fairValueQuadrature(
   // E[ΔV] = E[V(S_T)] − V(S_0), NOT clamped — a mark-to-market
   // expectation, legitimately negative (that is the divergence loss),
   // which is what the paper's two-sided breakeven needs (§2.4.4).
-  const deltaV = (sT: number) => positionValueAtPrice(view, sT) - v0;
   const expectedValueChangeUsd = quadratureExpectation(
-    deltaV,
+    (sT) => positionValueAtPrice(view, sT) - v0,
     view.price,
     sigma,
     tenorYears,
   );
-  // §1.6: the same integral under ±50%/yr PHYSICAL drift. The point
-  // estimate stays risk-neutral (the only assumption-free choice; the
-  // index claims to measure concavity, not a directional view) — the
-  // sweep exists so a reader SEES the result is drift-determined
-  // rather than inferring precision the estimator does not have.
-  const expectedValueChangeUsdAtMinusDrift = quadratureExpectation(
-    deltaV, view.price, sigma, tenorYears, undefined, -DRIFT_SWEEP_ANNUAL,
-  );
-  const expectedValueChangeUsdAtPlusDrift = quadratureExpectation(
-    deltaV, view.price, sigma, tenorYears, undefined, DRIFT_SWEEP_ANNUAL,
-  );
+  return { fairValueUsd, expectedValueChangeUsd };
+}
+
+/** §1.6: E[ΔV] under ±DRIFT_SWEEP_ANNUAL physical drift — display only
+ *  (the point estimate stays risk-neutral); computed once per position,
+ *  never inside the §1.7 perturbation legs. */
+function driftSweep(
+  view: PortfolioPositionView,
+  sigma: number,
+): { atMinus: number; atPlus: number } {
+  const v0 = positionValueAtPrice(view, view.price);
+  const tenorYears = TENOR_SECONDS / SECONDS_PER_YEAR;
+  const deltaV = (sT: number) => positionValueAtPrice(view, sT) - v0;
   return {
-    fairValueUsd,
-    expectedValueChangeUsd,
-    expectedValueChangeUsdAtMinusDrift,
-    expectedValueChangeUsdAtPlusDrift,
+    atMinus: quadratureExpectation(
+      deltaV, view.price, sigma, tenorYears, undefined, -DRIFT_SWEEP_ANNUAL,
+    ),
+    atPlus: quadratureExpectation(
+      deltaV, view.price, sigma, tenorYears, undefined, DRIFT_SWEEP_ANNUAL,
+    ),
+  };
+}
+
+/**
+ * §1.7: combine per-source index perturbations into one asymmetric 90%
+ * band. Each leg holds the index re-evaluated at one input's band
+ * edges; per-source half-widths combine in quadrature (the three
+ * sources — σ estimation, in-range sampling, fee-flow sampling — are
+ * independent). A leg value of +Infinity (a perturbation pushed the
+ * breakeven to zero) makes the UPPER edge unbounded (p95 = null);
+ * NaN/−Infinity anywhere voids the band. Exported pure for tests.
+ */
+export function combineIndexBands(
+  point: number | null,
+  legs: number[][],
+): { p05: number; p95: number | null } | null {
+  if (point === null || !Number.isFinite(point)) return null;
+  let lo2 = 0;
+  let hi2 = 0;
+  let unboundedHi = false;
+  for (const leg of legs) {
+    let lo = 0;
+    let hi = 0;
+    for (const v of leg) {
+      if (Number.isNaN(v)) return null;
+      if (v === Number.POSITIVE_INFINITY) {
+        unboundedHi = true;
+        continue;
+      }
+      if (!Number.isFinite(v)) return null;
+      if (v < point) lo = Math.max(lo, point - v);
+      else hi = Math.max(hi, v - point);
+    }
+    lo2 += lo * lo;
+    hi2 += hi * hi;
+  }
+  return {
+    p05: Math.max(0, point - Math.sqrt(lo2)),
+    p95: unboundedHi ? null : point + Math.sqrt(hi2),
   };
 }
 
@@ -660,16 +703,48 @@ export async function computePositionViability(
     // historic yield (the audits' top semantic finding). The fully
     // modelled chain remains as the labelled fallback.
     const realised = await readRealisedPositionYield(view);
-    const measuredDailyYield =
-      (realised.ok ? realised.inRangeDailyRate : poolDaily * c) *
-      inRangeEstimate.fraction;
+    const inRangeRate = realised.ok ? realised.inRangeDailyRate : poolDaily * c;
 
-    const {
-      fairValueUsd,
-      expectedValueChangeUsd,
-      expectedValueChangeUsdAtMinusDrift,
-      expectedValueChangeUsdAtPlusDrift,
-    } = fairValueQuadrature(view, sigma);
+    // §1.7: ONE evaluation path for the point estimate and every
+    // perturbation leg — two implementations would make the band
+    // meaningless. (σ, fraction, rate) → both indices + intermediates.
+    const evaluateIndices = (sigmaX: number, fractionX: number, rateX: number) => {
+      const { fairValueUsd, expectedValueChangeUsd } = fairValueCore(view, sigmaX);
+      const measured = rateX * fractionX;
+      const r = computeViability({
+        fairValueUsd,
+        effectiveMarkup: EFFECTIVE_MARKUP,
+        premiumFloorUsd: PREMIUM_FLOOR_USD,
+        feeSplitRate: FEE_SPLIT_RATE,
+        positionValueUsd: view.valueQuote,
+        tenorDays: TENOR_DAYS,
+        measuredDailyYield: measured,
+      });
+      // Paper §2.4.4 two-sided breakeven — the index that DOES count
+      // divergence loss. Premium at the measured fee yield, matching
+      // the paper's use of realised premiums.
+      const expectedFeesUsd = view.valueQuote * measured * TENOR_DAYS;
+      const premiumUsd = Math.max(
+        PREMIUM_FLOOR_USD,
+        fairValueUsd * EFFECTIVE_MARKUP - FEE_SPLIT_RATE * expectedFeesUsd,
+      );
+      const ts = computeTwoSidedViability({
+        expectedValueChangeUsd,
+        premiumUsd,
+        protocolFeeRate: PROTOCOL_FEE_RATE,
+        positionValueUsd: view.valueQuote,
+        tenorDays: TENOR_DAYS,
+        measuredDailyYield: measured,
+      });
+      return { fairValueUsd, expectedValueChangeUsd, measured, result: r, premiumUsd, twoSided: ts };
+    };
+
+    const point = evaluateIndices(sigma, inRangeEstimate.fraction, inRangeRate);
+    const { fairValueUsd, expectedValueChangeUsd, result, premiumUsd, twoSided } = point;
+    const measuredDailyYield = point.measured;
+    const { atMinus: expectedValueChangeUsdAtMinusDrift, atPlus: expectedValueChangeUsdAtPlusDrift } =
+      driftSweep(view, sigma);
+
     // A NaN anywhere upstream used to travel as `null`, which the card
     // reads as "unbounded" and paints GREEN — a silent numeric failure
     // displayed as the strongest possible pass. Refuse instead.
@@ -682,32 +757,76 @@ export async function computePositionViability(
     }
     if (!Number.isFinite(measuredDailyYield)) return null;
 
-    const result = computeViability({
-      fairValueUsd,
-      effectiveMarkup: EFFECTIVE_MARKUP,
-      premiumFloorUsd: PREMIUM_FLOOR_USD,
-      feeSplitRate: FEE_SPLIT_RATE,
-      positionValueUsd: view.valueQuote,
-      tenorDays: TENOR_DAYS,
-      measuredDailyYield,
-    });
-
-    // Paper §2.4.4 two-sided breakeven — the index that DOES count
-    // divergence loss. Premium is evaluated at the measured fee yield,
-    // matching the paper's use of realised premiums.
-    const expectedFeesUsd = view.valueQuote * measuredDailyYield * TENOR_DAYS;
-    const premiumUsd = Math.max(
-      PREMIUM_FLOOR_USD,
-      fairValueUsd * EFFECTIVE_MARKUP - FEE_SPLIT_RATE * expectedFeesUsd,
+    // §1.7: perturbation legs — each quantified input evaluated at its
+    // own band edges through the same path as the point estimate.
+    //  σ leg: FV and E[ΔV] move; the fraction moves too when the GBM
+    //  analytic is primary (it is a function of σ), not when empirical.
+    const sigmaLeg = [sigmaEstimate.band.p05, sigmaEstimate.band.p95].map((s) =>
+      evaluateIndices(
+        s,
+        inRangeEstimate.method === "gbm-analytic"
+          ? inRangeFractionBounds(view.priceLower, view.priceUpper, view.price, s, TENOR_SECONDS)
+          : inRangeEstimate.fraction,
+        inRangeRate,
+      ),
     );
-    const twoSided = computeTwoSidedViability({
-      expectedValueChangeUsd,
-      premiumUsd,
-      protocolFeeRate: PROTOCOL_FEE_RATE,
-      positionValueUsd: view.valueQuote,
-      tenorDays: TENOR_DAYS,
-      measuredDailyYield,
+    //  in-range leg: empirical mean CI (absent on the GBM path — σ leg
+    //  already carries that uncertainty).
+    const fractionLeg = inRangeEstimate.meanCi
+      ? [inRangeEstimate.meanCi.p05, inRangeEstimate.meanCi.p95].map((f) =>
+          evaluateIndices(sigma, f, inRangeRate),
+        )
+      : [];
+    //  yield leg: realised fee bootstrap, or the measured pool yield
+    //  bootstrap × c; EMPTY on the Birdeye fallback — that source's
+    //  uncertainty is unquantified and the band says so (dominatedBy
+    //  stays honest rather than pretending zero).
+    const rateCi = realised.ok
+      ? realised.inRangeDailyRateCi
+      : basis.poolDailyYieldCi
+        ? { p05: basis.poolDailyYieldCi.p05 * c, p95: basis.poolDailyYieldCi.p95 * c }
+        : null;
+    const rateLeg = rateCi
+      ? [rateCi.p05, rateCi.p95].map((r) => evaluateIndices(sigma, inRangeEstimate.fraction, r))
+      : [];
+
+    const legIndex = (leg: ReturnType<typeof evaluateIndices>[], pick: "vi1" | "vi2") =>
+      leg.map((e) => (pick === "vi1" ? e.result.viabilityIndex : e.twoSided.viabilityIndex));
+    const vi1Point = Number.isFinite(result.viabilityIndex) ? result.viabilityIndex : null;
+    const vi2Point = Number.isFinite(twoSided.viabilityIndex) ? twoSided.viabilityIndex : null;
+    const viabilityIndexBand = combineIndexBands(vi1Point, [
+      legIndex(sigmaLeg, "vi1"),
+      legIndex(fractionLeg, "vi1"),
+      legIndex(rateLeg, "vi1"),
+    ]);
+    const twoSidedIndexBand = combineIndexBands(vi2Point, [
+      legIndex(sigmaLeg, "vi2"),
+      legIndex(fractionLeg, "vi2"),
+      legIndex(rateLeg, "vi2"),
+    ]);
+    // Which source dominates the band (largest finite excursion across
+    // both indices) — the reader's cue for what would tighten it.
+    const spans: [string, number][] = (
+      [
+        ["sigma", sigmaLeg],
+        ["in-range", fractionLeg],
+        ["yield", rateLeg],
+      ] as const
+    ).map(([name, leg]) => {
+      let span = 0;
+      for (const e of leg) {
+        for (const [p, v] of [
+          [vi1Point, e.result.viabilityIndex],
+          [vi2Point, e.twoSided.viabilityIndex],
+        ] as const) {
+          if (p !== null && Number.isFinite(v)) span = Math.max(span, Math.abs(v - p));
+        }
+      }
+      return [name, span];
     });
+    spans.sort((a, b) => b[1] - a[1]);
+    const uncertaintyDominatedBy =
+      spans[0][1] > 0 ? (spans[0][0] as "sigma" | "in-range" | "yield") : null;
 
     // The wire encodes Infinity→null for the two INDICES deliberately
     // (null = unbounded), and the card renders null as the strongest
@@ -749,6 +868,10 @@ export async function computePositionViability(
       viabilityIndex: Number.isFinite(result.viabilityIndex)
         ? result.viabilityIndex
         : null,
+      // §1.7: 90% band from the three quantified input uncertainties,
+      // combined in quadrature through the SAME evaluation path.
+      viabilityIndexBand,
+      uncertaintyDominatedBy,
       breakevenDailyYield: result.breakevenDailyYield,
       measuredDailyYield,
       bound: result.bound,
@@ -757,6 +880,7 @@ export async function computePositionViability(
         viabilityIndex: Number.isFinite(twoSided.viabilityIndex)
           ? twoSided.viabilityIndex
           : null,
+        viabilityIndexBand: twoSidedIndexBand,
         breakevenDailyYield: twoSided.breakevenDailyYield,
         unhedgedBreakevenDailyYield: twoSided.unhedgedBreakevenDailyYield,
         protocolFeeWedgeDailyYield: twoSided.protocolFeeWedgeDailyYield,

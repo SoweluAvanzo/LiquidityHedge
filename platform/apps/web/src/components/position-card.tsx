@@ -45,34 +45,61 @@ function Fact({
   );
 }
 
-/**
- * Viability band: threshold label + reserved status tone, never colour
- * alone (the label carries the meaning; the dot reinforces it).
- */
-function viabilityBand(vi: number | null): { label: string; tone: StatusTone } {
-  // null encodes Infinity (zero breakeven — fees trivially cover the cost).
-  if (vi === null || vi >= 1) {
-    return { label: "fees cover hedge cost", tone: "good" };
-  }
-  if (vi >= 0.5) {
-    return { label: "partial fee coverage", tone: "warning" };
-  }
-  return { label: "fees well below hedge cost", tone: "critical" };
-}
+type IndexBand = { p05: number; p95: number | null } | null;
 
 /**
- * Band for the two-sided index. Different wording on purpose: this one is
- * about whether PROVIDING THE LIQUIDITY pays once divergence loss is
- * counted, not about whether fees cover the hedge's markup.
+ * §1.7 verdict with a CI dead-band: a verdict is asserted only when the
+ * WHOLE 90% band clears the threshold — a small price move inside the
+ * band can no longer flip the badge (the measured pathology: mGADEK
+ * crossed VI = 1 on a 12-minute, 0.17% move). Band-straddling states
+ * are labelled borderline instead of pretending resolution. Threshold
+ * label + reserved status tone, never colour alone.
  */
-function twoSidedBand(vi: number | null): { label: string; tone: StatusTone } {
-  if (vi === null || vi >= 1) {
-    return { label: "fees cover divergence loss", tone: "good" };
+function bandedVerdict(
+  vi: number | null,
+  band: IndexBand,
+  labels: { good: string; partial: string; critical: string },
+): { label: string; tone: StatusTone } {
+  // null encodes Infinity (zero breakeven — trivially covered).
+  if (vi === null) return { label: labels.good, tone: "good" };
+  if (band) {
+    const hi = band.p95; // null = unbounded above
+    if (band.p05 >= 1) return { label: labels.good, tone: "good" };
+    if (hi !== null && hi < 0.5) return { label: labels.critical, tone: "critical" };
+    if (hi === null || hi >= 1) {
+      return { label: `${labels.partial} — borderline (interval spans breakeven)`, tone: "warning" };
+    }
+    if (band.p05 < 0.5) {
+      return { label: `${labels.partial} — borderline`, tone: "warning" };
+    }
+    return { label: labels.partial, tone: "warning" };
   }
-  if (vi >= 0.5) {
-    return { label: "partially covers divergence loss", tone: "warning" };
-  }
-  return { label: "fees below divergence loss", tone: "critical" };
+  // No band available — point-threshold fallback (pre-§1.7 behaviour).
+  if (vi >= 1) return { label: labels.good, tone: "good" };
+  if (vi >= 0.5) return { label: labels.partial, tone: "warning" };
+  return { label: labels.critical, tone: "critical" };
+}
+
+const VI1_LABELS = {
+  good: "fees cover hedge cost",
+  partial: "partial fee coverage",
+  critical: "fees well below hedge cost",
+};
+
+/** Different wording on purpose: the two-sided index is about whether
+ *  PROVIDING THE LIQUIDITY pays once divergence loss is counted, not
+ *  whether fees cover the hedge's markup. */
+const VI2_LABELS = {
+  good: "fees cover divergence loss",
+  partial: "partially covers divergence loss",
+  critical: "fees below divergence loss",
+};
+
+/** "VI 0.59 [0.31–0.94]" — the band IS the resolution statement. */
+function viWithBand(vi: number | null, band: IndexBand): string {
+  const point = vi === null ? "∞" : vi.toFixed(2);
+  if (!band) return point;
+  return `${point} [${band.p05.toFixed(2)}–${band.p95 === null ? "∞" : band.p95.toFixed(2)}]`;
 }
 
 /**
@@ -230,10 +257,13 @@ function ViabilityRow({
   }
 
   const vi = viability.viabilityIndex;
-  const band = viabilityBand(vi);
-  const viLabel = vi === null ? "∞" : vi.toFixed(2);
+  const viBand = viability.viabilityIndexBand ?? null;
+  const band = bandedVerdict(vi, viBand, VI1_LABELS);
+  const viLabel = viWithBand(vi, viBand);
   const ts = viability.twoSided.viabilityIndex;
-  const tsLabel = ts === null ? "∞" : ts.toFixed(2);
+  const tsBand = viability.twoSided.viabilityIndexBand ?? null;
+  const tsVerdict = bandedVerdict(ts, tsBand, VI2_LABELS);
+  const tsLabel = viWithBand(ts, tsBand);
 
   return (
     <div className="lh-card-sub" style={{ marginTop: "1rem" }}>
@@ -258,8 +288,18 @@ function ViabilityRow({
             <span className="lh-prov-key">model breakeven</span>
             {formatDailyYield(viability.breakevenDailyYield)}
           </span>
+          {viability.uncertaintyDominatedBy && (
+            <span className="lh-prov-item">
+              <span className="lh-prov-key">band driver</span>
+              {viability.uncertaintyDominatedBy === "sigma"
+                ? "σ estimation"
+                : viability.uncertaintyDominatedBy === "in-range"
+                  ? "in-range sampling"
+                  : "fee-flow sampling"}
+            </span>
+          )}
           <InfoTip
-            text={`Model-based estimate (range breakeven; see product-design docs). Breakeven is ${viability.bound}-bound from a deterministic quadrature fair value of the 7-day range payoff (risk-neutral GBM) at sigma ${formatPercent(viability.sigmaAnnualized, 1)} (${viability.sigmaWindowDays}d realized vol). ${measuredYieldMethodology(viability)}. Not a prediction.`}
+            text={`Model-based estimate (range breakeven; see product-design docs). Breakeven is ${viability.bound}-bound from a deterministic quadrature fair value of the 7-day range payoff (risk-neutral GBM) at sigma ${formatPercent(viability.sigmaAnnualized, 1)} (${viability.sigmaWindowDays}d realized vol). ${measuredYieldMethodology(viability)}. The [brackets] are a 90% interval from the quantified input uncertainties (sigma band, in-range sampling, fee-flow sampling), combined in quadrature; the verdict changes only when the whole interval clears a threshold — borderline states say so instead of flipping on small price moves. Not a prediction.`}
           />
         </span>
       </div>
@@ -280,8 +320,8 @@ function ViabilityRow({
           Two-sided viability ({viability.tenorDays}d)
         </span>
         <StatusBadge
-          tone={twoSidedBand(ts).tone}
-          label={`VI ${tsLabel} — ${twoSidedBand(ts).label}`}
+          tone={tsVerdict.tone}
+          label={`VI ${tsLabel} — ${tsVerdict.label}`}
         />
         <span className="lh-prov">
           <span className="lh-prov-item">

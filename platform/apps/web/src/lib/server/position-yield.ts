@@ -69,6 +69,9 @@ export type RealisedPositionYieldResult =
        *  multiply by a FORWARD occupancy estimate before comparing to
        *  any forward quantity. */
       inRangeDailyRate: number;
+      /** §1.7: 90% CI on the intensity (from the fee bootstrap; the
+       *  in-range time and value are treated as exact). */
+      inRangeDailyRateCi: { p05: number; p95: number } | null;
       measured: MeasuredPositionFees;
     }
   | { ok: false; reason: string };
@@ -142,10 +145,16 @@ export async function readRealisedPositionYield(
         reason: `only ${(measured.inRangeSeconds / 60).toFixed(0)}min in range over the ${(measured.coveredSeconds / 3600).toFixed(1)}h window — no realised in-range rate measurable`,
       };
     }
+    const inRangeDays = measured.inRangeSeconds / 86_400;
     return {
       ok: true,
-      inRangeDailyRate:
-        measured.feesQuote / view.valueQuote / (measured.inRangeSeconds / 86_400),
+      inRangeDailyRate: measured.feesQuote / view.valueQuote / inRangeDays,
+      inRangeDailyRateCi: measured.feesQuoteCi
+        ? {
+            p05: measured.feesQuoteCi.p05 / view.valueQuote / inRangeDays,
+            p95: measured.feesQuoteCi.p95 / view.valueQuote / inRangeDays,
+          }
+        : null,
       measured,
     };
   } catch (error) {

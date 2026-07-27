@@ -19,6 +19,19 @@ import type {
 export interface PositionViabilityWire {
   /** measured / breakeven; null encodes Infinity (zero breakeven). */
   viabilityIndex: number | null;
+  /**
+   * §1.7: 90% band on the index from the three quantified input
+   * uncertainties (σ band, empirical in-range mean CI, fee-flow
+   * bootstrap), each re-evaluated through the SAME computation as the
+   * point estimate and combined in quadrature. p95 = null means a
+   * perturbation drove the breakeven to zero (upper edge unbounded).
+   * Null band = point is unbounded or a leg was unresolvable. The
+   * verdict badge flips only when this band clears a threshold.
+   */
+  viabilityIndexBand: { p05: number; p95: number | null } | null;
+  /** Which source contributes the largest excursion ("what would
+   *  tighten this band"); null when no quantified source moved it. */
+  uncertaintyDominatedBy: "sigma" | "in-range" | "yield" | null;
   /** Daily fee yield at which fees exactly cover the hedge cost. */
   breakevenDailyYield: number;
   /**
@@ -40,6 +53,8 @@ export interface PositionViabilityWire {
   twoSided: {
     /** measured / r*; null encodes Infinity (position expected to gain). */
     viabilityIndex: number | null;
+    /** §1.7 band — same construction as viabilityIndexBand. */
+    viabilityIndexBand: { p05: number; p95: number | null } | null;
     /** r* = r_u + φP/(V·T). */
     breakevenDailyYield: number;
     /** r_u = −E[ΔV]/(V·T): fees vs divergence loss alone (φ = 0 case). */

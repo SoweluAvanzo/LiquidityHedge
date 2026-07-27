@@ -122,6 +122,20 @@ describe("@lh/market-data position fees (§1.2 realised yield)", () => {
     expect(r.windowSeconds).to.equal(8100);
   });
 
+  it("§1.7: feesQuoteCi is deterministic, brackets the total, and needs ≥8 intervals", () => {
+    const few = Array.from({ length: 5 }, (_, i) => snap(i * 900, 100, BigInt(i * 10) * Q64, 0n));
+    expect(measurePositionFees(few, DEC_A, DEC_B)!.feesQuoteCi).to.equal(null);
+
+    const many = Array.from({ length: 20 }, (_, i) =>
+      snap(i * 900, 100, BigInt(i * i) * Q64, 0n),
+    );
+    const a = measurePositionFees(many, DEC_A, DEC_B)!;
+    const b = measurePositionFees(many, DEC_A, DEC_B)!;
+    expect(a.feesQuoteCi).to.deep.equal(b.feesQuoteCi);
+    expect(a.feesQuoteCi!.p05).to.be.at.most(a.feesQuote);
+    expect(a.feesQuoteCi!.p95).to.be.at.least(a.feesQuote * 0.5);
+  });
+
   it("returns null when nothing is usable", () => {
     expect(measurePositionFees([], DEC_A, DEC_B)).to.equal(null);
     expect(measurePositionFees([snap(0, 100, 0n, 0n)], DEC_A, DEC_B)).to.equal(null);

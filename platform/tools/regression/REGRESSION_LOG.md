@@ -313,3 +313,38 @@ Movements explained:
   schedule; the ≥6h realised flip still expected ≈18:15.
 
 Golden re-baselined to the 14-01-59 capture.
+
+---
+
+## 2026-07-27 · §1.7 — uncertainty propagated into both indices; CI dead-band verdicts
+
+Diff: `captures/2026-07-27T15-33-05-782Z.json` →
+`captures/2026-07-27T15-33-26-499Z.json`, spot ±0.000%.
+
+- **Point values moved 0.00%** across every field: the refactor routes
+  the point estimate and all perturbation legs through ONE
+  `evaluateIndices` path, and the diff proves it value-preserving.
+- **New `viabilityIndexBand` on both indices** — 90% interval from the
+  three quantified inputs (σ band; empirical in-range mean CI;
+  fee-flow bootstrap on the measured yield), each re-evaluated through
+  the same computation and combined in quadrature. EPRL: VI₁ 0.072
+  [0.049–0.091] (resolved critical); **VI₂ 0.867 [0.470–1.444] — the
+  interval SPANS breakeven**, so the card now says "borderline
+  (interval spans breakeven)" instead of asserting a verdict a 0.17%
+  price move could flip. That is the measured mGADEK pathology closed
+  by construction: verdicts change only when the whole band clears a
+  threshold (statistically-principled, stateless hysteresis).
+- `uncertaintyDominatedBy: "sigma"` on all 4 — the plan's own
+  prediction ("σ dominates; a one-dimensional delta method suffices"),
+  now measured per-position and shown as "band driver" on the card.
+- Unquantified sources stay honest: on the Birdeye yield fallback the
+  yield leg is EMPTY (band omits it) rather than pretending zero
+  error; new bootstrap CIs (`dailyYieldCi` on the pool measurement,
+  `feesQuoteCi` on position fees, both seeded ~1h blocks) cover the
+  measured paths.
+- Market context: SOL fell to 75.24 between 1.6 and 1.7 — positions
+  are OUT of range again; the §1.2 realised flip (~18:15) will now
+  land with fresh out-of-range history in the window, which the
+  in-range-intensity estimand handles correctly by construction.
+
+Golden re-baselined to the 15-33-26 capture.
