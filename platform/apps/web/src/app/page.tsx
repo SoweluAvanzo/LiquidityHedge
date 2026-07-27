@@ -290,7 +290,12 @@ export default async function LandingPage() {
                       the same format as the forward file. Indicative delivery
                       is four to six weeks from order, and the work is funded
                       once demand is confirmed. Nothing is available for
-                      download at present.
+                      download at present.{" "}
+                      <a className="lp-inline-link" href={ARCHIVE_MAILTO}>
+                        Tell us what you need before ordering
+                      </a>{" "}
+                      — expressed interest is what decides whether this gets
+                      built, which pools it starts with, and roughly when.
                     </p>
                   </div>
 

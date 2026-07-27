@@ -23,3 +23,7 @@ lh-protocol/.anchor/
 
 # OS
 .DS_Store
+
+# Docker secret material — mounted into containers, never committed.
+platform/deploy/secrets/
+!platform/deploy/secrets/.gitkeep

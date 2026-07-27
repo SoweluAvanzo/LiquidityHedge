@@ -60,7 +60,7 @@ describe("@lh/commerce", () => {
     it("A9: a rejected signature stays rejected after replay", () => {
       const clock = makeClock();
       const l = new OrderLedger(CONFIG, clock, () => "oX");
-      const o = l.createOrder({ productId: "dataset-2026-forward" });
+      const { order: o } = l.createOrder({ productId: "dataset-2026-forward" });
       // Wrong amount → refund-due, signature consumed.
       l.observePayment("oX", {
         txSignature: "SIGDUP", amountUsdc: o.amountUsdc - 7,
@@ -70,7 +70,7 @@ describe("@lh/commerce", () => {
         CONFIG, clock, JSON.parse(JSON.stringify(l.getEvents())),
       );
       // After a restart the same signature must not credit anything.
-      const o2 = replayed.createOrder({ productId: "dataset-2026-forward" });
+      const { order: o2 } = replayed.createOrder({ productId: "dataset-2026-forward" });
       expect(replayed.observePayment(o2.orderId, {
         txSignature: "SIGDUP", amountUsdc: o2.amountUsdc,
         senderWallet: BUYER, slot: 1, observedAtTs: clock.now(),
@@ -79,7 +79,7 @@ describe("@lh/commerce", () => {
 
     it("Solana Pay URL carries recipient, amount, mint and reference", () => {
       const l = new OrderLedger(CONFIG, makeClock(), () => "order1");
-      const o = l.createOrder({ productId: "dataset-2026-forward" });
+      const { order: o } = l.createOrder({ productId: "dataset-2026-forward" });
       const req = buildPaymentRequest(o, REVENUE, USDC);
       expect(req.url).to.match(new RegExp(`^solana:${REVENUE}\\?amount=1\\.0`));
       expect(req.url).to.include(`spl-token=${USDC}`);
@@ -141,7 +141,7 @@ describe("@lh/commerce", () => {
     it("happy path: create → pay → fulfil → single-use download token", () => {
       const clock = makeClock();
       const l = new OrderLedger(CONFIG, clock, () => "o1");
-      const o = l.createOrder({ productId: "dataset-2026-forward", buyerWallet: BUYER });
+      const { order: o } = l.createOrder({ productId: "dataset-2026-forward", buyerWallet: BUYER });
       expect(o.status).to.equal("awaiting-payment");
       expect(o.amountUsdc).to.be.at.least(PRODUCTS["dataset-2026-forward"].priceUsdc);
 
@@ -165,7 +165,7 @@ describe("@lh/commerce", () => {
     it("payment replay and double-fulfil are impossible", () => {
       const clock = makeClock();
       const l = new OrderLedger(CONFIG, clock, () => "o2");
-      const o = l.createOrder({ productId: "dataset-2026-forward" });
+      const { order: o } = l.createOrder({ productId: "dataset-2026-forward" });
       const p = { txSignature: "SIGB", amountUsdc: o.amountUsdc, senderWallet: BUYER, slot: 1, observedAtTs: clock.now() };
       expect(l.observePayment("o2", p)).to.not.equal(null);
       expect(l.observePayment("o2", p)).to.equal(null); // replay ignored
@@ -176,12 +176,12 @@ describe("@lh/commerce", () => {
     it("wrong amount and late payment become refund-due, never silent acceptance", () => {
       const clock = makeClock();
       const l = new OrderLedger(CONFIG, clock, () => "o3");
-      const o = l.createOrder({ productId: "dataset-2026-forward" });
+      const { order: o } = l.createOrder({ productId: "dataset-2026-forward" });
       l.observePayment("o3", { txSignature: "SIGC", amountUsdc: o.amountUsdc - 5, senderWallet: BUYER, slot: 1, observedAtTs: clock.now() });
       expect(l.statusOf("o3")).to.equal("refund-due");
 
       const l2 = new OrderLedger(CONFIG, clock, () => "o4");
-      const o4 = l2.createOrder({ productId: "dataset-2026-forward" });
+      const { order: o4 } = l2.createOrder({ productId: "dataset-2026-forward" });
       clock.advance(CONFIG.orderTtlSeconds + 10);
       l2.observePayment("o4", { txSignature: "SIGD", amountUsdc: o4.amountUsdc, senderWallet: BUYER, slot: 1, observedAtTs: clock.now() });
       expect(l2.statusOf("o4")).to.equal("refund-due");
@@ -190,7 +190,7 @@ describe("@lh/commerce", () => {
     it("pre-orders are never auto-fulfilled; they queue for manual delivery", () => {
       const clock = makeClock();
       const l = new OrderLedger(CONFIG, clock, () => "o5");
-      const o = l.createOrder({ productId: "dataset-archive-preorder", email: "buyer@example.com" });
+      const { order: o } = l.createOrder({ productId: "dataset-archive-preorder", email: "buyer@example.com" });
       expect(o.amountUsdc).to.be.at.least(200_000_000);
       l.observePayment("o5", { txSignature: "SIGE", amountUsdc: o.amountUsdc, senderWallet: BUYER, slot: 1, observedAtTs: clock.now() });
       expect(() => l.fulfil("o5")).to.throw(OrderError, /pre-order/);
@@ -200,7 +200,7 @@ describe("@lh/commerce", () => {
     it("replay from events reconstructs identical state", () => {
       const clock = makeClock();
       const l = new OrderLedger(CONFIG, clock, () => "o6");
-      const o = l.createOrder({ productId: "dataset-2026-forward" });
+      const { order: o } = l.createOrder({ productId: "dataset-2026-forward" });
       l.observePayment("o6", { txSignature: "SIGF", amountUsdc: o.amountUsdc, senderWallet: BUYER, slot: 1, observedAtTs: clock.now() });
       l.fulfil("o6");
       const replayed = OrderLedger.fromEvents(CONFIG, clock, JSON.parse(JSON.stringify(l.getEvents())));

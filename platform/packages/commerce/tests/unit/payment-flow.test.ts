@@ -115,7 +115,7 @@ describe("@lh/commerce payment flow (end to end)", () => {
   it("HAPPY PATH: order → exact payment → fulfilment → working download token", () => {
     const clock = makeClock();
     const ledger = new OrderLedger(CONFIG, clock, () => "ord1");
-    const order = ledger.createOrder({ productId: "dataset-2026-forward", buyerWallet: BUYER });
+    const { order: order } = ledger.createOrder({ productId: "dataset-2026-forward", buyerWallet: BUYER });
 
     // What the buyer is shown.
     const req = buildPaymentRequest(order, REVENUE, USDC);
@@ -155,7 +155,7 @@ describe("@lh/commerce payment flow (end to end)", () => {
   it("UNDERPAY by one micro-cent is refused and never fulfils", () => {
     const clock = makeClock();
     const ledger = new OrderLedger(CONFIG, clock, () => "ord2");
-    const order = ledger.createOrder({ productId: "dataset-2026-forward" });
+    const { order: order } = ledger.createOrder({ productId: "dataset-2026-forward" });
     const { verified, granted } = settlePayment(
       ledger,
       "ord2",
@@ -175,8 +175,8 @@ describe("@lh/commerce payment flow (end to end)", () => {
       let n = 0;
       return () => `ordR${++n}`;
     })());
-    const a = ledger.createOrder({ productId: "dataset-2026-forward" });
-    const b = ledger.createOrder({ productId: "dataset-2026-forward" });
+    const { order: a } = ledger.createOrder({ productId: "dataset-2026-forward" });
+    const { order: b } = ledger.createOrder({ productId: "dataset-2026-forward" });
     settlePayment(ledger, "ordR1", transfer({ amount: BigInt(a.amountUsdc), sig: "SIGdup" }), a.amountUsdc, clock);
     expect(ledger.statusOf("ordR1")).to.equal("fulfilled");
 
@@ -195,7 +195,7 @@ describe("@lh/commerce payment flow (end to end)", () => {
   it("FORGERY: failed tx, wrong mint, wrong recipient, and outbound transfers all fail verification", () => {
     const clock = makeClock();
     const ledger = new OrderLedger(CONFIG, clock, () => "ord3");
-    const order = ledger.createOrder({ productId: "dataset-2026-forward" });
+    const { order: order } = ledger.createOrder({ productId: "dataset-2026-forward" });
     const amount = BigInt(order.amountUsdc);
 
     const attempts = [
@@ -217,8 +217,8 @@ describe("@lh/commerce payment flow (end to end)", () => {
       let n = 0;
       return () => `ordT${++n}`;
     })());
-    const mine = ledger.createOrder({ productId: "dataset-2026-forward" });
-    const theirs = ledger.createOrder({ productId: "dataset-2026-forward" });
+    const { order: mine } = ledger.createOrder({ productId: "dataset-2026-forward" });
+    const { order: theirs } = ledger.createOrder({ productId: "dataset-2026-forward" });
     const { granted } = settlePayment(
       ledger, "ordT1", transfer({ amount: BigInt(mine.amountUsdc), sig: "SIGmine" }), mine.amountUsdc, clock,
     );
@@ -235,7 +235,7 @@ describe("@lh/commerce payment flow (end to end)", () => {
   it("LATE PAYMENT after the order expires becomes refund-due, not fulfilment", () => {
     const clock = makeClock();
     const ledger = new OrderLedger(CONFIG, clock, () => "ord4");
-    const order = ledger.createOrder({ productId: "dataset-2026-forward" });
+    const { order: order } = ledger.createOrder({ productId: "dataset-2026-forward" });
     clock.advance(CONFIG.orderTtlSeconds + 60);
     const { granted } = settlePayment(
       ledger, "ord4", transfer({ amount: BigInt(order.amountUsdc), sig: "SIGlate" }), order.amountUsdc, clock,
@@ -248,7 +248,7 @@ describe("@lh/commerce payment flow (end to end)", () => {
   it("PRE-ORDER: payment is accepted but nothing is auto-delivered", () => {
     const clock = makeClock();
     const ledger = new OrderLedger(CONFIG, clock, () => "ord5");
-    const order = ledger.createOrder({
+    const { order: order } = ledger.createOrder({
       productId: "dataset-archive-preorder",
       email: "buyer@example.com",
     });
@@ -264,7 +264,7 @@ describe("@lh/commerce payment flow (end to end)", () => {
   it("CRASH SAFETY: replaying the log preserves fulfilment and refuses used signatures", () => {
     const clock = makeClock();
     const ledger = new OrderLedger(CONFIG, clock, () => "ord6");
-    const order = ledger.createOrder({ productId: "dataset-2026-forward" });
+    const { order: order } = ledger.createOrder({ productId: "dataset-2026-forward" });
     const { granted } = settlePayment(
       ledger, "ord6", transfer({ amount: BigInt(order.amountUsdc), sig: "SIGcrash" }), order.amountUsdc, clock,
     );
@@ -275,7 +275,7 @@ describe("@lh/commerce payment flow (end to end)", () => {
     // The customer's token still works after the restart.
     expect(revived.checkDownloadToken("ord6", granted!)).to.equal(true);
     // And the used signature cannot pay a new order.
-    const next = revived.createOrder({ productId: "dataset-2026-forward" });
+    const { order: next } = revived.createOrder({ productId: "dataset-2026-forward" });
     expect(
       revived.observePayment(next.orderId, {
         txSignature: "SIGcrash",
@@ -303,13 +303,13 @@ describe("@lh/commerce refund queue (regression: money must never go invisible)"
     })());
 
     // 1. Overpayment (above the dust floor) → refundable, with sender+amount.
-    const a = ledger.createOrder({ productId: "dataset-2026-forward" });
+    const { order: a } = ledger.createOrder({ productId: "dataset-2026-forward" });
     ledger.observePayment("ordQ1", {
       txSignature: "SIGover", amountUsdc: a.amountUsdc + 2_000_000,
       senderWallet: BUYER, slot: 1, observedAtTs: clock.now(),
     });
     // 2. Late payment of the exact amount.
-    const b = ledger.createOrder({ productId: "dataset-2026-forward" });
+    const { order: b } = ledger.createOrder({ productId: "dataset-2026-forward" });
     clock.advance(CONFIG.orderTtlSeconds + 1);
     ledger.observePayment("ordQ2", {
       txSignature: "SIGlate2", amountUsdc: b.amountUsdc,
@@ -338,7 +338,7 @@ describe("@lh/commerce refund queue (regression: money must never go invisible)"
   it("dust below the refund minimum is excluded (refund would cost more than it returns)", () => {
     const clock = makeClock();
     const ledger = new OrderLedger(CONFIG, clock, () => "ordD1");
-    const o = ledger.createOrder({ productId: "dataset-2026-forward" });
+    const { order: o } = ledger.createOrder({ productId: "dataset-2026-forward" });
     ledger.observePayment("ordD1", {
       txSignature: "SIGdust", amountUsdc: 1_000, // $0.001
       senderWallet: BUYER, slot: 1, observedAtTs: clock.now(),
@@ -346,5 +346,78 @@ describe("@lh/commerce refund queue (regression: money must never go invisible)"
     expect(ledger.statusOf("ordD1")).to.equal("refund-due");
     expect(ledger.needsAttention().refunds).to.have.length(0);
     void o;
+  });
+});
+
+/**
+ * Claim secret and grant re-issue (AUDIT #9).
+ *
+ * The orderId travels on-chain in the payment memo, so it identifies an
+ * order but must never authorise collecting its download grant.
+ */
+describe("order claim secret", () => {
+  const cfg = {
+    revenueWallet: "Rev1111111111111111111111111111111111111111",
+    usdcMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    orderTtlSeconds: 900,
+    downloadTtlSeconds: 86_400,
+    minRefundUsdc: 100_000,
+  };
+  const clock = { now: () => 1_700_000_000 };
+
+  it("issues a secret once and verifies it", () => {
+    const l = new OrderLedger(cfg, clock);
+    const { order, claimSecret } = l.createOrder({ productId: "dataset-2026-forward" });
+    expect(claimSecret).to.be.a("string").with.length.greaterThan(20);
+    expect(l.verifyClaim(order.orderId, claimSecret)).to.equal(true);
+  });
+
+  it("rejects a wrong or empty claim", () => {
+    const l = new OrderLedger(cfg, clock);
+    const { order, claimSecret } = l.createOrder({ productId: "dataset-2026-forward" });
+    expect(l.verifyClaim(order.orderId, "")).to.equal(false);
+    expect(l.verifyClaim(order.orderId, claimSecret + "x")).to.equal(false);
+    expect(l.verifyClaim("no-such-order", claimSecret)).to.equal(false);
+  });
+
+  it("never stores the raw secret — only its hash", () => {
+    const l = new OrderLedger(cfg, clock);
+    const { order, claimSecret } = l.createOrder({ productId: "dataset-2026-forward" });
+    const serialised = JSON.stringify(l.getEvents());
+    expect(serialised).to.not.contain(claimSecret);
+    expect(order.claimHash).to.be.a("string").with.length(64);
+  });
+
+  it("survives replay, so a restart cannot lock a buyer out", () => {
+    const l = new OrderLedger(cfg, clock);
+    const { order, claimSecret } = l.createOrder({ productId: "dataset-2026-forward" });
+    const replayed = OrderLedger.fromEvents(cfg, clock, l.getEvents());
+    expect(replayed.verifyClaim(order.orderId, claimSecret)).to.equal(true);
+  });
+
+  it("re-issues a fresh grant, invalidating the previous one", () => {
+    const l = new OrderLedger(cfg, clock);
+    const { order } = l.createOrder({ productId: "dataset-2026-forward" });
+    l.observePayment(order.orderId, {
+      txSignature: "sig-reissue",
+      amountUsdc: order.amountUsdc,
+      senderWallet: "Buyer111111111111111111111111111111111111111",
+      slot: 1,
+      observedAtTs: clock.now(),
+    });
+    const first = l.fulfil(order.orderId).downloadToken;
+    expect(l.checkDownloadToken(order.orderId, first)).to.equal(true);
+
+    const second = l.reissueDownloadToken(order.orderId).downloadToken;
+    expect(second).to.not.equal(first);
+    expect(l.checkDownloadToken(order.orderId, second)).to.equal(true);
+    // Old grant is dead — re-issue must not widen access.
+    expect(l.checkDownloadToken(order.orderId, first)).to.equal(false);
+  });
+
+  it("refuses to re-issue for an unfulfilled order", () => {
+    const l = new OrderLedger(cfg, clock);
+    const { order } = l.createOrder({ productId: "dataset-2026-forward" });
+    expect(() => l.reissueDownloadToken(order.orderId)).to.throw(/not fulfilled/);
   });
 });

@@ -7,9 +7,10 @@
  * fresh cloud deployment converges without any manual psql step.
  */
 import { createPool, migrate, safeDsn } from "@lh/storage";
+import { secretEnv } from "@lh/storage";
 
 async function main() {
-  const dsn = process.env.DATABASE_URL_MIGRATOR;
+  const dsn = secretEnv("DATABASE_URL_MIGRATOR");
   if (!dsn) {
     console.error("DATABASE_URL_MIGRATOR required (admin role)");
     process.exit(1);

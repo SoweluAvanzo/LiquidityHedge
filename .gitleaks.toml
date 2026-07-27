@@ -1,0 +1,38 @@
+# gitleaks configuration.
+#
+# The CI `secrets-scan` job failed on 37 findings, every one of them the
+# literal placeholder string `REDACTED` — the research notebooks contain
+# lines like `BIRDEYE_KEY = 'REDACTED'`, and the generic-api-key rule
+# matches it because an 8-character alphanumeric token clears the entropy
+# threshold. No real credential is involved.
+#
+# The allowlist is deliberately keyed on the SECRET VALUE, not on file
+# paths. Allowlisting `**/*.ipynb` would silence the notebooks entirely and
+# a genuine key pasted into one would then ship unnoticed; matching the
+# exact placeholder cannot hide anything else.
+
+title = "Liquidity Hedge"
+
+[extend]
+# Keep every upstream rule; this file only narrows false positives.
+useDefault = true
+
+[[allowlists]]
+description = "Redaction placeholders left in research notebooks and docs"
+# Anchored and case-sensitive: only the placeholder itself, nothing near it.
+regexes = [
+  '''^REDACTED$''',
+  '''^<your-key>$''',
+  '''^your_birdeye_key$''',
+  '''^CHANGE_ME_generate_with_openssl_rand_base64_32$''',
+]
+
+[[allowlists]]
+description = "Committed example env files carry placeholders by design"
+paths = ['''\.env\.example$''']
+# Still scoped to placeholder-shaped values, so a real secret pasted into
+# an example file is NOT silently allowed.
+regexes = [
+  '''CHANGE_ME''',
+  '''your_[a-z_]*key''',
+]

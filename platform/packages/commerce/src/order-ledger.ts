@@ -5,7 +5,7 @@
  * credited twice.
  */
 
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import {
   CommerceConfig,
   Order,
@@ -84,11 +84,13 @@ export class OrderLedger {
     productId: ProductId;
     buyerWallet?: string | null;
     email?: string | null;
-  }): Order {
+  }): { order: Order; claimSecret: string } {
     const product = PRODUCTS[params.productId];
     if (!product) throw new OrderError(`unknown product ${params.productId}`);
     const now = this.clock.now();
     const orderId = this.idGen();
+    // Returned once to the creator; only its hash is ever stored.
+    const claimSecret = randomBytes(24).toString("base64url");
     const order: Order = {
       orderId,
       productId: product.id,
@@ -101,10 +103,53 @@ export class OrderLedger {
       createdAtTs: now,
       expiresAtTs: now + this.config.orderTtlSeconds,
       status: "awaiting-payment",
+      claimHash: createHash("sha256").update(claimSecret).digest("hex"),
     };
     this.orders.set(orderId, order);
     this.commit({ kind: "OrderCreated", ts: now, order });
-    return order;
+    return { order, claimSecret };
+  }
+
+  /**
+   * Constant-time check of an order's claim secret.
+   *
+   * Constant-time because unlike the download token (24 random bytes, no
+   * useful timing oracle) this is checked repeatedly during polling.
+   */
+  verifyClaim(orderId: string, rawClaim: string): boolean {
+    const order = this.orders.get(orderId);
+    if (!order?.claimHash) return false;
+    const got = createHash("sha256").update(rawClaim).digest();
+    const want = Buffer.from(order.claimHash, "hex");
+    return got.length === want.length && timingSafeEqual(got, want);
+  }
+
+  /**
+   * Re-issue a download grant for an already-fulfilled order.
+   *
+   * AUDIT #9: the token was emitted exactly once, at the instant payment
+   * was first observed, and only the hash was kept — so a tab closed at
+   * the wrong moment permanently forfeited a paid file. The caller must
+   * have proven the claim secret.
+   */
+  reissueDownloadToken(orderId: string): { downloadToken: string; expiresAtTs: number } {
+    const order = this.orders.get(orderId);
+    if (!order) throw new OrderError(`unknown order ${orderId}`);
+    if (order.status !== "fulfilled") {
+      throw new OrderError(`order ${orderId} is ${order.status}, not fulfilled`);
+    }
+    const now = this.clock.now();
+    const raw = randomBytes(24).toString("base64url");
+    order.downloadToken = createHash("sha256").update(raw).digest("hex");
+    order.downloadExpiresAtTs = now + this.config.downloadTtlSeconds;
+    this.commit({
+      kind: "OrderFulfilled",
+      ts: now,
+      orderId,
+      downloadToken: order.downloadToken,
+      expiresAtTs: order.downloadExpiresAtTs,
+    });
+    return { downloadToken: raw, expiresAtTs: order.downloadExpiresAtTs };
   }
 
   /**

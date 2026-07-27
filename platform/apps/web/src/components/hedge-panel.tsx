@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import type { CertificateRecord, QuoteRecord } from "@lh/hedge";
 import type { ValueCurvePoint } from "@lh/portfolio";
 import type { PortfolioPositionWire } from "@/lib/portfolio-api";
@@ -142,6 +143,8 @@ export function HedgePanel({
   owner: string;
   position: PortfolioPositionWire;
 }) {
+  // Message signing authorises the quote (AUDIT #11).
+  const { signMessage } = useWallet();
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [quote, setQuote] = useState<QuoteRecord | null>(null);
@@ -192,10 +195,33 @@ export function HedgePanel({
     setDevNote(null);
     setCertificate(null);
     try {
+      // AUDIT #11: quoting now requires proof that this browser controls
+      // `owner`. Without it, anyone could quote a stranger's position —
+      // position mints are public on-chain — and lock them out of quoting
+      // it themselves for the quote TTL, renewing to deny them
+      // indefinitely. Fetch a single-use challenge, sign it, send both.
+      const challenge = await apiFetch<{ nonce: string; message: string }>(
+        `/api/hedge/quote?owner=${encodeURIComponent(owner)}` +
+          `&positionMint=${encodeURIComponent(position.positionMint)}`,
+      );
+      if (!signMessage) {
+        throw new Error(
+          "This wallet cannot sign messages, which is required to authorise " +
+            "a quote. Connect a wallet that supports message signing.",
+        );
+      }
+      const signature = await signMessage(
+        new TextEncoder().encode(challenge.message),
+      );
       const payload = await apiFetch<HedgeQuoteResponse>("/api/hedge/quote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner, positionMint: position.positionMint }),
+        body: JSON.stringify({
+          owner,
+          positionMint: position.positionMint,
+          nonce: challenge.nonce,
+          signature: btoa(String.fromCharCode(...signature)),
+        }),
       });
       setQuote(payload.quote);
       setPayment(payload.paymentInstructions);
@@ -207,7 +233,7 @@ export function HedgePanel({
       setError(errorMessage(err, "Failed to request a quote."));
       setPhase("error");
     }
-  }, [owner, position.positionMint]);
+  }, [owner, position.positionMint, signMessage]);
 
   /** Open the panel: resume server-side state for this position, else quote. */
   const openPanel = useCallback(async () => {

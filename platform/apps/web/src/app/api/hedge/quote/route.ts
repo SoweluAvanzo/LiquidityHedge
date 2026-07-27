@@ -1,5 +1,6 @@
 /**
- * POST /api/hedge/quote  { owner, positionMint }
+ * GET  /api/hedge/quote?owner=&positionMint=  -> single-use challenge
+ * POST /api/hedge/quote  { owner, positionMint, nonce, signature }
  *
  * Issues a Liquidity Hedge certificate quote for one of the owner's
  * Orca Whirlpool positions. The position is located via the same
@@ -30,10 +31,49 @@ import {
   withHedge,
 } from "@/lib/server/hedge-ledger";
 import { getMarketInputs } from "@/lib/server/hedge-market";
+import {
+  issueChallenge,
+  challengeMessage,
+  verifyWalletProof,
+} from "@/lib/server/wallet-auth";
 
 export const dynamic = "force-dynamic";
 
 const DEFAULT_RPC_URL = "https://api.mainnet-beta.solana.com";
+
+/**
+ * GET /api/hedge/quote?owner=<base58> — mint a single-use challenge.
+ *
+ * AUDIT #11: quoting mutates per-owner ledger state (it blocks the
+ * position's mint for the quote TTL and consumes the owner's budget), so
+ * the caller must prove they control the owner wallet.
+ */
+export async function GET(request: NextRequest) {
+  const limit = checkLimit(request, "quote");
+  if (!limit.ok) return tooManyRequests(limit);
+
+  const ownerParam = request.nextUrl.searchParams.get("owner") ?? "";
+  const positionMint = request.nextUrl.searchParams.get("positionMint") ?? "";
+  let owner: string;
+  try {
+    owner = new PublicKey(ownerParam).toBase58();
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid or missing `owner` — expected a base58 Solana public key." },
+      { status: 400 },
+    );
+  }
+  if (!positionMint.trim()) {
+    return NextResponse.json({ error: "Missing `positionMint`." }, { status: 400 });
+  }
+
+  const { nonce, expiresAtTs } = issueChallenge(owner);
+  return NextResponse.json({
+    nonce,
+    expiresAtTs,
+    message: challengeMessage({ owner, positionMint, nonce }),
+  });
+}
 
 export async function POST(request: NextRequest) {
   // A10: cost-tiered rate limit, keyed on the trusted last hop. (This call
@@ -43,10 +83,14 @@ export async function POST(request: NextRequest) {
   if (!limit.ok) return tooManyRequests(limit);
   let ownerRaw: unknown;
   let positionMint: unknown;
+  let nonce: unknown;
+  let signature: unknown;
   try {
     const body = await request.json();
     ownerRaw = body?.owner;
     positionMint = body?.positionMint;
+    nonce = body?.nonce;
+    signature = body?.signature;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
@@ -65,6 +109,19 @@ export async function POST(request: NextRequest) {
       { error: "Missing `positionMint`." },
       { status: 400 },
     );
+  }
+
+  // AUDIT #11: prove control of `owner` before touching the ledger. Done
+  // before any RPC round-trip so an unauthenticated caller costs us
+  // nothing but a signature check.
+  const proof = verifyWalletProof({
+    owner: owner.toBase58(),
+    positionMint,
+    nonce,
+    signature,
+  });
+  if (!proof.ok) {
+    return NextResponse.json({ error: proof.reason }, { status: proof.status });
   }
 
   try {

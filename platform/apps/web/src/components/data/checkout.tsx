@@ -159,8 +159,11 @@ export function DataCheckout() {
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
-  // The download grant is returned exactly once, at the moment of
-  // fulfilment — hold it here or it is gone.
+  // AUDIT #9: the grant used to be returned exactly once and held only in
+  // React state, so closing the tab forfeited a paid file permanently. The
+  // claim secret is now persisted for the session and can re-fetch a fresh
+  // grant; sessionStorage (not localStorage) so it dies with the tab
+  // rather than lingering on a shared machine.
   const [downloadToken, setDownloadToken] = useState<string | null>(null);
   const [downloadExpiresAtTs, setDownloadExpiresAtTs] = useState<number | null>(
     null,
@@ -205,6 +208,24 @@ export function DataCheckout() {
     return () => clearInterval(timer);
   }, [awaiting]);
 
+  // Persist the claim secret the moment the order comes back.
+  useEffect(() => {
+    if (!order?.claimSecret) return;
+    try {
+      sessionStorage.setItem(`lh.claim.${order.orderId}`, order.claimSecret);
+    } catch {
+      /* private mode / storage disabled — polling still works this session */
+    }
+  }, [order]);
+
+  const claimFor = useCallback((orderId: string): string => {
+    try {
+      return sessionStorage.getItem(`lh.claim.${orderId}`) ?? "";
+    } catch {
+      return "";
+    }
+  }, []);
+
   const applyStatus = useCallback((body: DataStatusResponse) => {
     setStatus(body);
     if (body.downloadToken) {
@@ -229,7 +250,8 @@ export function DataCheckout() {
       let delayMs = 5000;
       try {
         const body = await apiFetch<DataStatusResponse>(
-          `/api/data/status?orderId=${encodeURIComponent(order.orderId)}`,
+          `/api/data/status?orderId=${encodeURIComponent(order.orderId)}` +
+            `&claim=${encodeURIComponent(claimFor(order.orderId))}`,
         );
         if (cancelled) return;
         setPollPausedUntilTs(null);
@@ -250,7 +272,7 @@ export function DataCheckout() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [order, awaiting, applyStatus]);
+  }, [order, awaiting, applyStatus, claimFor]);
 
   const createOrder = async () => {
     if (creating) return;
@@ -763,9 +785,10 @@ export function DataCheckout() {
                   <p className="lh-help" style={{ marginTop: "0.6rem" }}>
                     The underlined digits are this order&rsquo;s tag — the odd
                     cents that tell your transfer apart from everyone
-                    else&rsquo;s. The amount must arrive exactly as shown:{" "}
-                    <b>do not round</b>. A different amount cannot be credited
-                    and has to be refunded by hand.
+                    else&rsquo;s. They are how a payment arriving without a
+                    reference key is matched to your order, so the amount must
+                    arrive exactly as shown: <b>do not round</b>. A different
+                    amount cannot be credited and has to be refunded by hand.
                   </p>
                 </div>
 
@@ -785,7 +808,7 @@ export function DataCheckout() {
                   label="Memo (include it verbatim)"
                   display={order.payment.memo}
                   copyValue={order.payment.memo}
-                  help="Required. Your payment is matched to this order by the Solana Pay reference it carries, so pay from a wallet that can attach it — use the Solana Pay link or the Pay with wallet tab. A plain exchange withdrawal cannot be matched automatically and needs a manual claim by email."
+                  help="Helpful but not required. A payment carrying the Solana Pay reference is matched instantly; one without it — an exchange withdrawal, say — is matched by its exact amount on the next sweep of the revenue wallet, usually within a minute."
                 />
                 <CopyField
                   label="Solana Pay link"

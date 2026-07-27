@@ -16,7 +16,7 @@ import {
   USD_QUOTE_MINTS,
 } from "@lh/market-data";
 import { CommerceUnavailableError, commerceConfig, withOrders } from "@/lib/server/order-ledger";
-import { createPool } from "@lh/storage";
+import { createPool, databaseUrl } from "@lh/storage";
 
 export const dynamic = "force-dynamic";
 
@@ -209,7 +209,7 @@ export async function GET(req: NextRequest) {
   }
 
   // P0: production data lives in Postgres; the JSONL path remains for dev.
-  const dsn = process.env.DATABASE_URL;
+  const dsn = databaseUrl();
   if (dsn) {
     const streamed = await streamFromPostgres(dsn);
     if (streamed) return streamed;

@@ -26,9 +26,6 @@ export async function register(): Promise<void> {
     );
     startSettlementScheduler();
   } catch (error) {
-    // A watcher that fails to start must be LOUD. If hedging is configured
-    // and this line appears in the logs, money can be accepted that nothing
-    // will ever settle — treat it as an outage, not a warning.
     const configured = !!process.env.HEDGE_TREASURY_ADDRESS?.trim();
     console.error(
       `[instrumentation] settlement watcher FAILED TO START` +
@@ -36,6 +33,26 @@ export async function register(): Promise<void> {
           ? " — HEDGE_TREASURY_ADDRESS is set, so payments may be accepted" +
             " with no observer. Take the hedge product offline."
           : " (hedging is not configured, so nothing is at risk yet)"),
+      error,
+    );
+  }
+
+  // AUDIT #7: credits inbound USDC that carries no Solana Pay reference —
+  // exchange withdrawals and memo-less wallets. Independent of the hedge
+  // watcher above: one failing must not take the other down.
+  try {
+    const { startOrderWatcher } = await import("./lib/server/order-watcher");
+    startOrderWatcher();
+  } catch (error) {
+    // A watcher that fails to start must be LOUD: money can be accepted
+    // that nothing will ever credit — an outage, not a warning.
+    const configured = !!process.env.DATA_REVENUE_WALLET?.trim();
+    console.error(
+      `[instrumentation] order watcher FAILED TO START` +
+        (configured
+          ? " — DATA_REVENUE_WALLET is set, so manual payments will not be" +
+            " credited. Buyers who pay from an exchange will not be delivered."
+          : " (data sales are not configured, so nothing is at risk yet)"),
       error,
     );
   }

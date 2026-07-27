@@ -363,6 +363,19 @@
   font-weight: 600;
 }
 
+/* Inline link inside body copy — underlined, so it reads as a link
+   without needing colour alone to carry the affordance (WCAG 1.4.1). */
+.lp-inline-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  text-decoration-thickness: 1px;
+}
+
+.lp-inline-link:hover {
+  text-decoration-thickness: 2px;
+}
+
 /* Quiet qualifier under a lead — where the general claim gets its concrete
    scope, without the scope becoming the headline. */
 .lp-note {

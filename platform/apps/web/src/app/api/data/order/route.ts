@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const order = await withOrders((ledger) =>
+  const { order, claimSecret } = await withOrders((ledger) =>
     ledger.createOrder({
       productId,
       buyerWallet: (buyerWallet as string) ?? null,
@@ -82,6 +82,11 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     orderId: order.orderId,
+    // AUDIT #9: returned ONCE, to the creator only. The orderId travels
+    // on-chain in the payment memo and is therefore public; this is what
+    // proves the caller is the buyer when they come back for the download
+    // grant. Never logged, never re-derivable from the ledger.
+    claimSecret,
     productId: order.productId,
     productName: PRODUCTS[order.productId].name,
     preOrder: PRODUCTS[order.productId].preOrder,

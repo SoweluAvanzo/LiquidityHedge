@@ -28,6 +28,13 @@ export interface DataPaymentInstructions {
 }
 
 export interface DataOrderResponse {
+  /**
+   * Per-order claim secret, returned ONCE at creation (AUDIT #9). The
+   * orderId travels on-chain in the payment memo and is public; this is
+   * what proves the caller is the buyer when collecting the download
+   * grant. Held in sessionStorage, never logged.
+   */
+  claimSecret: string;
   orderId: string;
   productId: DataProductId;
   productName: string;

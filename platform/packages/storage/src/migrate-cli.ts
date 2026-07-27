@@ -4,9 +4,10 @@
  * app's writer role:  DATABASE_URL_MIGRATOR=... pnpm --filter @lh/storage migrate
  */
 import { createPool, migrate, safeDsn } from "./pool";
+import { secretEnv, databaseUrl } from "./secret-env";
 
 async function main() {
-  const dsn = process.env.DATABASE_URL_MIGRATOR ?? process.env.DATABASE_URL;
+  const dsn = secretEnv("DATABASE_URL_MIGRATOR") ?? databaseUrl();
   if (!dsn) {
     console.error("DATABASE_URL_MIGRATOR (or DATABASE_URL) required");
     process.exit(1);

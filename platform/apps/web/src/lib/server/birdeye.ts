@@ -24,6 +24,7 @@ import {
   fetchPoolOverview,
   type PoolOverview,
 } from "@lh/core/src/market-data/orca-volume-adapter";
+import { secretEnv } from "@lh/storage";
 
 /** Wrapped SOL mint — the OHLCV subject for all SOL/USDC positions. */
 export const SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -72,8 +73,9 @@ function appendPoolOverviewLedger(whirlpool: string, overview: PoolOverview): vo
 }
 
 export function birdeyeApiKey(): string | null {
-  const key = process.env.BIRDEYE_API_KEY;
-  return key && key.trim() !== "" ? key.trim() : null;
+  // Prefer a mounted Docker secret over an environment variable — env
+  // vars leak via `docker inspect` and /proc/<pid>/environ.
+  return secretEnv("BIRDEYE_API_KEY") ?? null;
 }
 
 /**

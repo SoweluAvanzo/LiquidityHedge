@@ -35,6 +35,15 @@ export async function GET(req: NextRequest) {
   const order = await withOrders((l) => l.getOrder(orderId));
   if (!order) return NextResponse.json({ error: "Unknown order." }, { status: 404 });
 
+  // AUDIT #9: the orderId alone is NOT a credential — it is published
+  // on-chain in the payment memo, so anyone watching the revenue wallet
+  // learns it seconds before the buyer's own poll succeeds. Any response
+  // that could carry a download grant requires the claim secret handed to
+  // the order's creator.
+  const claim = req.nextUrl.searchParams.get("claim") ?? "";
+  const claimOk =
+    claim.length > 0 && (await withOrders((l) => l.verifyClaim(orderId, claim)));
+
   let note: string | null = null;
   let downloadToken: string | null = null;
 
@@ -48,6 +57,9 @@ export async function GET(req: NextRequest) {
         expectedAmountUsdc: order.amountUsdc,
       });
       if (lookup.found && lookup.verified?.ok) {
+        // Payment is credited regardless of who polled — that is just
+        // chain truth, and crediting it promptly is in the buyer's
+        // interest. Only the GRANT is gated on the claim below.
         const v = lookup.verified;
         const result = await withOrders((ledger) => {
           const paid = ledger.observePayment(orderId, {
@@ -58,7 +70,8 @@ export async function GET(req: NextRequest) {
             observedAtTs: Math.floor(Date.now() / 1000),
           });
           if (paid && !PRODUCTS[paid.productId].preOrder) {
-            return ledger.fulfil(orderId).downloadToken;
+            const token = ledger.fulfil(orderId).downloadToken;
+            return claimOk ? token : null;
           }
           return null;
         });
@@ -73,6 +86,26 @@ export async function GET(req: NextRequest) {
   }
 
   const fresh = await withOrders((l) => l.getOrder(orderId))!;
+  // Re-issue for a caller who proved the claim but lost the token (tab
+  // closed, refresh). AUDIT #9: previously the grant was emitted exactly
+  // once and only its hash kept, so a mistimed refresh forfeited a paid
+  // file permanently.
+  if (!downloadToken && claimOk && order.status === "fulfilled") {
+    try {
+      downloadToken = await withOrders(
+        (l) => l.reissueDownloadToken(orderId).downloadToken,
+      );
+    } catch (e) {
+      console.error("[api/data/status] re-issue failed:", e);
+    }
+  }
+  if (!claimOk && order.status === "fulfilled") {
+    note =
+      "This order is paid and ready, but the download grant is released " +
+      "only to the browser that created it. Reopen the checkout tab, or " +
+      "contact support with your order id and transaction signature.";
+  }
+
   return NextResponse.json({
     orderId,
     status: fresh?.status ?? order.status,

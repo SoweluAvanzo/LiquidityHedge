@@ -51,6 +51,16 @@ export interface Order {
   expiresAtTs: number;
   status: OrderStatus;
   payment?: PaymentProof;
+  /**
+   * SHA-256 of the order's claim secret. The raw secret is returned ONCE,
+   * to whoever created the order, and never stored.
+   *
+   * AUDIT #9: the download grant used to be handed to whoever asked for
+   * `?orderId=…`, and the orderId is published on-chain in the payment
+   * memo — so anyone watching the revenue wallet could poll for a victim's
+   * order and win the grant. The orderId identifies; this authenticates.
+   */
+  claimHash?: string;
   /** Single-use, short-lived download grant (set at fulfilment). */
   downloadToken?: string;
   downloadExpiresAtTs?: number;

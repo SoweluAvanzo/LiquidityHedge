@@ -10,9 +10,10 @@ import { resolve } from "path";
 import { makeBirdeyeFetcher } from "@lh/market-data";
 import { fetchSolAtmImpliedVol } from "@lh/core/src/market-data/binance-iv-adapter";
 import { computeMarketInputs } from "./regime-updater";
+import { secretEnv } from "@lh/storage";
 
 async function main() {
-  let apiKey = process.env.BIRDEYE_API_KEY;
+  let apiKey = secretEnv("BIRDEYE_API_KEY");
   if (!apiKey) {
     const envPath = resolve(__dirname, "../../../../lh-protocol/.env");
     if (existsSync(envPath)) {
