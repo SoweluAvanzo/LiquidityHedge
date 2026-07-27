@@ -13,7 +13,7 @@ import {
   OffchainLhProtocol,
   CertificateStatus,
   PositionStatus,
-  DEFAULT_PREMIUM_FLOOR_USDC,
+  LEGACY_DEFAULT_PREMIUM_FLOOR_USDC,
 } from "../../src/index";
 import {
   DEFAULT_POOL_CONFIG,
@@ -39,9 +39,9 @@ describe("Edge Cases Integration", () => {
 
     // Premium must be at least P_floor ($0.05 = 50_000 micro-USDC)
     expect(result.premiumUsdc).to.be.greaterThanOrEqual(
-      DEFAULT_PREMIUM_FLOOR_USDC,
+      LEGACY_DEFAULT_PREMIUM_FLOOR_USDC,
     );
-    expect(result.premiumUsdc).to.equal(DEFAULT_PREMIUM_FLOOR_USDC);
+    expect(result.premiumUsdc).to.equal(LEGACY_DEFAULT_PREMIUM_FLOOR_USDC);
   });
 
   // -------------------------------------------------------------------

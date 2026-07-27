@@ -19,6 +19,7 @@ import { randomBytes, randomUUID } from "crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs";
 import path from "path";
 import { numericEnv } from "@lh/storage";
+import { getStaticPricingParams } from "./pricing-params";
 import {
   CertificateLedger,
   sha256Hex,
@@ -121,35 +122,22 @@ function buildConfig(): LedgerConfig {
     path.join(repoRoot(), MASTER_TERMS_RELPATH),
     "utf8",
   );
+  // §1.8: every premium parameter comes from the ONE shared module the
+  // dashboard also reads (getStaticPricingParams). The comments that
+  // used to live here (audit #4 fee split, audit #5 expectedDailyFee,
+  // D1 premium floor) moved with the values.
+  const pricing = getStaticPricingParams();
   return {
-    uMaxBps: 3000,
-    protocolFeeBps: 150,
-    // Governance parameter (docs/03 §3.3): $0.05 default. A high floor makes
-    // small positions uneconomical to hedge (it dominates the fair value);
-    // override per environment with HEDGE_PREMIUM_FLOOR_USDC (µUSDC).
-    premiumFloorUsdc: numericEnv("HEDGE_PREMIUM_FLOOR_USDC", 50_000),
+    uMaxBps: pricing.uMaxBps,
+    protocolFeeBps: pricing.protocolFeeBps,
+    premiumFloorUsdc: pricing.premiumFloorUsdc,
     // A2/A3 guards: bound griefing and unbounded ledger growth.
     maxOpenQuotesPerOwner: numericEnv("MAX_OPEN_QUOTES_PER_OWNER", 3),
     maxLifetimeQuotes: numericEnv("MAX_LIFETIME_QUOTES", 50_000),
-    markupFloor: 1.05,
-    // AUDIT #4, CLOSED. The premium discounts by `y · E[F]` because the
-    // Risk Taker collects y × realised LP fees at settlement. That
-    // revenue used to be structurally uncollectable — every production
-    // `readAccruedFees` returned 0 — so the discount was pure loss and the
-    // split was pinned to 0. It is now backed by a real reader
-    // (lib/server/fee-reader.ts) that takes a fee-growth checkpoint at
-    // activation and measures the delta at settlement, so the split is
-    // restored to the protocol default.
-    feeSplitRate: numericEnv("HEDGE_FEE_SPLIT_RATE", 0.1),
-    // AUDIT #5: this was hardcoded at 0.5%/day while the platform's own
-    // live measurement of the canonical SOL/USDC pool is ~0.042%/day —
-    // 12x. E[F] = V · expectedDailyFee · tenorDays feeds the same discount
-    // above, so an inflated figure underprices the certificate. The
-    // conservative governance default is now an order of magnitude lower
-    // and overridable; a measurement-driven value is the proper fix
-    // (computeInRangeDailyRate already exists in lib/server/viability).
-    expectedDailyFee: numericEnv("HEDGE_EXPECTED_DAILY_FEE", 0.0005),
-    tenorSeconds: numericEnv("HEDGE_TENOR_SECONDS", 604_800),
+    markupFloor: pricing.markupFloor,
+    feeSplitRate: pricing.feeSplitRate,
+    expectedDailyFee: pricing.expectedDailyFee,
+    tenorSeconds: pricing.tenorSeconds,
     quoteTtlSeconds: 120,
     regimeMaxAgeSeconds: 900,
     perBuyerCapDownLimitUsdc: numericEnv("HEDGE_PER_BUYER_CAP_USDC", 0),

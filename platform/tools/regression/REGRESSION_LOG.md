@@ -348,3 +348,40 @@ Diff: `captures/2026-07-27T15-33-05-782Z.json` →
   in-range-intensity estimand handles correctly by construction.
 
 Golden re-baselined to the 15-33-26 capture.
+
+---
+
+## 2026-07-27 · §1.8 + §1.9 + §1.10 — pricing params, out-of-range state, prediction log v2
+
+Diff: `captures/2026-07-27T16-05-53-316Z.json` →
+`captures/2026-07-27T16-06-21-985Z.json`, spot −0.074%.
+
+- **§1.8, new `pricingParams` block**: the parameters the card actually
+  priced with, from the ONE `getPricingParams` module the quote path's
+  `buildConfig()` now also consumes. Live values at deploy:
+  `effectiveMarkup 1.05` (floor binds — live IV/RV 0.926 from
+  `binance:SOL-260731-76-C`, `ivFallbackUsed: false`), fee split 0.10,
+  floor \$0.05, φ 1.5%, tenor 7d. The dashboard's hardcoded 1.08 markup
+  (A7/D-5: a certificate nobody would be quoted) is gone. Numerically
+  free today: FV = 0 out of range → premiums floor-bound under either
+  markup. D1 settled: the \$1.50 constant renamed
+  `LEGACY_DEFAULT_PREMIUM_FLOOR_USDC` in @lh/core with a comment
+  pointing at the live source.
+- **§1.9 (D2b)**: `concentrationFactorSource: "measured"` on the wire;
+  the CARD now shows "OUT OF RANGE — indices suppressed" with the
+  forward re-entry expectation instead of indices that invite
+  comparison with in-range positions — live right now for all 4
+  positions (SOL at 75.2 vs lower bounds ~76.6).
+- **§1.10**: prediction log records are v2 — actual bounds + spot
+  (any width convention re-derivable), BOTH estimators' fractions
+  like-for-like on those bounds, empirical mean CI + n_eff, method and
+  fraction served. The v1 mismatch (midpoint-convention widthBps next
+  to actual-bounds gbmFraction, F12) is gone. Like-for-like of the
+  divergence flag CONFIRMED by a new cross-validation test: on
+  synthetic GBM with a deliberately asymmetric range (−4%/+12%),
+  empirical-bounds ≈ GBM-bounds within 3%.
+- All numeric movement is the spot move: empirical f −1.41% and GBM
+  reference −2.36% moved in lockstep (the spot-driven fingerprint);
+  indices follow linearly; bands re-derive.
+
+Golden re-baselined to the 16-06-21 capture.

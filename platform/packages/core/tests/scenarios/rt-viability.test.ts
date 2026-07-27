@@ -24,7 +24,7 @@ import { expect } from "chai";
 import {
   OffchainLhProtocol,
   CertificateStatus,
-  DEFAULT_PREMIUM_FLOOR_USDC,
+  LEGACY_DEFAULT_PREMIUM_FLOOR_USDC,
   clPositionValue,
 } from "../../src/index";
 import { DEFAULT_POOL_CONFIG, DEFAULT_TEMPLATE } from "../../src/config/templates";

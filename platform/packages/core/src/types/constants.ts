@@ -48,8 +48,15 @@ export const DEFAULT_FEE_SPLIT_RATE = 0.1;
 /** Expected daily LP fee rate (fraction of position value) */
 export const DEFAULT_EXPECTED_DAILY_FEE = 0.005;
 
-/** Default premium floor in micro-USDC ($1.50) — governance parameter */
-export const DEFAULT_PREMIUM_FLOOR_USDC = 1_500_000;
+/**
+ * LEGACY premium floor ($1.50) — the PoC emulator's original default,
+ * kept ONLY for the emulator templates and their tests. Decision D1
+ * (2026-07-27): the live governance value is $0.05, owned by
+ * apps/web/src/lib/server/pricing-params.ts (HEDGE_PREMIUM_FLOOR_USDC).
+ * Two live constants for one governance parameter was the defect —
+ * nothing in the platform's serving path may read this.
+ */
+export const LEGACY_DEFAULT_PREMIUM_FLOOR_USDC = 1_500_000;
 
 /** Default protocol treasury fee on premiums (BPS): 150 = 1.5% */
 export const DEFAULT_PROTOCOL_FEE_BPS = 150;

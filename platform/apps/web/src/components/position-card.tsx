@@ -241,8 +241,10 @@ function EstimatorLine({ viability }: { viability: PositionViabilityWire }) {
 
 function ViabilityRow({
   viability,
+  inRange,
 }: {
   viability: PositionViabilityWire | null;
+  inRange: boolean;
 }) {
   if (!viability) {
     return (
@@ -252,6 +254,37 @@ function ViabilityRow({
           <span>unavailable</span>
           <InfoTip text="The Viability Index needs market data: our own pool snapshots or Birdeye volume for the fee yield, and OHLCV candles for volatility. When an input is missing or degraded the index is omitted rather than estimated." />
         </p>
+      </div>
+    );
+  }
+
+  // §1.9 (owner decision D2b): an out-of-range position earns nothing
+  // at the current price and its indices are NOT comparable to in-range
+  // ones — show an explicit state instead of numbers that invite the
+  // comparison. Estimator provenance stays visible; the forward
+  // re-entry expectation is the one number that IS meaningful here.
+  if (!inRange) {
+    return (
+      <div className="lh-card-sub" style={{ marginTop: "1rem" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: "0.4rem 0.9rem",
+          }}
+        >
+          <span className="lh-label">Viability ({viability.tenorDays}d hedge)</span>
+          <StatusBadge tone="warning" label="OUT OF RANGE — indices suppressed" />
+          <span className="lh-prov">
+            <span className="lh-prov-item">
+              <span className="lh-prov-key">expected in-range time ({viability.tenorDays}d, forward)</span>
+              {formatFraction(viability.inRangeFraction)}
+            </span>
+            <InfoTip text="The position sits outside its price range: it earns no fees at this price and a hedge here is a pure cost, so the viability indices - which assume in-range comparability - are suppressed rather than displayed next to in-range positions (decision D2). The forward in-range expectation above is the estimated share of the coming tenor the price spends back inside the range; full estimator provenance below." />
+          </span>
+        </div>
+        <EstimatorLine viability={viability} />
       </div>
     );
   }
@@ -446,7 +479,7 @@ export function PositionCard({
         </Fact>
       </dl>
 
-      <ViabilityRow viability={position.viability} />
+      <ViabilityRow viability={position.viability} inRange={position.inRange} />
 
       <div style={{ marginTop: "1.5rem" }}>
         <p className="lh-label-block">

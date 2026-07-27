@@ -113,6 +113,24 @@ export interface PositionViabilityWire {
     expectedValueChangeUsdAtMinus: number;
     expectedValueChangeUsdAtPlus: number;
   };
+  /**
+   * §1.8: the premium parameters this card actually priced with — the
+   * SAME values a live quote would use (shared getPricingParams module;
+   * the dashboard previously hardcoded markup 1.08 and its own fee
+   * split, A7/D-5). `ivSource`/`ivFallbackUsed` surface where the
+   * markup's IV came from (C5 groundwork).
+   */
+  pricingParams: {
+    effectiveMarkup: number;
+    ivRvRatio: number;
+    ivSource: string;
+    ivFallbackUsed: boolean;
+    markupFloor: number;
+    feeSplitRate: number;
+    premiumFloorUsd: number;
+    protocolFeeRate: number;
+    tenorDays: number;
+  };
   poolDailyYield: number;
   /**
    * §1.1 provenance for poolDailyYield. "measured-snapshots" = derived
@@ -167,6 +185,11 @@ export interface PositionViabilityWire {
   /** Enters measuredDailyYield ONLY on the modelled chain; the realised
    * path measures concentration inside the position's own accumulator. */
   concentrationFactor: number;
+  /** §1.9: provenance guard — "measured" is the ONLY value the server
+   * emits (an out-of-band c refuses the whole record; the realised path
+   * does not use c). On the wire so a substituted value could never
+   * masquerade as measured if that policy ever regressed. */
+  concentrationFactorSource: "measured" | "unavailable";
   tenorDays: number;
   /**
    * Estimator transparency (policy 2026-07-08): which estimator produced

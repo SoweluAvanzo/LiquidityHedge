@@ -57,18 +57,27 @@ import {
 import { getPoolOverview, getSolDailyCandles, birdeyeApiKey } from "./birdeye";
 import { readMeasuredPoolYield } from "./pool-yield";
 import { readRealisedPositionYield } from "./position-yield";
+import {
+  getStaticPricingParams,
+  getEffectiveMarkup,
+  type EffectiveMarkupResult,
+} from "./pricing-params";
 import type { PositionViabilityWire } from "@/lib/portfolio-api";
 import { numericEnv } from "@lh/storage";
 
-const TENOR_DAYS = 7;
-const TENOR_SECONDS = TENOR_DAYS * 86_400;
-const EFFECTIVE_MARKUP = 1.08;
-const PREMIUM_FLOOR_USD =
-  numericEnv("HEDGE_PREMIUM_FLOOR_USDC", 50_000) / 1e6;
+// §1.8: premium parameters come from the ONE module the quote path
+// also reads — the dashboard previously hardcoded EFFECTIVE_MARKUP =
+// 1.08 and its own fee split, pricing a certificate nobody would be
+// quoted (A7/D-5). The live markup (max(floor, IV/RV)) is fetched per
+// batch in loadViabilityInputs.
+const PRICING = getStaticPricingParams();
+const TENOR_SECONDS = PRICING.tenorSeconds;
+const TENOR_DAYS = TENOR_SECONDS / 86_400;
+const PREMIUM_FLOOR_USD = PRICING.premiumFloorUsdc / 1e6;
 /** Protocol treasury fee φ — the only leakage in the paper's §2.4.2
  * redistribution identity, and the whole of Corollary 2.1's wedge. */
-const PROTOCOL_FEE_RATE = numericEnv("HEDGE_PROTOCOL_FEE_RATE", 0.015);
-const FEE_SPLIT_RATE = 0.1;
+const PROTOCOL_FEE_RATE = PRICING.protocolFeeBps / 10_000;
+const FEE_SPLIT_RATE = PRICING.feeSplitRate;
 
 /** Concentration-factor sanity window (same policy as live-orca-test). */
 const C_SANITY_MIN = 0.5;
@@ -93,18 +102,34 @@ const EMPIRICAL_WINDOW_DAYS = 365;
 const DATA_DIR = path.join(process.cwd(), ".data");
 const PREDICTIONS_PATH = path.join(DATA_DIR, "inrange-predictions.jsonl");
 
+/**
+ * §1.10 (closes F12): v1 records paired a `widthBps` computed on the
+ * EMPIRICAL midpoint convention with a `gbmFraction` computed on ACTUAL
+ * bounds — a mismatched pair that made the log useless for the
+ * estimator arbitration it exists for. v2 records the actual bounds and
+ * spot (sufficient to re-derive any width convention), BOTH estimators'
+ * fractions like-for-like on those bounds, the empirical mean CI, and
+ * which fraction was served — everything needed to score both
+ * estimators against the realized outcome once the horizon elapses.
+ */
 interface InRangePredictionRecord {
+  v: 2;
   ts: string;
   whirlpool: string;
+  position: string;
   priceLower: number;
   priceUpper: number;
-  widthBps: number;
+  spot: number;
   horizonDays: number;
   gbmFraction: number;
   gbmSigma: number;
   empiricalMean: number | null;
+  empiricalMeanCi: { p05: number; p95: number } | null;
   empiricalWindows: number | null;
+  empiricalNEffective: number | null;
   methodUsed: InRangeEstimate["method"];
+  /** The fraction actually served into measuredDailyYield. */
+  fractionUsed: number;
 }
 
 /** Append-one-line prediction log; a disk failure must never take down
@@ -633,8 +658,10 @@ export function combineIndexBands(
 export async function computePositionViability(
   view: PortfolioPositionView,
   whirlpool: WhirlpoolData,
-  sigmaEstimate: SigmaEstimate,
+  inputs: ViabilityInputs,
 ): Promise<PositionViabilityWire | null> {
+  const sigmaEstimate = inputs.sigma;
+  const markup = inputs.markup;
   try {
     if (view.valueQuote <= 0) return null;
 
@@ -665,19 +692,6 @@ export async function computePositionViability(
       TENOR_SECONDS,
     );
     const poolDaily = basis.poolDailyYield;
-
-    // Empirical estimator width: half-width as a fraction of the range
-    // MIDPOINT. The GBM side now integrates the ACTUAL bounds, so the two
-    // are no longer forced onto one symmetric convention — but the
-    // divergence metric below compares them, and a previous comment here
-    // wrongly claimed they already used the same width. They differ by
-    // exactly price/midpoint, which manufactured "model divergence" for
-    // any position sitting off its own midpoint.
-    const empiricalWidthBps = Math.round(
-      ((view.priceUpper - view.priceLower) /
-        (view.priceUpper + view.priceLower)) *
-        10_000,
-    );
 
     // Estimator policy (2026-07-08): empirical is PRIMARY when history
     // allows, GBM analytic is the pricing-consistent reference,
@@ -713,7 +727,9 @@ export async function computePositionViability(
       const measured = rateX * fractionX;
       const r = computeViability({
         fairValueUsd,
-        effectiveMarkup: EFFECTIVE_MARKUP,
+        // §1.8: the LIVE markup the quote path applies — no more
+        // hardcoded 1.08 pricing a certificate nobody would be quoted.
+        effectiveMarkup: markup.effectiveMarkup,
         premiumFloorUsd: PREMIUM_FLOOR_USD,
         feeSplitRate: FEE_SPLIT_RATE,
         positionValueUsd: view.valueQuote,
@@ -726,7 +742,7 @@ export async function computePositionViability(
       const expectedFeesUsd = view.valueQuote * measured * TENOR_DAYS;
       const premiumUsd = Math.max(
         PREMIUM_FLOOR_USD,
-        fairValueUsd * EFFECTIVE_MARKUP - FEE_SPLIT_RATE * expectedFeesUsd,
+        fairValueUsd * markup.effectiveMarkup - FEE_SPLIT_RATE * expectedFeesUsd,
       );
       const ts = computeTwoSidedViability({
         expectedValueChangeUsd,
@@ -850,17 +866,22 @@ export async function computePositionViability(
     }
 
     appendPredictionLog({
+      v: 2,
       ts: new Date().toISOString(),
       whirlpool: view.whirlpool,
+      position: view.positionAddress,
       priceLower: view.priceLower,
       priceUpper: view.priceUpper,
-      widthBps: empiricalWidthBps,
+      spot: view.price,
       horizonDays: TENOR_DAYS,
       gbmFraction: gbmFractionBounds,
       gbmSigma: sigma,
       empiricalMean: empirical ? empirical.mean : null,
+      empiricalMeanCi: empirical?.meanCi ?? null,
       empiricalWindows: empirical ? empirical.windows : null,
+      empiricalNEffective: empirical?.nEffective ?? null,
       methodUsed: inRangeEstimate.method,
+      fractionUsed: inRangeEstimate.fraction,
     });
 
     return {
@@ -897,6 +918,19 @@ export async function computePositionViability(
       // D5: the tenor scaling and its evidence, or null = unadjusted.
       sigmaDaily: sigmaEstimate.sigmaDaily,
       sigmaTenorAdjust: sigmaEstimate.tenorAdjust,
+      // §1.8: the parameters this card actually priced with — the same
+      // ones a quote would use (C6 partial; C5 groundwork via ivSource).
+      pricingParams: {
+        effectiveMarkup: markup.effectiveMarkup,
+        ivRvRatio: markup.ivRvRatio,
+        ivSource: markup.ivSource,
+        ivFallbackUsed: markup.ivFallbackUsed,
+        markupFloor: PRICING.markupFloor,
+        feeSplitRate: FEE_SPLIT_RATE,
+        premiumFloorUsd: PREMIUM_FLOOR_USD,
+        protocolFeeRate: PROTOCOL_FEE_RATE,
+        tenorDays: TENOR_DAYS,
+      },
       // §1.6: E[ΔV] under ±50%/yr physical drift — the reader must see
       // the estimate is drift-determined; the point stays risk-neutral.
       driftSensitivity: {
@@ -943,6 +977,9 @@ export async function computePositionViability(
           },
       inRangeFraction: inRangeEstimate.fraction,
       concentrationFactor: c,
+      // §1.9: the sanity gate above refuses out-of-band c outright, so
+      // a served c is measured by construction — stated on the wire.
+      concentrationFactorSource: "measured" as const,
       tenorDays: TENOR_DAYS,
       inRangeEstimate,
       empiricalWindows: empirical ? empirical.windows : null,
@@ -956,15 +993,25 @@ export async function computePositionViability(
   }
 }
 
+/** §1.8: batch inputs = σ estimate + the LIVE effective markup from the
+ *  same market cache the quote path uses. */
+export interface ViabilityInputs {
+  sigma: SigmaEstimate;
+  markup: EffectiveMarkupResult;
+}
+
 /**
  * Shared inputs for a batch of positions: null when Birdeye is not
  * configured or the candle/vol pipeline cannot deliver — every position
- * then reports "viability unavailable".
+ * then reports "viability unavailable". The markup always resolves (its
+ * failure mode is the markup floor, labelled).
  */
-export async function loadViabilityInputs(): Promise<SigmaEstimate | null> {
+export async function loadViabilityInputs(): Promise<ViabilityInputs | null> {
   if (!birdeyeApiKey()) return null;
   try {
-    return await solSigmaEstimate();
+    const sigma = await solSigmaEstimate();
+    if (!sigma) return null;
+    return { sigma, markup: await getEffectiveMarkup() };
   } catch (error) {
     console.error(
       "[viability] sigma estimate unavailable:",

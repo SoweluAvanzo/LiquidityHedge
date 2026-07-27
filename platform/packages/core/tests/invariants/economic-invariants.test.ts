@@ -14,7 +14,7 @@ import {
   CertificateStatus,
   PositionStatus,
   BPS,
-  DEFAULT_PREMIUM_FLOOR_USDC,
+  LEGACY_DEFAULT_PREMIUM_FLOOR_USDC,
   DEFAULT_U_MAX_BPS,
   clPositionValue,
   naturalCap,
@@ -146,7 +146,7 @@ describe("Economic Invariants", () => {
       });
 
       expect(cert.premiumUsdc).to.be.greaterThanOrEqual(
-        DEFAULT_PREMIUM_FLOOR_USDC,
+        LEGACY_DEFAULT_PREMIUM_FLOOR_USDC,
         `Config ${i} (sigma=${sigmaFrac.toFixed(2)}): premium must be >= P_floor`,
       );
     }

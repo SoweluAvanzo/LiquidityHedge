@@ -562,8 +562,32 @@ hysteresis). Unquantified sources (Birdeye fallback yield) leave their
 leg EMPTY rather than pretending zero error. At deploy, EPRL's VI₂
 0.87 [0.47–1.44] straddles breakeven and says so.
 
-Next: **1.8** (one source for premium parameters — getPricingParams,
-settles D1, closes A7/D-5/part of C6) … 1.10 in order.
+**1.8 — DONE ✅, deployed.** `apps/web/src/lib/server/pricing-params.ts`
+is THE source: `getStaticPricingParams()` (floor \$0.05, markup floor
+1.05, fee split, φ, tenor, expectedDailyFee, uMax) consumed by BOTH
+`hedge-ledger.buildConfig()` and viability; `getEffectiveMarkup()`
+serves the LIVE `max(floor, IV/RV)` from the same 10-min market cache
+the quote path uses, with `ivSource`/`ivFallbackUsed` labelled (C5
+groundwork). The dashboard's hardcoded 1.08 is gone; the card ships a
+`pricingParams` wire block (C6 partial). **D1 settled**: the \$1.50
+constant is `LEGACY_DEFAULT_PREMIUM_FLOOR_USDC` (emulator-only,
+documented). At deploy the floor binds: live IV/RV 0.926 (binance).
+
+**1.9 — DONE ✅, deployed (D2b).** Out-of-range positions show an
+explicit "OUT OF RANGE — indices suppressed" state with the forward
+re-entry expectation; indices are not displayed as comparable to
+in-range ones. `concentrationFactorSource` on the wire ("measured" is
+the only servable value — out-of-band c refuses the whole record).
+
+**1.10 — DONE ✅, deployed.** Prediction log v2: actual bounds + spot,
+BOTH estimators like-for-like on those bounds, empirical mean CI +
+n_eff, method + fraction served — the estimator-arbitration purpose is
+restored (F12 closed). Divergence-flag like-for-like CONFIRMED by a
+cross-validation test (asymmetric −4%/+12% range on synthetic GBM:
+empirical ≈ analytic within 3%).
+
+**PHASE 1 COMPLETE.** Remaining phases: 2 (make the claims true),
+3 (dataset delivery), 4 (pre-enablement gates), 5 (cleanup).
 
 ### Caveat for whoever picks this up
 

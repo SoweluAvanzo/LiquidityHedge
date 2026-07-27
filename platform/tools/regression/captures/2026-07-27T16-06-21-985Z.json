@@ -1,0 +1,2135 @@
+{
+ "asOf": "2026-07-27T16:06:21.953Z",
+ "summary": {
+  "positionsCount": 4,
+  "inRangeCount": 0,
+  "totalValueUsd": 6.402819449257346,
+  "unpricedCount": 0
+ },
+ "positions": [
+  {
+   "positionAddress": "EPRLfJkPvygr4dgMWN92RNXrusaVU3WcHfU1VWgaBdz6",
+   "positionMint": "Gvt4k3KTeT4NUhA1ecpDewHH2CTSS5KWcuQt7g9CFbdm",
+   "whirlpool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+   "tokenMintA": "So11111111111111111111111111111111111111112",
+   "tokenMintB": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+   "decimalsA": 9,
+   "decimalsB": 6,
+   "tickLower": -25688,
+   "tickUpper": -23680,
+   "liquidity": "62750613",
+   "price": 75.20191012902626,
+   "priceLower": 76.63728521080064,
+   "priceUpper": 93.67896501035963,
+   "inRange": false,
+   "amountA": "21651689",
+   "amountB": "0",
+   "valueQuote": 1.6282483703196262,
+   "isUsdcQuoted": true,
+   "feeOwedA": "767314",
+   "feeOwedB": "63498",
+   "feesAreExact": true,
+   "curve": [
+    {
+     "price": 53.64609964756045,
+     "value": 1.1615286656319883
+    },
+    {
+     "price": 54.32746519621952,
+     "value": 1.176281380586869
+    },
+    {
+     "price": 55.00883074487859,
+     "value": 1.1910340955417493
+    },
+    {
+     "price": 55.69019629353766,
+     "value": 1.20578681049663
+    },
+    {
+     "price": 56.37156184219673,
+     "value": 1.2205395254515106
+    },
+    {
+     "price": 57.0529273908558,
+     "value": 1.235292240406391
+    },
+    {
+     "price": 57.73429293951487,
+     "value": 1.2500449553612718
+    },
+    {
+     "price": 58.415658488173946,
+     "value": 1.2647976703161523
+    },
+    {
+     "price": 59.09702403683301,
+     "value": 1.2795503852710328
+    },
+    {
+     "price": 59.778389585492086,
+     "value": 1.2943031002259135
+    },
+    {
+     "price": 60.45975513415115,
+     "value": 1.3090558151807938
+    },
+    {
+     "price": 61.141120682810225,
+     "value": 1.3238085301356746
+    },
+    {
+     "price": 61.8224862314693,
+     "value": 1.338561245090555
+    },
+    {
+     "price": 62.503851780128365,
+     "value": 1.3533139600454356
+    },
+    {
+     "price": 63.18521732878744,
+     "value": 1.3680666750003163
+    },
+    {
+     "price": 63.866582877446504,
+     "value": 1.3828193899551968
+    },
+    {
+     "price": 64.54794842610558,
+     "value": 1.3975721049100773
+    },
+    {
+     "price": 65.22931397476465,
+     "value": 1.412324819864958
+    },
+    {
+     "price": 65.91067952342372,
+     "value": 1.4270775348198386
+    },
+    {
+     "price": 66.5920450720828,
+     "value": 1.4418302497747193
+    },
+    {
+     "price": 67.27341062074186,
+     "value": 1.4565829647295996
+    },
+    {
+     "price": 67.95477616940093,
+     "value": 1.47133567968448
+    },
+    {
+     "price": 68.63614171806,
+     "value": 1.4860883946393608
+    },
+    {
+     "price": 69.31750726671908,
+     "value": 1.5008411095942413
+    },
+    {
+     "price": 69.99887281537815,
+     "value": 1.515593824549122
+    },
+    {
+     "price": 70.68023836403722,
+     "value": 1.5303465395040026
+    },
+    {
+     "price": 71.36160391269628,
+     "value": 1.5450992544588829
+    },
+    {
+     "price": 72.04296946135536,
+     "value": 1.5598519694137636
+    },
+    {
+     "price": 72.72433501001443,
+     "value": 1.574604684368644
+    },
+    {
+     "price": 73.4057005586735,
+     "value": 1.5893573993235248
+    },
+    {
+     "price": 74.08706610733256,
+     "value": 1.604110114278405
+    },
+    {
+     "price": 74.76843165599163,
+     "value": 1.6188628292332856
+    },
+    {
+     "price": 75.44979720465071,
+     "value": 1.6336155441881663
+    },
+    {
+     "price": 76.13116275330978,
+     "value": 1.6483682591430469
+    },
+    {
+     "price": 76.81252830196885,
+     "value": 1.663098267213227
+    },
+    {
+     "price": 77.49389385062793,
+     "value": 1.6773333501105658
+    },
+    {
+     "price": 78.175259399287,
+     "value": 1.690894689900436
+    },
+    {
+     "price": 78.85662494794606,
+     "value": 1.7037879210269171
+    },
+    {
+     "price": 79.53799049660513,
+     "value": 1.7160251534186481
+    },
+    {
+     "price": 80.2193560452642,
+     "value": 1.7276117849028674
+    },
+    {
+     "price": 80.90072159392328,
+     "value": 1.7385578173876803
+    },
+    {
+     "price": 81.58208714258235,
+     "value": 1.7488703599818933
+    },
+    {
+     "price": 82.26345269124141,
+     "value": 1.758558251746027
+    },
+    {
+     "price": 82.94481823990048,
+     "value": 1.7676285763953659
+    },
+    {
+     "price": 83.62618378855956,
+     "value": 1.7760889471394083
+    },
+    {
+     "price": 84.30754933721863,
+     "value": 1.7839471036483672
+    },
+    {
+     "price": 84.9889148858777,
+     "value": 1.79120977273679
+    },
+    {
+     "price": 85.67028043453678,
+     "value": 1.7978855208707927
+    },
+    {
+     "price": 86.35164598319585,
+     "value": 1.8039797712021979
+    },
+    {
+     "price": 87.03301153185491,
+     "value": 1.8094999946686974
+    },
+    {
+     "price": 87.71437708051398,
+     "value": 1.8144525584128912
+    },
+    {
+     "price": 88.39574262917304,
+     "value": 1.8188448312121692
+    },
+    {
+     "price": 89.07710817783212,
+     "value": 1.8226828476112455
+    },
+    {
+     "price": 89.75847372649119,
+     "value": 1.8259730328036026
+    },
+    {
+     "price": 90.43983927515026,
+     "value": 1.8287213323013773
+    },
+    {
+     "price": 91.12120482380934,
+     "value": 1.8309347586625897
+    },
+    {
+     "price": 91.80257037246841,
+     "value": 1.8326175037346775
+    },
+    {
+     "price": 92.48393592112748,
+     "value": 1.8337774075986781
+    },
+    {
+     "price": 93.16530146978656,
+     "value": 1.834418334637261
+    },
+    {
+     "price": 93.84666701844563,
+     "value": 1.834564
+    },
+    {
+     "price": 94.52803256710469,
+     "value": 1.834564
+    },
+    {
+     "price": 95.20939811576376,
+     "value": 1.834564
+    },
+    {
+     "price": 95.89076366442283,
+     "value": 1.834564
+    },
+    {
+     "price": 96.57212921308191,
+     "value": 1.834564
+    },
+    {
+     "price": 97.25349476174097,
+     "value": 1.834564
+    },
+    {
+     "price": 97.93486031040004,
+     "value": 1.834564
+    },
+    {
+     "price": 98.61622585905911,
+     "value": 1.834564
+    },
+    {
+     "price": 99.29759140771819,
+     "value": 1.834564
+    },
+    {
+     "price": 99.97895695637726,
+     "value": 1.834564
+    },
+    {
+     "price": 100.66032250503633,
+     "value": 1.834564
+    },
+    {
+     "price": 101.34168805369539,
+     "value": 1.834564
+    },
+    {
+     "price": 102.02305360235448,
+     "value": 1.834564
+    },
+    {
+     "price": 102.70441915101354,
+     "value": 1.834564
+    },
+    {
+     "price": 103.38578469967261,
+     "value": 1.834564
+    },
+    {
+     "price": 104.06715024833167,
+     "value": 1.834564
+    },
+    {
+     "price": 104.74851579699074,
+     "value": 1.834564
+    },
+    {
+     "price": 105.42988134564982,
+     "value": 1.834564
+    },
+    {
+     "price": 106.11124689430889,
+     "value": 1.834564
+    },
+    {
+     "price": 106.79261244296796,
+     "value": 1.834564
+    },
+    {
+     "price": 107.47397799162704,
+     "value": 1.834564
+    },
+    {
+     "price": 108.15534354028611,
+     "value": 1.834564
+    },
+    {
+     "price": 108.83670908894518,
+     "value": 1.834564
+    },
+    {
+     "price": 109.51807463760426,
+     "value": 1.834564
+    },
+    {
+     "price": 110.19944018626332,
+     "value": 1.834564
+    },
+    {
+     "price": 110.88080573492238,
+     "value": 1.834564
+    },
+    {
+     "price": 111.56217128358146,
+     "value": 1.834564
+    },
+    {
+     "price": 112.24353683224052,
+     "value": 1.834564
+    },
+    {
+     "price": 112.9249023808996,
+     "value": 1.834564
+    },
+    {
+     "price": 113.60626792955867,
+     "value": 1.834564
+    },
+    {
+     "price": 114.28763347821774,
+     "value": 1.834564
+    },
+    {
+     "price": 114.96899902687682,
+     "value": 1.834564
+    },
+    {
+     "price": 115.65036457553589,
+     "value": 1.834564
+    },
+    {
+     "price": 116.33173012419496,
+     "value": 1.834564
+    },
+    {
+     "price": 117.01309567285402,
+     "value": 1.834564
+    },
+    {
+     "price": 117.6944612215131,
+     "value": 1.834564
+    },
+    {
+     "price": 118.37582677017217,
+     "value": 1.834564
+    },
+    {
+     "price": 119.05719231883124,
+     "value": 1.834564
+    },
+    {
+     "price": 119.7385578674903,
+     "value": 1.834564
+    },
+    {
+     "price": 120.41992341614937,
+     "value": 1.834564
+    },
+    {
+     "price": 121.10128896480845,
+     "value": 1.834564
+    },
+    {
+     "price": 121.78265451346752,
+     "value": 1.834564
+    }
+   ],
+   "viability": {
+    "viabilityIndex": 0.06872680078121529,
+    "viabilityIndexBand": {
+     "p05": 0.0477079028284773,
+     "p95": 0.09152919036954313
+    },
+    "uncertaintyDominatedBy": "sigma",
+    "breakevenDailyYield": 0.004874261249805517,
+    "measuredDailyYield": 0.00033499238187098123,
+    "bound": "floor",
+    "twoSided": {
+     "viabilityIndex": 0.8433115683810424,
+     "viabilityIndexBand": {
+      "p05": 0.45812793668597923,
+      "p95": 1.430795846386553
+     },
+     "breakevenDailyYield": 0.0003972344201492302,
+     "unhedgedBreakevenDailyYield": 0.00033143189327685573,
+     "protocolFeeWedgeDailyYield": 0.00006580252687237447,
+     "expectedValueChangeUsd": -0.0037775740806999204,
+     "premiumUsd": 0.05
+    },
+    "fairValueUsd": 0,
+    "sigmaAnnualized": 0.40301934271523593,
+    "sigmaWindowDays": 30,
+    "sigmaBand": {
+     "p05": 0.32152971041836526,
+     "p95": 0.4865735566952112
+    },
+    "sigmaMethod": "garman-klass",
+    "sigmaDays": 30,
+    "sigmaDaily": 0.5192458481443899,
+    "sigmaTenorAdjust": {
+     "ratio": 0.7761628603396475,
+     "weeklySigma1y": 0.6102936087912475,
+     "weeklyN": 51,
+     "dailySigma1y": 0.7862958149326857,
+     "varianceRatio7": 0.7396277407525443
+    },
+    "pricingParams": {
+     "effectiveMarkup": 1.05,
+     "ivRvRatio": 0.9256418087682916,
+     "ivSource": "binance:SOL-260731-76-C",
+     "ivFallbackUsed": false,
+     "markupFloor": 1.05,
+     "feeSplitRate": 0.1,
+     "premiumFloorUsd": 0.05,
+     "protocolFeeRate": 0.015,
+     "tenorDays": 7
+    },
+    "driftSensitivity": {
+     "sweepAnnual": 0.5,
+     "expectedValueChangeUsdAtMinus": -0.018278730134087248,
+     "expectedValueChangeUsdAtPlus": 0.010571159597440387
+    },
+    "poolDailyYield": 0.0009391675314909645,
+    "poolYield": {
+     "source": "measured-snapshots",
+     "coveredSeconds": 81810,
+     "windowSeconds": 86510,
+     "intervals": 93,
+     "lastT": 1785167967,
+     "fallbackReason": null,
+     "tvlSource": "onchain-vaults"
+    },
+    "positionYield": {
+     "source": "modelled-chain",
+     "coveredSeconds": null,
+     "windowSeconds": null,
+     "intervals": null,
+     "inRangeSeconds": null,
+     "feesUsd": null,
+     "lastT": null,
+     "fallbackReason": "position coverage 2.5h below the 6h minimum"
+    },
+    "inRangeFraction": 0.33519553072625696,
+    "concentrationFactor": 1.0641274381172987,
+    "concentrationFactorSource": "measured",
+    "tenorDays": 7,
+    "inRangeEstimate": {
+     "fraction": 0.33519553072625696,
+     "method": "empirical",
+     "band": {
+      "p05": 0,
+      "p95": 1
+     },
+     "meanCi": {
+      "p05": 0.28012769353551475,
+      "p95": 0.39305666400638456
+     },
+     "nEffective": 51,
+     "reference": {
+      "method": "gbm-analytic",
+      "fraction": 0.2754819458200581
+     },
+     "divergence": 0.21676042953901295,
+     "modelRiskFlag": true,
+     "description": "Empirical: measured over 358 rolling historical windows (≈51 effective — windows overlap 6 of 7 days) — for a range of this width started at each window's opening price, the realized fraction of the following 7 steps spent in range. No price model assumed.",
+     "fallbackReason": null
+    },
+    "empiricalWindows": 358
+   }
+  },
+  {
+   "positionAddress": "mGADEKrn3HiDrDE9gSnR71RKgAjepP38HSP7DvtepPu",
+   "positionMint": "HBqC3iTkjej2gaaqrGwpxxrQL4e5xVu6xLw3brqMmhSW",
+   "whirlpool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+   "tokenMintA": "So11111111111111111111111111111111111111112",
+   "tokenMintB": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+   "decimalsA": 9,
+   "decimalsB": 6,
+   "tickLower": -25632,
+   "tickUpper": -23620,
+   "liquidity": "62777217",
+   "price": 75.20191012902626,
+   "priceLower": 77.06763634937663,
+   "priceUpper": 94.24270012836983,
+   "inRange": false,
+   "amountA": "21641207",
+   "amountB": "0",
+   "valueQuote": 1.627460103897654,
+   "isUsdcQuoted": true,
+   "feeOwedA": "716302",
+   "feeOwedB": "59474",
+   "feesAreExact": true,
+   "curve": [
+    {
+     "price": 53.94734544456364,
+     "value": 1.1674856698663088
+    },
+    {
+     "price": 54.63302709178681,
+     "value": 1.1823246483299663
+    },
+    {
+     "price": 55.31870873900998,
+     "value": 1.1971636267936239
+    },
+    {
+     "price": 56.004390386233155,
+     "value": 1.2120026052572817
+    },
+    {
+     "price": 56.690072033456325,
+     "value": 1.2268415837209392
+    },
+    {
+     "price": 57.375753680679495,
+     "value": 1.2416805621845968
+    },
+    {
+     "price": 58.061435327902664,
+     "value": 1.2565195406482543
+    },
+    {
+     "price": 58.747116975125834,
+     "value": 1.2713585191119119
+    },
+    {
+     "price": 59.43279862234901,
+     "value": 1.2861974975755697
+    },
+    {
+     "price": 60.11848026957218,
+     "value": 1.3010364760392272
+    },
+    {
+     "price": 60.80416191679535,
+     "value": 1.315875454502885
+    },
+    {
+     "price": 61.48984356401853,
+     "value": 1.3307144329665426
+    },
+    {
+     "price": 62.1755252112417,
+     "value": 1.3455534114302004
+    },
+    {
+     "price": 62.86120685846487,
+     "value": 1.360392389893858
+    },
+    {
+     "price": 63.54688850568804,
+     "value": 1.3752313683575155
+    },
+    {
+     "price": 64.23257015291121,
+     "value": 1.390070346821173
+    },
+    {
+     "price": 64.91825180013439,
+     "value": 1.4049093252848308
+    },
+    {
+     "price": 65.60393344735755,
+     "value": 1.4197483037484881
+    },
+    {
+     "price": 66.28961509458072,
+     "value": 1.434587282212146
+    },
+    {
+     "price": 66.9752967418039,
+     "value": 1.4494262606758037
+    },
+    {
+     "price": 67.66097838902706,
+     "value": 1.4642652391394613
+    },
+    {
+     "price": 68.34666003625024,
+     "value": 1.4791042176031188
+    },
+    {
+     "price": 69.03234168347342,
+     "value": 1.4939431960667766
+    },
+    {
+     "price": 69.71802333069658,
+     "value": 1.5087821745304342
+    },
+    {
+     "price": 70.40370497791976,
+     "value": 1.523621152994092
+    },
+    {
+     "price": 71.08938662514292,
+     "value": 1.5384601314577493
+    },
+    {
+     "price": 71.7750682723661,
+     "value": 1.553299109921407
+    },
+    {
+     "price": 72.46074991958926,
+     "value": 1.5681380883850644
+    },
+    {
+     "price": 73.14643156681244,
+     "value": 1.5829770668487222
+    },
+    {
+     "price": 73.83211321403562,
+     "value": 1.59781604531238
+    },
+    {
+     "price": 74.51779486125878,
+     "value": 1.6126550237760375
+    },
+    {
+     "price": 75.20347650848196,
+     "value": 1.627494002239695
+    },
+    {
+     "price": 75.88915815570513,
+     "value": 1.6423329807033529
+    },
+    {
+     "price": 76.5748398029283,
+     "value": 1.6571719591670104
+    },
+    {
+     "price": 77.26052145015147,
+     "value": 1.6719833170444658
+    },
+    {
+     "price": 77.94620309737464,
+     "value": 1.6862864727415539
+    },
+    {
+     "price": 78.63188474459781,
+     "value": 1.6999114644376945
+    },
+    {
+     "price": 79.31756639182098,
+     "value": 1.7128668483332201
+    },
+    {
+     "price": 80.00324803904415,
+     "value": 1.7251618899417809
+    },
+    {
+     "price": 80.68892968626733,
+     "value": 1.73680482672758
+    },
+    {
+     "price": 81.37461133349049,
+     "value": 1.747803817586441
+    },
+    {
+     "price": 82.06029298071367,
+     "value": 1.758167970273071
+    },
+    {
+     "price": 82.74597462793685,
+     "value": 1.7679032033363762
+    },
+    {
+     "price": 83.43165627516001,
+     "value": 1.7770184335532266
+    },
+    {
+     "price": 84.11733792238319,
+     "value": 1.7855214351210447
+    },
+    {
+     "price": 84.80301956960636,
+     "value": 1.7934199450312738
+    },
+    {
+     "price": 85.48870121682953,
+     "value": 1.8007196870682372
+    },
+    {
+     "price": 86.17438286405269,
+     "value": 1.8074303096336117
+    },
+    {
+     "price": 86.86006451127588,
+     "value": 1.8135571457366844
+    },
+    {
+     "price": 87.54574615849904,
+     "value": 1.8191067485540526
+    },
+    {
+     "price": 88.2314278057222,
+     "value": 1.8240874811281627
+    },
+    {
+     "price": 88.91710945294538,
+     "value": 1.8285046189980476
+    },
+    {
+     "price": 89.60279110016856,
+     "value": 1.8323655465469544
+    },
+    {
+     "price": 90.28847274739172,
+     "value": 1.8356763295588352
+    },
+    {
+     "price": 90.9741543946149,
+     "value": 1.8384430859717835
+    },
+    {
+     "price": 91.65983604183808,
+     "value": 1.8406719147886457
+    },
+    {
+     "price": 92.34551768906124,
+     "value": 1.8423689132190637
+    },
+    {
+     "price": 93.0311993362844,
+     "value": 1.8435399147279175
+    },
+    {
+     "price": 93.7168809835076,
+     "value": 1.8441908707596648
+    },
+    {
+     "price": 94.40256263073076,
+     "value": 1.844341
+    },
+    {
+     "price": 95.08824427795393,
+     "value": 1.844341
+    },
+    {
+     "price": 95.77392592517711,
+     "value": 1.844341
+    },
+    {
+     "price": 96.45960757240027,
+     "value": 1.844341
+    },
+    {
+     "price": 97.14528921962344,
+     "value": 1.844341
+    },
+    {
+     "price": 97.83097086684661,
+     "value": 1.844341
+    },
+    {
+     "price": 98.51665251406979,
+     "value": 1.844341
+    },
+    {
+     "price": 99.20233416129295,
+     "value": 1.844341
+    },
+    {
+     "price": 99.88801580851612,
+     "value": 1.844341
+    },
+    {
+     "price": 100.5736974557393,
+     "value": 1.844341
+    },
+    {
+     "price": 101.25937910296247,
+     "value": 1.844341
+    },
+    {
+     "price": 101.94506075018563,
+     "value": 1.844341
+    },
+    {
+     "price": 102.63074239740882,
+     "value": 1.844341
+    },
+    {
+     "price": 103.31642404463199,
+     "value": 1.844341
+    },
+    {
+     "price": 104.00210569185515,
+     "value": 1.844341
+    },
+    {
+     "price": 104.68778733907833,
+     "value": 1.844341
+    },
+    {
+     "price": 105.3734689863015,
+     "value": 1.844341
+    },
+    {
+     "price": 106.05915063352467,
+     "value": 1.844341
+    },
+    {
+     "price": 106.74483228074784,
+     "value": 1.844341
+    },
+    {
+     "price": 107.43051392797102,
+     "value": 1.844341
+    },
+    {
+     "price": 108.11619557519418,
+     "value": 1.844341
+    },
+    {
+     "price": 108.80187722241735,
+     "value": 1.844341
+    },
+    {
+     "price": 109.48755886964054,
+     "value": 1.844341
+    },
+    {
+     "price": 110.1732405168637,
+     "value": 1.844341
+    },
+    {
+     "price": 110.85892216408688,
+     "value": 1.844341
+    },
+    {
+     "price": 111.54460381131005,
+     "value": 1.844341
+    },
+    {
+     "price": 112.23028545853322,
+     "value": 1.844341
+    },
+    {
+     "price": 112.91596710575638,
+     "value": 1.844341
+    },
+    {
+     "price": 113.60164875297956,
+     "value": 1.844341
+    },
+    {
+     "price": 114.28733040020273,
+     "value": 1.844341
+    },
+    {
+     "price": 114.9730120474259,
+     "value": 1.844341
+    },
+    {
+     "price": 115.65869369464907,
+     "value": 1.844341
+    },
+    {
+     "price": 116.34437534187225,
+     "value": 1.844341
+    },
+    {
+     "price": 117.03005698909541,
+     "value": 1.844341
+    },
+    {
+     "price": 117.71573863631858,
+     "value": 1.844341
+    },
+    {
+     "price": 118.40142028354175,
+     "value": 1.844341
+    },
+    {
+     "price": 119.08710193076493,
+     "value": 1.844341
+    },
+    {
+     "price": 119.77278357798811,
+     "value": 1.844341
+    },
+    {
+     "price": 120.45846522521127,
+     "value": 1.844341
+    },
+    {
+     "price": 121.14414687243445,
+     "value": 1.844341
+    },
+    {
+     "price": 121.82982851965761,
+     "value": 1.844341
+    },
+    {
+     "price": 122.51551016688079,
+     "value": 1.844341
+    }
+   ],
+   "viability": {
+    "viabilityIndex": 0.06147108308413682,
+    "viabilityIndexBand": {
+     "p05": 0.04195453883555948,
+     "p95": 0.08236515880122763
+    },
+    "uncertaintyDominatedBy": "sigma",
+    "breakevenDailyYield": 0.004876622116573274,
+    "measuredDailyYield": 0.0002997712432978149,
+    "bound": "floor",
+    "twoSided": {
+     "viabilityIndex": 0.8759653097881193,
+     "viabilityIndexBand": {
+      "p05": 0.4607858386453983,
+      "p95": 1.5118089234434366
+     },
+     "breakevenDailyYield": 0.00034221816771525383,
+     "unhedgedBreakevenDailyYield": 0.00027638376914151464,
+     "protocolFeeWedgeDailyYield": 0.00006583439857373919,
+     "expectedValueChangeUsd": -0.0031486249034987225,
+     "premiumUsd": 0.05
+    },
+    "fairValueUsd": 0,
+    "sigmaAnnualized": 0.40301934271523593,
+    "sigmaWindowDays": 30,
+    "sigmaBand": {
+     "p05": 0.32152971041836526,
+     "p95": 0.4865735566952112
+    },
+    "sigmaMethod": "garman-klass",
+    "sigmaDays": 30,
+    "sigmaDaily": 0.5192458481443899,
+    "sigmaTenorAdjust": {
+     "ratio": 0.7761628603396475,
+     "weeklySigma1y": 0.6102936087912475,
+     "weeklyN": 51,
+     "dailySigma1y": 0.7862958149326857,
+     "varianceRatio7": 0.7396277407525443
+    },
+    "pricingParams": {
+     "effectiveMarkup": 1.05,
+     "ivRvRatio": 0.9256418087682916,
+     "ivSource": "binance:SOL-260731-76-C",
+     "ivFallbackUsed": false,
+     "markupFloor": 1.05,
+     "feeSplitRate": 0.1,
+     "premiumFloorUsd": 0.05,
+     "protocolFeeRate": 0.015,
+     "tenorDays": 7
+    },
+    "driftSensitivity": {
+     "sweepAnnual": 0.5,
+     "expectedValueChangeUsdAtMinus": -0.01779090974128553,
+     "expectedValueChangeUsdAtPlus": 0.011371974446295317
+    },
+    "poolDailyYield": 0.0009391675314909645,
+    "poolYield": {
+     "source": "measured-snapshots",
+     "coveredSeconds": 81810,
+     "windowSeconds": 86510,
+     "intervals": 93,
+     "lastT": 1785167967,
+     "fallbackReason": null,
+     "tvlSource": "onchain-vaults"
+    },
+    "positionYield": {
+     "source": "modelled-chain",
+     "coveredSeconds": null,
+     "windowSeconds": null,
+     "intervals": null,
+     "inRangeSeconds": null,
+     "feesUsd": null,
+     "lastT": null,
+     "fallbackReason": "position coverage 2.5h below the 6h minimum"
+    },
+    "inRangeFraction": 0.29968076616121336,
+    "concentrationFactor": 1.065094222471095,
+    "concentrationFactorSource": "measured",
+    "tenorDays": 7,
+    "inRangeEstimate": {
+     "fraction": 0.29968076616121336,
+     "method": "empirical",
+     "band": {
+      "p05": 0,
+      "p95": 1
+     },
+     "meanCi": {
+      "p05": 0.24421388667198712,
+      "p95": 0.3559457302474064
+     },
+     "nEffective": 51,
+     "reference": {
+      "method": "gbm-analytic",
+      "fraction": 0.22895742740568895
+     },
+     "divergence": 0.30889296563509144,
+     "modelRiskFlag": true,
+     "description": "Empirical: measured over 358 rolling historical windows (≈51 effective — windows overlap 6 of 7 days) — for a range of this width started at each window's opening price, the realized fraction of the following 7 steps spent in range. No price model assumed.",
+     "fallbackReason": null
+    },
+    "empiricalWindows": 358
+   }
+  },
+  {
+   "positionAddress": "38uAbrUpz6JTJDce9txpGGu47V1udWzSYV4nRP8oQxU6",
+   "positionMint": "CTPoR6g4e29qiCucgtBwtzsiwArFG5S1BGVkn9tvNP3",
+   "whirlpool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+   "tokenMintA": "So11111111111111111111111111111111111111112",
+   "tokenMintB": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+   "decimalsA": 9,
+   "decimalsB": 6,
+   "tickLower": -24660,
+   "tickUpper": -24256,
+   "liquidity": "294440659",
+   "price": 75.20191012902626,
+   "priceLower": 84.93434708098344,
+   "priceUpper": 88.43577221875724,
+   "inRange": false,
+   "amountA": "20202587",
+   "amountB": "0",
+   "valueQuote": 1.5192731319478343,
+   "isUsdcQuoted": true,
+   "feeOwedA": "927401",
+   "feeOwedB": "79664",
+   "feesAreExact": true,
+   "curve": [
+    {
+     "price": 59.454042956688404,
+     "value": 1.2011254753342349
+    },
+    {
+     "price": 60.00916756596536,
+     "value": 1.2123404285489936
+    },
+    {
+     "price": 60.56429217524232,
+     "value": 1.2235553817637523
+    },
+    {
+     "price": 61.11941678451929,
+     "value": 1.2347703349785113
+    },
+    {
+     "price": 61.67454139379625,
+     "value": 1.24598528819327
+    },
+    {
+     "price": 62.229666003073206,
+     "value": 1.2572002414080288
+    },
+    {
+     "price": 62.784790612350164,
+     "value": 1.2684151946227875
+    },
+    {
+     "price": 63.33991522162712,
+     "value": 1.2796301478375463
+    },
+    {
+     "price": 63.89503983090408,
+     "value": 1.290845101052305
+    },
+    {
+     "price": 64.45016444018104,
+     "value": 1.302060054267064
+    },
+    {
+     "price": 65.005289049458,
+     "value": 1.3132750074818227
+    },
+    {
+     "price": 65.56041365873496,
+     "value": 1.3244899606965814
+    },
+    {
+     "price": 66.11553826801193,
+     "value": 1.3357049139113404
+    },
+    {
+     "price": 66.67066287728889,
+     "value": 1.3469198671260991
+    },
+    {
+     "price": 67.22578748656585,
+     "value": 1.3581348203408579
+    },
+    {
+     "price": 67.78091209584281,
+     "value": 1.3693497735556168
+    },
+    {
+     "price": 68.33603670511977,
+     "value": 1.3805647267703756
+    },
+    {
+     "price": 68.89116131439673,
+     "value": 1.3917796799851343
+    },
+    {
+     "price": 69.44628592367368,
+     "value": 1.402994633199893
+    },
+    {
+     "price": 70.00141053295064,
+     "value": 1.4142095864146518
+    },
+    {
+     "price": 70.5565351422276,
+     "value": 1.4254245396294105
+    },
+    {
+     "price": 71.11165975150456,
+     "value": 1.4366394928441693
+    },
+    {
+     "price": 71.66678436078152,
+     "value": 1.4478544460589282
+    },
+    {
+     "price": 72.22190897005848,
+     "value": 1.459069399273687
+    },
+    {
+     "price": 72.77703357933545,
+     "value": 1.470284352488446
+    },
+    {
+     "price": 73.33215818861241,
+     "value": 1.4814993057032046
+    },
+    {
+     "price": 73.88728279788937,
+     "value": 1.4927142589179634
+    },
+    {
+     "price": 74.44240740716633,
+     "value": 1.5039292121327223
+    },
+    {
+     "price": 74.99753201644329,
+     "value": 1.515144165347481
+    },
+    {
+     "price": 75.55265662572025,
+     "value": 1.5263591185622398
+    },
+    {
+     "price": 76.1077812349972,
+     "value": 1.5375740717769986
+    },
+    {
+     "price": 76.66290584427416,
+     "value": 1.5487890249917573
+    },
+    {
+     "price": 77.21803045355112,
+     "value": 1.560003978206516
+    },
+    {
+     "price": 77.7731550628281,
+     "value": 1.5712189314212752
+    },
+    {
+     "price": 78.32827967210505,
+     "value": 1.582433884636034
+    },
+    {
+     "price": 78.88340428138201,
+     "value": 1.5936488378507927
+    },
+    {
+     "price": 79.43852889065897,
+     "value": 1.6048637910655514
+    },
+    {
+     "price": 79.99365349993593,
+     "value": 1.6160787442803102
+    },
+    {
+     "price": 80.54877810921289,
+     "value": 1.627293697495069
+    },
+    {
+     "price": 81.10390271848985,
+     "value": 1.6385086507098277
+    },
+    {
+     "price": 81.65902732776681,
+     "value": 1.6497236039245866
+    },
+    {
+     "price": 82.21415193704377,
+     "value": 1.6609385571393454
+    },
+    {
+     "price": 82.76927654632073,
+     "value": 1.672153510354104
+    },
+    {
+     "price": 83.32440115559768,
+     "value": 1.6833684635688628
+    },
+    {
+     "price": 83.87952576487464,
+     "value": 1.6945834167836216
+    },
+    {
+     "price": 84.4346503741516,
+     "value": 1.7057983699983803
+    },
+    {
+     "price": 84.98977498342856,
+     "value": 1.7170039373867743
+    },
+    {
+     "price": 85.54489959270552,
+     "value": 1.7271232199359925
+    },
+    {
+     "price": 86.10002420198249,
+     "value": 1.7354289795580042
+    },
+    {
+     "price": 86.65514881125945,
+     "value": 1.7419397160530723
+    },
+    {
+     "price": 87.21027342053641,
+     "value": 1.7466712726804101
+    },
+    {
+     "price": 87.76539802981337,
+     "value": 1.7496420056897926
+    },
+    {
+     "price": 88.32052263909033,
+     "value": 1.7508672453535303
+    },
+    {
+     "price": 88.87564724836729,
+     "value": 1.750905
+    },
+    {
+     "price": 89.43077185764425,
+     "value": 1.750905
+    },
+    {
+     "price": 89.9858964669212,
+     "value": 1.750905
+    },
+    {
+     "price": 90.54102107619816,
+     "value": 1.750905
+    },
+    {
+     "price": 91.09614568547512,
+     "value": 1.750905
+    },
+    {
+     "price": 91.6512702947521,
+     "value": 1.750905
+    },
+    {
+     "price": 92.20639490402905,
+     "value": 1.750905
+    },
+    {
+     "price": 92.76151951330601,
+     "value": 1.750905
+    },
+    {
+     "price": 93.31664412258297,
+     "value": 1.750905
+    },
+    {
+     "price": 93.87176873185993,
+     "value": 1.750905
+    },
+    {
+     "price": 94.42689334113689,
+     "value": 1.750905
+    },
+    {
+     "price": 94.98201795041385,
+     "value": 1.750905
+    },
+    {
+     "price": 95.5371425596908,
+     "value": 1.750905
+    },
+    {
+     "price": 96.09226716896777,
+     "value": 1.750905
+    },
+    {
+     "price": 96.64739177824472,
+     "value": 1.750905
+    },
+    {
+     "price": 97.20251638752168,
+     "value": 1.750905
+    },
+    {
+     "price": 97.75764099679864,
+     "value": 1.750905
+    },
+    {
+     "price": 98.3127656060756,
+     "value": 1.750905
+    },
+    {
+     "price": 98.86789021535256,
+     "value": 1.750905
+    },
+    {
+     "price": 99.42301482462952,
+     "value": 1.750905
+    },
+    {
+     "price": 99.97813943390648,
+     "value": 1.750905
+    },
+    {
+     "price": 100.53326404318345,
+     "value": 1.750905
+    },
+    {
+     "price": 101.0883886524604,
+     "value": 1.750905
+    },
+    {
+     "price": 101.64351326173737,
+     "value": 1.750905
+    },
+    {
+     "price": 102.19863787101433,
+     "value": 1.750905
+    },
+    {
+     "price": 102.75376248029129,
+     "value": 1.750905
+    },
+    {
+     "price": 103.30888708956824,
+     "value": 1.750905
+    },
+    {
+     "price": 103.86401169884522,
+     "value": 1.750905
+    },
+    {
+     "price": 104.41913630812216,
+     "value": 1.750905
+    },
+    {
+     "price": 104.97426091739914,
+     "value": 1.750905
+    },
+    {
+     "price": 105.5293855266761,
+     "value": 1.750905
+    },
+    {
+     "price": 106.08451013595305,
+     "value": 1.750905
+    },
+    {
+     "price": 106.63963474523001,
+     "value": 1.750905
+    },
+    {
+     "price": 107.19475935450697,
+     "value": 1.750905
+    },
+    {
+     "price": 107.74988396378393,
+     "value": 1.750905
+    },
+    {
+     "price": 108.30500857306089,
+     "value": 1.750905
+    },
+    {
+     "price": 108.86013318233785,
+     "value": 1.750905
+    },
+    {
+     "price": 109.4152577916148,
+     "value": 1.750905
+    },
+    {
+     "price": 109.97038240089176,
+     "value": 1.750905
+    },
+    {
+     "price": 110.52550701016872,
+     "value": 1.750905
+    },
+    {
+     "price": 111.08063161944568,
+     "value": 1.750905
+    },
+    {
+     "price": 111.63575622872264,
+     "value": 1.750905
+    },
+    {
+     "price": 112.1908808379996,
+     "value": 1.750905
+    },
+    {
+     "price": 112.74600544727657,
+     "value": 1.750905
+    },
+    {
+     "price": 113.30113005655352,
+     "value": 1.750905
+    },
+    {
+     "price": 113.85625466583049,
+     "value": 1.750905
+    },
+    {
+     "price": 114.41137927510745,
+     "value": 1.750905
+    },
+    {
+     "price": 114.96650388438441,
+     "value": 1.750905
+    }
+   ],
+   "viability": {
+    "viabilityIndex": 0.01842756228235252,
+    "viabilityIndexBand": {
+     "p05": 0.009397024310566104,
+     "p95": 0.028357131070673766
+    },
+    "uncertaintyDominatedBy": "in-range",
+    "breakevenDailyYield": 0.005223884876008223,
+    "measuredDailyYield": 0.00009626346390848091,
+    "bound": "floor",
+    "twoSided": {
+     "viabilityIndex": 1.086612260628592,
+     "viabilityIndexBand": {
+      "p05": 0.4122308642648621,
+      "p95": 1.719923772582929
+     },
+     "breakevenDailyYield": 0.00008859044518124033,
+     "unhedgedBreakevenDailyYield": 0.000018067999355129325,
+     "protocolFeeWedgeDailyYield": 0.000070522445826111,
+     "expectedValueChangeUsd": -0.00019215158177809147,
+     "premiumUsd": 0.05
+    },
+    "fairValueUsd": 0,
+    "sigmaAnnualized": 0.40301934271523593,
+    "sigmaWindowDays": 30,
+    "sigmaBand": {
+     "p05": 0.32152971041836526,
+     "p95": 0.4865735566952112
+    },
+    "sigmaMethod": "garman-klass",
+    "sigmaDays": 30,
+    "sigmaDaily": 0.5192458481443899,
+    "sigmaTenorAdjust": {
+     "ratio": 0.7761628603396475,
+     "weeklySigma1y": 0.6102936087912475,
+     "weeklyN": 51,
+     "dailySigma1y": 0.7862958149326857,
+     "varianceRatio7": 0.7396277407525443
+    },
+    "pricingParams": {
+     "effectiveMarkup": 1.05,
+     "ivRvRatio": 0.9256418087682916,
+     "ivSource": "binance:SOL-260731-76-C",
+     "ivFallbackUsed": false,
+     "markupFloor": 1.05,
+     "feeSplitRate": 0.1,
+     "premiumFloorUsd": 0.05,
+     "protocolFeeRate": 0.015,
+     "tenorDays": 7
+    },
+    "driftSensitivity": {
+     "sweepAnnual": 0.5,
+     "expectedValueChangeUsdAtMinus": -0.014611026298815619,
+     "expectedValueChangeUsdAtPlus": 0.014317403708584371
+    },
+    "poolDailyYield": 0.0009391675314909645,
+    "poolYield": {
+     "source": "measured-snapshots",
+     "coveredSeconds": 81810,
+     "windowSeconds": 86510,
+     "intervals": 93,
+     "lastT": 1785167967,
+     "fallbackReason": null,
+     "tvlSource": "onchain-vaults"
+    },
+    "positionYield": {
+     "source": "modelled-chain",
+     "coveredSeconds": null,
+     "windowSeconds": null,
+     "intervals": null,
+     "inRangeSeconds": null,
+     "feesUsd": null,
+     "lastT": null,
+     "fallbackReason": "position coverage 2.5h below the 6h minimum"
+    },
+    "inRangeFraction": 0.019154030327214685,
+    "concentrationFactor": 5.351287010078697,
+    "concentrationFactorSource": "measured",
+    "tenorDays": 7,
+    "inRangeEstimate": {
+     "fraction": 0.019154030327214685,
+     "method": "empirical",
+     "band": {
+      "p05": 0,
+      "p95": 0.14285714285714285
+     },
+     "meanCi": {
+      "p05": 0.011173184357541896,
+      "p95": 0.027932960893854757
+     },
+     "nEffective": 51,
+     "reference": {
+      "method": "gbm-analytic",
+      "fraction": 0.002856748364747932
+     },
+     "divergence": 5.704836366959734,
+     "modelRiskFlag": true,
+     "description": "Empirical: measured over 358 rolling historical windows (≈51 effective — windows overlap 6 of 7 days) — for a range of this width started at each window's opening price, the realized fraction of the following 7 steps spent in range. No price model assumed.",
+     "fallbackReason": null
+    },
+    "empiricalWindows": 358
+   }
+  },
+  {
+   "positionAddress": "wxWAbASxXvmUwvJVDxt7QVh8nYBLzaEhinkyc2bXC32",
+   "positionMint": "ZiudRBUgFzUKHWvBFCyxm9XCL3pvY4YVCeyrS1yZnt8",
+   "whirlpool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+   "tokenMintA": "So11111111111111111111111111111111111111112",
+   "tokenMintB": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+   "decimalsA": 9,
+   "decimalsB": 6,
+   "tickLower": -25684,
+   "tickUpper": -23676,
+   "liquidity": "62747339",
+   "price": 75.20191012902626,
+   "priceLower": 76.66794472342863,
+   "priceUpper": 93.71644221747637,
+   "inRange": false,
+   "amountA": "21646230",
+   "amountB": "0",
+   "valueQuote": 1.627837843092232,
+   "isUsdcQuoted": true,
+   "feeOwedA": "765688",
+   "feeOwedB": "63382",
+   "feesAreExact": true,
+   "curve": [
+    {
+     "price": 53.66756130640004,
+     "value": 1.1617003755774356
+    },
+    {
+     "price": 54.34919944216323,
+     "value": 1.1764552714409369
+    },
+    {
+     "price": 55.03083757792643,
+     "value": 1.1912101673044384
+    },
+    {
+     "price": 55.712475713689614,
+     "value": 1.2059650631679395
+    },
+    {
+     "price": 56.39411384945281,
+     "value": 1.2207199590314408
+    },
+    {
+     "price": 57.075751985216,
+     "value": 1.2354748548949421
+    },
+    {
+     "price": 57.757390120979196,
+     "value": 1.2502297507584434
+    },
+    {
+     "price": 58.43902825674239,
+     "value": 1.2649846466219448
+    },
+    {
+     "price": 59.120666392505576,
+     "value": 1.2797395424854459
+    },
+    {
+     "price": 59.80230452826877,
+     "value": 1.2944944383489472
+    },
+    {
+     "price": 60.483942664031964,
+     "value": 1.3092493342124485
+    },
+    {
+     "price": 61.16558079979516,
+     "value": 1.3240042300759498
+    },
+    {
+     "price": 61.847218935558345,
+     "value": 1.3387591259394511
+    },
+    {
+     "price": 62.52885707132154,
+     "value": 1.3535140218029524
+    },
+    {
+     "price": 63.21049520708473,
+     "value": 1.3682689176664538
+    },
+    {
+     "price": 63.89213334284793,
+     "value": 1.383023813529955
+    },
+    {
+     "price": 64.57377147861112,
+     "value": 1.3977787093934564
+    },
+    {
+     "price": 65.25540961437432,
+     "value": 1.4125336052569577
+    },
+    {
+     "price": 65.93704775013751,
+     "value": 1.427288501120459
+    },
+    {
+     "price": 66.6186858859007,
+     "value": 1.4420433969839603
+    },
+    {
+     "price": 67.3003240216639,
+     "value": 1.4567982928474617
+    },
+    {
+     "price": 67.98196215742708,
+     "value": 1.4715531887109627
+    },
+    {
+     "price": 68.66360029319027,
+     "value": 1.486308084574464
+    },
+    {
+     "price": 69.34523842895346,
+     "value": 1.5010629804379654
+    },
+    {
+     "price": 70.02687656471666,
+     "value": 1.5158178763014667
+    },
+    {
+     "price": 70.70851470047985,
+     "value": 1.530572772164968
+    },
+    {
+     "price": 71.39015283624305,
+     "value": 1.5453276680284693
+    },
+    {
+     "price": 72.07179097200624,
+     "value": 1.5600825638919706
+    },
+    {
+     "price": 72.75342910776942,
+     "value": 1.5748374597554715
+    },
+    {
+     "price": 73.43506724353261,
+     "value": 1.5895923556189728
+    },
+    {
+     "price": 74.11670537929581,
+     "value": 1.6043472514824741
+    },
+    {
+     "price": 74.798343515059,
+     "value": 1.6191021473459755
+    },
+    {
+     "price": 75.4799816508222,
+     "value": 1.6338570432094768
+    },
+    {
+     "price": 76.16161978658539,
+     "value": 1.648611939072978
+    },
+    {
+     "price": 76.84325792234858,
+     "value": 1.6633432494316063
+    },
+    {
+     "price": 77.52489605811178,
+     "value": 1.6775819421476663
+    },
+    {
+     "price": 78.20653419387497,
+     "value": 1.6911440192512823
+    },
+    {
+     "price": 78.88817232963817,
+     "value": 1.7040398783311592
+    },
+    {
+     "price": 79.56981046540136,
+     "value": 1.7162787023503054
+    },
+    {
+     "price": 80.25144860116455,
+     "value": 1.7278668045091627
+    },
+    {
+     "price": 80.93308673692775,
+     "value": 1.7388143420033557
+    },
+    {
+     "price": 81.61472487269094,
+     "value": 1.7491292582663025
+    },
+    {
+     "price": 82.29636300845412,
+     "value": 1.7588176326038099
+    },
+    {
+     "price": 82.97800114421732,
+     "value": 1.7678892164079745
+    },
+    {
+     "price": 83.65963927998051,
+     "value": 1.7763519487477797
+    },
+    {
+     "price": 84.3412774157437,
+     "value": 1.784210400062062
+    },
+    {
+     "price": 85.0229155515069,
+     "value": 1.7914752925215756
+    },
+    {
+     "price": 85.70455368727009,
+     "value": 1.7981511878844931
+    },
+    {
+     "price": 86.38619182303327,
+     "value": 1.8042465045373606
+    },
+    {
+     "price": 87.06782995879647,
+     "value": 1.809767882807369
+    },
+    {
+     "price": 87.74946809455966,
+     "value": 1.8147215136403279
+    },
+    {
+     "price": 88.43110623032285,
+     "value": 1.81911367259549
+    },
+    {
+     "price": 89.11274436608605,
+     "value": 1.8229527437028894
+    },
+    {
+     "price": 89.79438250184924,
+     "value": 1.826242794348762
+    },
+    {
+     "price": 90.47602063761244,
+     "value": 1.8289919439960092
+    },
+    {
+     "price": 91.15765877337563,
+     "value": 1.8312052934756848
+    },
+    {
+     "price": 91.83929690913882,
+     "value": 1.8328888501886496
+    },
+    {
+     "price": 92.52093504490202,
+     "value": 1.8340484492174005
+    },
+    {
+     "price": 93.20257318066521,
+     "value": 1.8346900431583613
+    },
+    {
+     "price": 93.8842113164284,
+     "value": 1.834835
+    },
+    {
+     "price": 94.5658494521916,
+     "value": 1.834835
+    },
+    {
+     "price": 95.2474875879548,
+     "value": 1.834835
+    },
+    {
+     "price": 95.92912572371799,
+     "value": 1.834835
+    },
+    {
+     "price": 96.61076385948117,
+     "value": 1.834835
+    },
+    {
+     "price": 97.29240199524436,
+     "value": 1.834835
+    },
+    {
+     "price": 97.97404013100757,
+     "value": 1.834835
+    },
+    {
+     "price": 98.65567826677075,
+     "value": 1.834835
+    },
+    {
+     "price": 99.33731640253394,
+     "value": 1.834835
+    },
+    {
+     "price": 100.01895453829712,
+     "value": 1.834835
+    },
+    {
+     "price": 100.70059267406032,
+     "value": 1.834835
+    },
+    {
+     "price": 101.38223080982353,
+     "value": 1.834835
+    },
+    {
+     "price": 102.0638689455867,
+     "value": 1.834835
+    },
+    {
+     "price": 102.7455070813499,
+     "value": 1.834835
+    },
+    {
+     "price": 103.4271452171131,
+     "value": 1.834835
+    },
+    {
+     "price": 104.10878335287629,
+     "value": 1.834835
+    },
+    {
+     "price": 104.79042148863948,
+     "value": 1.834835
+    },
+    {
+     "price": 105.47205962440268,
+     "value": 1.834835
+    },
+    {
+     "price": 106.15369776016587,
+     "value": 1.834835
+    },
+    {
+     "price": 106.83533589592906,
+     "value": 1.834835
+    },
+    {
+     "price": 107.51697403169226,
+     "value": 1.834835
+    },
+    {
+     "price": 108.19861216745545,
+     "value": 1.834835
+    },
+    {
+     "price": 108.88025030321865,
+     "value": 1.834835
+    },
+    {
+     "price": 109.56188843898184,
+     "value": 1.834835
+    },
+    {
+     "price": 110.24352657474502,
+     "value": 1.834835
+    },
+    {
+     "price": 110.92516471050821,
+     "value": 1.834835
+    },
+    {
+     "price": 111.60680284627139,
+     "value": 1.834835
+    },
+    {
+     "price": 112.2884409820346,
+     "value": 1.834835
+    },
+    {
+     "price": 112.9700791177978,
+     "value": 1.834835
+    },
+    {
+     "price": 113.65171725356097,
+     "value": 1.834835
+    },
+    {
+     "price": 114.33335538932417,
+     "value": 1.834835
+    },
+    {
+     "price": 115.01499352508736,
+     "value": 1.834835
+    },
+    {
+     "price": 115.69663166085056,
+     "value": 1.834835
+    },
+    {
+     "price": 116.37826979661375,
+     "value": 1.834835
+    },
+    {
+     "price": 117.05990793237694,
+     "value": 1.834835
+    },
+    {
+     "price": 117.74154606814014,
+     "value": 1.834835
+    },
+    {
+     "price": 118.42318420390333,
+     "value": 1.834835
+    },
+    {
+     "price": 119.10482233966653,
+     "value": 1.834835
+    },
+    {
+     "price": 119.78646047542972,
+     "value": 1.834835
+    },
+    {
+     "price": 120.46809861119291,
+     "value": 1.834835
+    },
+    {
+     "price": 121.14973674695611,
+     "value": 1.834835
+    },
+    {
+     "price": 121.8313748827193,
+     "value": 1.834835
+    }
+   ],
+   "viability": {
+    "viabilityIndex": 0.06831414821907529,
+    "viabilityIndexBand": {
+     "p05": 0.04742929712378417,
+     "p95": 0.09097380125652724
+    },
+    "uncertaintyDominatedBy": "sigma",
+    "breakevenDailyYield": 0.004875490498139415,
+    "measuredDailyYield": 0.0003330649805305892,
+    "bound": "floor",
+    "twoSided": {
+     "viabilityIndex": 0.8473046413240289,
+     "viabilityIndexBand": {
+      "p05": 0.45977107175275084,
+      "p95": 1.4392142184480607
+     },
+     "breakevenDailyYield": 0.00039308763847927214,
+     "unhedgedBreakevenDailyYield": 0.00032726851675439006,
+     "protocolFeeWedgeDailyYield": 0.0000658191217248821,
+     "expectedValueChangeUsd": -0.0037291805349782222,
+     "premiumUsd": 0.05
+    },
+    "fairValueUsd": 0,
+    "sigmaAnnualized": 0.40301934271523593,
+    "sigmaWindowDays": 30,
+    "sigmaBand": {
+     "p05": 0.32152971041836526,
+     "p95": 0.4865735566952112
+    },
+    "sigmaMethod": "garman-klass",
+    "sigmaDays": 30,
+    "sigmaDaily": 0.5192458481443899,
+    "sigmaTenorAdjust": {
+     "ratio": 0.7761628603396475,
+     "weeklySigma1y": 0.6102936087912475,
+     "weeklyN": 51,
+     "dailySigma1y": 0.7862958149326857,
+     "varianceRatio7": 0.7396277407525443
+    },
+    "pricingParams": {
+     "effectiveMarkup": 1.05,
+     "ivRvRatio": 0.9256418087682916,
+     "ivSource": "binance:SOL-260731-76-C",
+     "ivFallbackUsed": false,
+     "markupFloor": 1.05,
+     "feeSplitRate": 0.1,
+     "premiumFloorUsd": 0.05,
+     "protocolFeeRate": 0.015,
+     "tenorDays": 7
+    },
+    "driftSensitivity": {
+     "sweepAnnual": 0.5,
+     "expectedValueChangeUsdAtMinus": -0.018237753171028052,
+     "expectedValueChangeUsdAtPlus": 0.010629133264369237
+    },
+    "poolDailyYield": 0.0009391675314909645,
+    "poolYield": {
+     "source": "measured-snapshots",
+     "coveredSeconds": 81810,
+     "windowSeconds": 86510,
+     "intervals": 93,
+     "lastT": 1785167967,
+     "fallbackReason": null,
+     "tvlSource": "onchain-vaults"
+    },
+    "positionYield": {
+     "source": "modelled-chain",
+     "coveredSeconds": null,
+     "windowSeconds": null,
+     "intervals": null,
+     "inRangeSeconds": null,
+     "feesUsd": null,
+     "lastT": null,
+     "fallbackReason": "position coverage 2.5h below the 6h minimum"
+    },
+    "inRangeFraction": 0.33320031923383886,
+    "concentrationFactor": 1.0643402676209197,
+    "concentrationFactorSource": "measured",
+    "tenorDays": 7,
+    "inRangeEstimate": {
+     "fraction": 0.33320031923383886,
+     "method": "empirical",
+     "band": {
+      "p05": 0,
+      "p95": 1
+     },
+     "meanCi": {
+      "p05": 0.2785315243415804,
+      "p95": 0.39066241021548276
+     },
+     "nEffective": 51,
+     "reference": {
+      "method": "gbm-analytic",
+      "fraction": 0.27191725292804136
+     },
+     "divergence": 0.22537395345787456,
+     "modelRiskFlag": true,
+     "description": "Empirical: measured over 358 rolling historical windows (≈51 effective — windows overlap 6 of 7 days) — for a range of this width started at each window's opening price, the realized fraction of the following 7 steps spent in range. No price model assumed.",
+     "fallbackReason": null
+    },
+    "empiricalWindows": 358
+   }
+  }
+ ]
+}

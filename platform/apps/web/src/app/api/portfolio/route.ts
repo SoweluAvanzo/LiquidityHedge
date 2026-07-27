@@ -57,8 +57,8 @@ async function computeViabilities(
   );
   if (eligible.length === 0) return result;
 
-  const sigmaEstimate = await loadViabilityInputs();
-  if (!sigmaEstimate) {
+  const viabilityInputs = await loadViabilityInputs();
+  if (!viabilityInputs) {
     for (const v of eligible) result.set(v.positionAddress, null);
     return result;
   }
@@ -88,7 +88,7 @@ async function computeViabilities(
     const pool = pools.get(view.whirlpool);
     result.set(
       view.positionAddress,
-      pool ? await computePositionViability(view, pool, sigmaEstimate) : null,
+      pool ? await computePositionViability(view, pool, viabilityInputs) : null,
     );
   }
   return result;
