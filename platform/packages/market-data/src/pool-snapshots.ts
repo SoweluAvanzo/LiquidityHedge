@@ -45,8 +45,11 @@ export interface PoolSnapshot {
 }
 
 /**
- * Exact on-chain TVL at a snapshot, denominated in TOKEN B (the quote
- * token): vaultB + vaultA × price. Independent of any market-data vendor.
+ * On-chain TVL at a snapshot, denominated in TOKEN B (the quote token):
+ * vaultB + vaultA × price. Independent of any market-data vendor. Note
+ * the vaults also hold accrued-uncollected LP fees and un-harvested
+ * protocol fees, so this runs systematically HIGH by ~0.1–1% on an
+ * actively-harvested pool — a conservative (yield-understating) bias.
  *
  * This is USD only when token B is a USD stablecoin — for e.g. SOL/JitoSOL
  * the result is in JitoSOL. Callers that aggregate across pools MUST check
@@ -249,7 +252,13 @@ export function measurePoolDailyYield(
     }
     const tvlMid = (tvlA + tvlB) / 2;
 
-    const L = BigInt(a.liquidity);
+    // Endpoint-average L halves the first-order error from intra-interval
+    // liquidity variation. The residual bias is UPWARD: fee flow
+    // concentrates in high-|move| minutes, which carry the price into
+    // liquidity thinner than the endpoints', so L_avg/L_j > 1 exactly
+    // when fee_j is large. A few percent at 15-min cadence, worse in
+    // volatile intervals — stated so nobody mistakes this for exact.
+    const L = (BigInt(a.liquidity) + BigInt(b.liquidity)) / 2n;
     const dA = feeGrowthDelta(BigInt(b.feeGrowthGlobalA), BigInt(a.feeGrowthGlobalA));
     const dB = feeGrowthDelta(BigInt(b.feeGrowthGlobalB), BigInt(a.feeGrowthGlobalB));
     const feesA = Number((dA * L) / Q64) / 10 ** decimalsA;
@@ -272,6 +281,11 @@ export function measurePoolDailyYield(
 
   if (intervals === 0 || covered <= 0) return null;
   return {
+    // Convention: time-average of the instantaneous rate, Σ(fees_i/TVL_i)
+    // over covered days — the estimand for a constant-SHARE LP. It
+    // differs from feesQuote/avgTvlQuote by ~cov(fees, 1/TVL) (<1% for
+    // weekly ±5% TVL variation); consumers must not recompute a second
+    // "daily yield" from the components and expect equality.
     dailyYield: sumRate / (covered / 86_400),
     windowSeconds: snapshots[snapshots.length - 1].t - snapshots[0].t,
     coveredSeconds: covered,

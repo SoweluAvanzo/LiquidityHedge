@@ -21,7 +21,11 @@ export interface PositionViabilityWire {
   viabilityIndex: number | null;
   /** Daily fee yield at which fees exactly cover the hedge cost. */
   breakevenDailyYield: number;
-  /** Measured position-level daily fee yield (Birdeye × in-range × c). */
+  /**
+   * Position-level daily fee yield: realised in-range intensity (own
+   * feeGrowthInside) or measured/modelled pool rate × c — see
+   * positionYield.source — times the FORWARD in-range fraction.
+   */
   measuredDailyYield: number;
   /** Which premium branch bound the breakeven. */
   bound: "formula" | "floor";
@@ -70,17 +74,22 @@ export interface PositionViabilityWire {
     windowSeconds: number | null;
     /** Snapshot intervals integrated; null when modelled. */
     intervals: number | null;
+    /** Unix seconds of the measured window's END — staleness is gated
+     *  server-side (~1h max) and stated here so clients can verify. */
+    lastT: number | null;
     /** Why the modelled fallback was used; null on the measured path. */
     fallbackReason: string | null;
     /** TVL source for the concentration factor. */
     tvlSource: "onchain-vaults" | "birdeye";
   };
   /**
-   * §1.2 provenance for measuredDailyYield itself. "realised-inside" =
-   * the position's own L × Δ feeGrowthInside / 2⁶⁴ over the reported
-   * window — occupancy and concentration measured, not modelled.
-   * "modelled-chain" = poolDailyYield × inRangeFraction ×
-   * concentrationFactor, used until enough position history exists.
+   * §1.2 provenance for the measured legs of measuredDailyYield.
+   * "realised-inside" = the position's own realised IN-RANGE intensity,
+   * L × Δ feeGrowthInside / 2⁶⁴ per in-range day over the reported
+   * window (current-liquidity suffix only) — concentration and fee
+   * competition measured; the in-range fraction stays the forward
+   * estimate. "modelled-chain" = poolDailyYield × concentrationFactor,
+   * used until enough position history exists.
    */
   positionYield: {
     source: "realised-inside" | "modelled-chain";
@@ -91,12 +100,16 @@ export interface PositionViabilityWire {
     inRangeSeconds: number | null;
     /** Fees actually earned over the window, USD (realised only). */
     feesUsd: number | null;
+    /** Unix seconds of the window's END (staleness gated server-side). */
+    lastT: number | null;
     /** Why the modelled chain was used; null on the realised path. */
     fallbackReason: string | null;
   };
   /** The in-range fraction actually USED in measuredDailyYield (primary
    * estimator's value — see inRangeEstimate.method for which one). */
   inRangeFraction: number;
+  /** Enters measuredDailyYield ONLY on the modelled chain; the realised
+   * path measures concentration inside the position's own accumulator. */
   concentrationFactor: number;
   tenorDays: number;
   /**

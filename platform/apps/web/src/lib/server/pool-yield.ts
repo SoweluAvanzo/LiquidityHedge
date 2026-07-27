@@ -30,6 +30,13 @@ const MIN_COVERED_SECONDS = numericEnv("POOL_YIELD_MIN_COVERED_SECONDS", 6 * 3_6
 const MAX_GAP_SECONDS = numericEnv("POOL_YIELD_MAX_GAP_SECONDS", 3_600);
 /** How stale the newest snapshot may be before its TVL is not "current". */
 const TVL_FRESH_SECONDS = numericEnv("POOL_YIELD_TVL_FRESH_SECONDS", 3_600);
+/**
+ * Maximum age of the window's END before "measured" would be a lie: a
+ * dead collector must NOT keep serving days-old data as a measurement —
+ * a 3-day-old fee regime is routinely worse than the live model. 4× the
+ * collector cadence tolerates transient outages only.
+ */
+const MAX_WINDOW_AGE_SECONDS = numericEnv("POOL_YIELD_MAX_AGE_SECONDS", 3_600);
 
 export type MeasuredPoolYieldResult =
   | {
@@ -77,6 +84,12 @@ export async function readMeasuredPoolYield(
       return {
         ok: false,
         reason: `snapshot coverage ${(measured.coveredSeconds / 3600).toFixed(1)}h below the ${Math.round(MIN_COVERED_SECONDS / 3600)}h minimum`,
+      };
+    }
+    if (now - measured.lastT > MAX_WINDOW_AGE_SECONDS) {
+      return {
+        ok: false,
+        reason: `snapshot window stale (ended ${((now - measured.lastT) / 3600).toFixed(1)}h ago — collector down?)`,
       };
     }
 

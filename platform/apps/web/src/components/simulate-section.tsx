@@ -262,9 +262,11 @@ export function SimulateSection({ owner }: { owner: string }) {
     const rates = result?.echo.yieldRates;
     if (!rates || rates.length === 0) return null;
     const rateText = `${[...new Set(rates.map((r) => formatRatePct(r.ratePctPerDay)))].join(" / ")}%/day`;
-    const value =
-      rates[0].source === "override"
-        ? `user override ${rateText}`
+    const sources = new Set(rates.map((r) => r.source));
+    const value = sources.has("override")
+      ? `user override ${rateText}`
+      : sources.has("modelled")
+        ? `${sources.has("measured") ? "measured/modelled mix" : "modelled (Birdeye fallback)"} ${rateText} (in-range-conditional)`
         : `measured ${rateText} (in-range-conditional)`;
     // Fee-intensity dynamics: name the data basis verbatim when the rate
     // fluctuates along paths — same transparency policy as the estimator

@@ -50,10 +50,7 @@ import {
   getTokenDailyCandles,
   birdeyeApiKey,
 } from "@/lib/server/birdeye";
-import {
-  computeInRangeDailyRate,
-  computePoolYieldBasis,
-} from "@/lib/server/viability";
+import { computePoolYieldBasis } from "@/lib/server/viability";
 import {
   SIM_COMPOSITIONS,
   SIM_FEE_RATE_OVERRIDE_MAX_PCT,
@@ -364,12 +361,15 @@ async function measureInRangeRates(
   const rates: ResolvedYieldRate[] = [];
   for (const view of views) {
     const pool = pools.get(view.whirlpool);
-    const rate = pool ? await computeInRangeDailyRate(view, pool) : null;
-    if (rate === null) return null;
+    // The basis carries its own provenance — a Birdeye-modelled rate
+    // must echo as "modelled", not "measured" (audit F2: the constant
+    // path labelled every fallback rate a measurement).
+    const basis = pool ? await computePoolYieldBasis(view, pool) : null;
+    if (!basis) return null;
     rates.push({
       positionAddress: view.positionAddress,
-      ratePctPerDay: rate * 100,
-      source: "measured",
+      ratePctPerDay: basis.poolDailyYield * basis.concentrationFactor * 100,
+      source: basis.source === "measured-snapshots" ? "measured" : "modelled",
     });
   }
   return rates;

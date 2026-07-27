@@ -81,7 +81,14 @@ export async function capturePositionSnapshots(
     }
   });
 
-  // Distinct tick arrays across all positions, one batched read.
+  // Distinct tick arrays across all positions, one batched read. The
+  // POOL accounts are re-read in the SAME batch: feeGrowthInside mixes
+  // pool state with tick state, and a swap crossing a boundary tick
+  // between the two reads would pair a stale tickCurrentIndex with a
+  // post-crossing fee_growth_outside — plausible garbage that a
+  // magnitude guard cannot always catch. A pool whose accumulator moved
+  // between the reads voids its positions for this cycle (a visible
+  // gap; the gap policy downstream tolerates a dropped cycle).
   const taKeys: PublicKey[] = [];
   const taIndex = new Map<string, number>();
   decodedPos.forEach((pos) => {
@@ -98,12 +105,35 @@ export async function capturePositionSnapshots(
       }
     }
   });
-  const taData = taKeys.length > 0 ? await readAccounts(connection, taKeys) : [];
+  const poolRecheckOffset = taKeys.length;
+  const poolKeyOrder = [...pools.keys()];
+  const recheckKeys = [...taKeys, ...poolKeyOrder.map((k) => new PublicKey(k))];
+  const recheckData =
+    recheckKeys.length > 0 ? await readAccounts(connection, recheckKeys) : [];
+  const taData = recheckData.slice(0, poolRecheckOffset);
+  const stablePools = new Set<string>();
+  poolKeyOrder.forEach((key, i) => {
+    const data = recheckData[poolRecheckOffset + i];
+    if (!data) return;
+    try {
+      const again = decodeWhirlpoolAccount(data);
+      const first = pools.get(key)!;
+      if (
+        again.feeGrowthGlobalA === first.feeGrowthGlobalA &&
+        again.feeGrowthGlobalB === first.feeGrowthGlobalB &&
+        again.tickCurrentIndex === first.tickCurrentIndex
+      ) {
+        stablePools.add(key);
+      }
+    } catch {
+      // undecodable re-read — pool stays unstable this cycle
+    }
+  });
 
   tracked.forEach((row, i) => {
     const pos = decodedPos[i];
     const pool = pos ? pools.get(pos.whirlpool.toBase58()) : undefined;
-    if (!pos || !pool) {
+    if (!pos || !pool || !stablePools.has(pos.whirlpool.toBase58())) {
       missing.push(row.position);
       return;
     }

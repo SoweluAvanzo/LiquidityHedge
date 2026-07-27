@@ -135,6 +135,19 @@ export class PgPositionFeeStore {
     return res.rowCount ?? 0;
   }
 
+  /** Latest snapshot time per position — the append-throttle's input. */
+  async latestTimes(positions: string[]): Promise<Map<string, number>> {
+    if (positions.length === 0) return new Map();
+    const { rows } = await this.pool.query(
+      `SELECT position, max(t) AS t FROM lh.position_fee_snapshots
+        WHERE position = ANY($1) GROUP BY position`,
+      [positions],
+    );
+    return new Map(
+      rows.map((r: Record<string, unknown>) => [String(r.position), Number(r.t)]),
+    );
+  }
+
   async read(
     position: string,
     timeFrom: number,

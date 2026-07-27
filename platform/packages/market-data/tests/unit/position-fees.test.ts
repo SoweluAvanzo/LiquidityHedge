@@ -93,6 +93,23 @@ describe("@lh/market-data position fees (§1.2 realised yield)", () => {
     expect(r.feesQuote).to.be.closeTo(1, 1e-9); // 0.01 SOL × $100
   });
 
+  it("caller-supplied relative ceiling rejects intervals the $1M default would pass", () => {
+    // $200 of "fees" in 15 min on a small position: absurd for a $2
+    // position, invisible to the absolute default.
+    const s = [
+      snap(0, 100, 0n, 0n),
+      snap(900, 100, 2000n * Q64, 0n), // 2 SOL = $200
+      snap(1800, 100, 2000n * Q64, 0n), // quiet interval
+    ];
+    const loose = measurePositionFees(s, DEC_A, DEC_B)!;
+    expect(loose.implausibleIntervals).to.equal(0);
+    const strict = measurePositionFees(s, DEC_A, DEC_B, {
+      implausibleIntervalFeesQuote: 1, // 0.5 × a $2 position
+    })!;
+    expect(strict.implausibleIntervals).to.equal(1);
+    expect(strict.feesQuote).to.equal(0);
+  });
+
   it("gaps beyond maxGapSeconds are excluded from covered time", () => {
     const s = [
       snap(0, 100, 0n, 0n),

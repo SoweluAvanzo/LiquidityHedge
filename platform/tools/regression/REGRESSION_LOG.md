@@ -102,3 +102,64 @@ Diff: `captures/2026-07-27T12-14-08-620Z.json` →
   That flip will be captured and explained here when it happens.
 
 Golden re-baselined to the 12-14-43 capture.
+
+---
+
+## 2026-07-27 · Live-chain verification of §1.1 + §1.2 (all passed)
+
+1. **§1.1 math vs live table** (offline recomputation, scratchpad): the
+   snapshot-derived yield over 19.74h of gapless coverage was
+   0.0744%/day from $16,044.89 of LP fees on $26.2M vault TVL;
+   Birdeye-modelled same instant: 0.0704%/day → measured vendor error
+   +5.7%, consistent with the calculation audit's earlier window.
+2. **§1.1 reproducibility**: served `poolDailyYield`
+   0.0007434272880355007 (83 intervals, 73007s) re-derived
+   independently from `lh.pool_snapshots` → 0.0007434272880355007,
+   bit-for-bit. The dashboard number is reproducible from the data we
+   sell — the §1.1 acceptance criterion.
+3. **§1.2 snapshots vs chain** (`pnpm --filter @lh/ops-jobs
+   verify-positions`, new permanent CLI): for all 4 positions, the
+   stored `feeGrowthInside` matches an INDEPENDENT live read through
+   the fee-reader path (mint → PDA, finalized commitment) bit-for-bit;
+   web-written and collector-written rows agree bit-for-bit; realised
+   fees over the stored window are exactly 0 (out of range — measured
+   truth). The pool-path cross-check attributed $0.000003 to EPRLfJkP
+   via its ½-crossing approximation near the window edge — the exact
+   error class the position accumulator eliminates.
+
+---
+
+## 2026-07-27 · Post-audit fixes deployed (two adversarial verifier agents)
+
+Diff: `captures/2026-07-27T12-40-41-225Z.json` →
+`captures/2026-07-27T12-41-00-046Z.json`, spot ±0.000%.
+
+Fixes in this deploy (see 06_remediation_plan.md STATUS for the full
+audit list): staleness gates (1h max window age) on both measured
+paths; realised path re-specified as IN-RANGE intensity × forward
+occupancy (the trailing-realisation-in-a-forward-formula estimand
+error); torn-read gates on feeGrowthInside (collector + discovery);
+current-liquidity suffix; relative plausibility ceiling; simulate
+constant-mode provenance; registration hardening; finite guards;
+honest prov keys.
+
+Every movement explained:
+
+- **`poolYield.lastT` / `positionYield.lastT` appear** — the window's
+  end time now travels on the wire (staleness is additionally gated
+  server-side; `undefined -> …` lines are the fields appearing).
+- **`poolDailyYield` +1.09%**, decomposed offline on identical rows:
+  the L-midpoint fix alone moves the measurement **−0.18%** (downward,
+  the direction the audit's bias analysis predicted: endpoint-average
+  liquidity halves the upward first-order error), and one more 15-min
+  interval landing (84 → 85, an active-fee interval) moves it +1.27%.
+  Net +1.09% as observed.
+- `concentrationFactor` +0.17%: fresher vault TVL (new snapshot).
+- `measuredDailyYield` and both VIs +1.24–1.26%: linear pass-through
+  of the two above. The realised path is still (correctly) inactive —
+  `positionYield.source: "modelled-chain"`, coverage ~0.5h < 6h.
+- Everything else ≤ 0.06%: σ/candle jitter, spot unchanged.
+- Collector cycle after the deploy: `positions: captured 4/4, wrote 4`
+  — the torn-read stability gate passes cleanly in production.
+
+Golden re-baselined to the 12-41-00 capture.

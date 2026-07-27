@@ -28,6 +28,9 @@ export function getDbPool(): Pool | null {
     // write volume. Keep the footprint small (max_connections=20 server-wide).
     maxConnections: 4,
     statementTimeoutMs: 10_000,
+    // Short connect timeout: several reads run per portfolio request,
+    // and each would serialise a full connect wait with Postgres down.
+    connectTimeoutMs: 3_000,
   });
   return registry.__lhDbPool;
 }

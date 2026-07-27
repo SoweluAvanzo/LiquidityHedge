@@ -13,7 +13,8 @@
     "drill-restore": "ts-node src/drill-restore.ts",
     "data-report": "ts-node src/report-cli.ts",
     "migrate": "ts-node src/migrate.ts",
-    "payout-executor": "ts-node src/payout-executor.ts"
+    "payout-executor": "ts-node src/payout-executor.ts",
+    "verify-positions": "ts-node src/verify-position-snapshots.ts"
   },
   "dependencies": {
     "@lh/core": "workspace:*",

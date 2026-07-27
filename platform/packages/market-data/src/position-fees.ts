@@ -69,8 +69,13 @@ export interface MeasuredPositionFees {
   lastT: number;
 }
 
-/** A per-interval fee value above this is a broken accumulator, not
- *  fees (mirrors the fee-reader's $1M ceiling; quote units). */
+/** Absolute per-interval ceiling — the last-resort default when the
+ *  caller cannot supply a position-relative one. NOTE: the fee-reader's
+ *  $1M ceiling bounds a whole-certificate CUMULATIVE figure; bounding a
+ *  15-minute increment with it is toothless for small positions, so
+ *  callers that know the position value MUST pass
+ *  `implausibleIntervalFeesQuote` (e.g. 0.5 × position value — real fees
+ *  cannot reach 50% of position value between snapshots). */
 const IMPLAUSIBLE_INTERVAL_FEES_QUOTE = 1_000_000;
 
 /**
@@ -82,10 +87,16 @@ export function measurePositionFees(
   snapshots: PositionFeeSnapshot[],
   decimalsA: number,
   decimalsB: number,
-  opts?: { maxGapSeconds?: number },
+  opts?: {
+    maxGapSeconds?: number;
+    /** Position-relative per-interval ceiling, quote units. */
+    implausibleIntervalFeesQuote?: number;
+  },
 ): MeasuredPositionFees | null {
   if (snapshots.length < 2) return null;
   const maxGap = opts?.maxGapSeconds ?? 3600;
+  const feeCeiling =
+    opts?.implausibleIntervalFeesQuote ?? IMPLAUSIBLE_INTERVAL_FEES_QUOTE;
 
   let feesQuote = 0;
   let feesA = 0n;
@@ -120,7 +131,7 @@ export function measurePositionFees(
     const fees =
       (Number(rawA) / 10 ** decimalsA) * priceMid + Number(rawB) / 10 ** decimalsB;
 
-    if (!Number.isFinite(fees) || fees < 0 || fees > IMPLAUSIBLE_INTERVAL_FEES_QUOTE) {
+    if (!Number.isFinite(fees) || fees < 0 || fees > feeCeiling) {
       implausibleIntervals++;
       continue;
     }

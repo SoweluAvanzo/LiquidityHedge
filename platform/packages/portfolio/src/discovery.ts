@@ -162,6 +162,39 @@ export async function fetchPortfolio(
     });
   }
 
+  // §1.2 torn-read gate: feeGrowthInside mixes pool state with tick
+  // state read in SEPARATE RPC calls; a swap crossing a boundary tick in
+  // between pairs a stale tickCurrentIndex with a post-crossing
+  // fee_growth_outside — plausible garbage. Re-read the pools and treat
+  // inside as trustworthy only where the accumulator did not move. The
+  // fee DISPLAY below keeps its long-standing behaviour; only the
+  // persisted-snapshot fields are gated.
+  const stablePools = new Set<string>();
+  try {
+    const recheck = await connection.getMultipleAccountsInfo(
+      poolKeys.map((k) => new PublicKey(k)),
+    );
+    poolKeys.forEach((k, i) => {
+      const info = recheck[i];
+      const first = pools.get(k);
+      if (!info || !first) return;
+      try {
+        const again = decodeWhirlpoolAccount(info.data);
+        if (
+          again.feeGrowthGlobalA === first.feeGrowthGlobalA &&
+          again.feeGrowthGlobalB === first.feeGrowthGlobalB &&
+          again.tickCurrentIndex === first.tickCurrentIndex
+        ) {
+          stablePools.add(k);
+        }
+      } catch {
+        // undecodable re-read — pool stays unverified
+      }
+    });
+  } catch {
+    // recheck unavailable — no pool is verified, no inside is attached
+  }
+
   /** Real uncollected fees, or null when the tick data is unavailable. */
   const realFees = (
     position: PositionData,
@@ -229,8 +262,10 @@ export async function fetchPortfolio(
       view.feeOwedA = fees.feesA;
       view.feeOwedB = fees.feesB;
       view.feesAreExact = true;
-      view.feeGrowthInsideA = fees.insideA.toString();
-      view.feeGrowthInsideB = fees.insideB.toString();
+      if (stablePools.has(poolKey)) {
+        view.feeGrowthInsideA = fees.insideA.toString();
+        view.feeGrowthInsideB = fees.insideB.toString();
+      }
     }
     views.push(view);
   }

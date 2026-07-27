@@ -91,18 +91,29 @@ function poolYieldLabel(viability: PositionViabilityWire): string {
 }
 
 /**
- * §1.2: how measuredDailyYield itself was produced — the position's own
- * realised fees, or the modelled pool × in-range × concentration chain.
+ * §1.2: how the measured legs of measuredDailyYield were produced — the
+ * position's own realised in-range intensity, or the modelled
+ * pool-rate × concentration chain. The in-range fraction is the FORWARD
+ * estimate on both paths (a trailing occupancy would credit a position
+ * that left its range with its historic yield).
  */
 function measuredYieldMethodology(viability: PositionViabilityWire): string {
   const pos = viability.positionYield;
   if (pos && pos.source === "realised-inside") {
-    const hours =
-      pos.coveredSeconds !== null ? (pos.coveredSeconds / 3600).toFixed(1) : "?";
+    const inRangeH =
+      pos.inRangeSeconds !== null ? (pos.inRangeSeconds / 3600).toFixed(1) : "?";
     const fees = pos.feesUsd !== null ? `$${pos.feesUsd.toFixed(4)}` : "?";
-    return `Measured yield = the position's own realised fees (${fees} over the last ${hours}h, from its feeGrowthInside accumulator) / position value — occupancy and concentration measured, not modelled`;
+    return `Estimated yield = the position's own realised in-range fee intensity (${fees} earned over ${inRangeH}h in range, from its feeGrowthInside accumulator) x forward in-range fraction ${viability.inRangeFraction.toFixed(2)} — concentration and fee competition measured, occupancy still an estimate`;
   }
-  return `Measured yield = ${poolYieldLabel(viability)} x in-range fraction ${viability.inRangeFraction.toFixed(2)} x concentration factor ${viability.concentrationFactor.toFixed(2)}`;
+  return `Estimated yield = ${poolYieldLabel(viability)} x in-range fraction ${viability.inRangeFraction.toFixed(2)} x concentration factor ${viability.concentrationFactor.toFixed(2)}`;
+}
+
+/** Honest prov key: "measured" only when the measured legs really are
+ *  the position's own accumulator; the modelled chain says so. */
+function yieldProvKey(viability: PositionViabilityWire): string {
+  return viability.positionYield?.source === "realised-inside"
+    ? "measured"
+    : "est. (model)";
 }
 
 /**
@@ -183,7 +194,7 @@ function ViabilityRow({
         <p className="lh-prov">
           <span className="lh-prov-key">viability index</span>
           <span>unavailable</span>
-          <InfoTip text="The Viability Index needs live market data (Birdeye pool volume and OHLCV). When that data is missing or degraded the index is omitted rather than estimated." />
+          <InfoTip text="The Viability Index needs market data: our own pool snapshots or Birdeye volume for the fee yield, and OHLCV candles for volatility. When an input is missing or degraded the index is omitted rather than estimated." />
         </p>
       </div>
     );
@@ -211,7 +222,7 @@ function ViabilityRow({
         <StatusBadge tone={band.tone} label={`VI ${viLabel} — ${band.label}`} />
         <span className="lh-prov">
           <span className="lh-prov-item">
-            <span className="lh-prov-key">measured</span>
+            <span className="lh-prov-key">{yieldProvKey(viability)}</span>
             {formatDailyYield(viability.measuredDailyYield)}
           </span>
           <span className="lh-prov-item">
@@ -245,7 +256,7 @@ function ViabilityRow({
         />
         <span className="lh-prov">
           <span className="lh-prov-item">
-            <span className="lh-prov-key">measured</span>
+            <span className="lh-prov-key">{yieldProvKey(viability)}</span>
             {formatDailyYield(viability.measuredDailyYield)}
           </span>
           <span className="lh-prov-item">

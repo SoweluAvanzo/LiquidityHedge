@@ -487,15 +487,17 @@ export async function computePositionViability(
       ...(reason ? { empiricalUnavailableReason: reason } : {}),
     });
 
-    // §1.2: the position's OWN realised yield replaces the three-estimate
-    // product r_pool × f × c whenever enough feeGrowthInside history
-    // exists — occupancy and concentration are then measured, not
-    // modelled. The modelled chain remains as the labelled fallback.
+    // §1.2 (audit-revised): when enough feeGrowthInside history exists,
+    // the realised IN-RANGE intensity replaces r_pool × c — the measured
+    // legs — while the in-range fraction stays the FORWARD estimate.
+    // E[F] and both indices are forward quantities; a trailing occupancy
+    // here would credit a position that left its range days ago with its
+    // historic yield (the audits' top semantic finding). The fully
+    // modelled chain remains as the labelled fallback.
     const realised = await readRealisedPositionYield(view);
-    const modelledDailyYield = poolDaily * inRangeEstimate.fraction * c;
-    const measuredDailyYield = realised.ok
-      ? realised.dailyYield
-      : modelledDailyYield;
+    const measuredDailyYield =
+      (realised.ok ? realised.inRangeDailyRate : poolDaily * c) *
+      inRangeEstimate.fraction;
 
     const { fairValueUsd, expectedValueChangeUsd } = fairValueMc(view, sigma, closes);
     // A NaN anywhere upstream used to travel as `null`, which the card
@@ -536,6 +538,27 @@ export async function computePositionViability(
       tenorDays: TENOR_DAYS,
       measuredDailyYield,
     });
+
+    // The wire encodes Infinity→null for the two INDICES deliberately
+    // (null = unbounded), and the card renders null as the strongest
+    // pass — the exact shape of the historic NaN→null→green bug. Every
+    // OTHER numeric must therefore be finite or the record is refused;
+    // JSON.stringify would otherwise smuggle a NaN through as null.
+    const mustBeFinite = [
+      result.breakevenDailyYield,
+      twoSided.breakevenDailyYield,
+      twoSided.unhedgedBreakevenDailyYield,
+      twoSided.protocolFeeWedgeDailyYield,
+      twoSided.expectedValueChangeUsd,
+      premiumUsd,
+    ];
+    if (!mustBeFinite.every(Number.isFinite)) {
+      console.error(
+        `[viability] non-finite breakeven/premium for ${view.positionAddress} — ` +
+          `reporting unavailable`,
+      );
+      return null;
+    }
 
     appendPredictionLog({
       ts: new Date().toISOString(),
@@ -582,11 +605,13 @@ export async function computePositionViability(
         coveredSeconds: basis.window?.coveredSeconds ?? null,
         windowSeconds: basis.window?.windowSeconds ?? null,
         intervals: basis.window?.intervals ?? null,
+        lastT: basis.window?.lastT ?? null,
         fallbackReason: basis.fallbackReason,
         tvlSource: basis.tvlSource,
       },
-      // §1.2 provenance: whether measuredDailyYield is the position's own
-      // realised yield or the modelled r_pool × f × c chain.
+      // §1.2 provenance: whether the measured legs of measuredDailyYield
+      // are the position's own realised in-range intensity or the
+      // modelled r_pool × c (the in-range fraction is forward either way).
       positionYield: realised.ok
         ? {
             source: "realised-inside",
@@ -595,6 +620,7 @@ export async function computePositionViability(
             intervals: realised.measured.intervals,
             inRangeSeconds: realised.measured.inRangeSeconds,
             feesUsd: realised.measured.feesQuote,
+            lastT: realised.measured.lastT,
             fallbackReason: null,
           }
         : {
@@ -604,6 +630,7 @@ export async function computePositionViability(
             intervals: null,
             inRangeSeconds: null,
             feesUsd: null,
+            lastT: null,
             fallbackReason: realised.reason,
           },
       inRangeFraction: inRangeEstimate.fraction,

@@ -418,17 +418,72 @@ Per phase, not at the end:
 
 **396 tests passing**, build clean, deployed to :8080.
 
-### NEXT — Phase 1, starting point
+### Phase 1 progress — updated 2026-07-27 (afternoon session)
 
-1. **Build the regression harness first.** Capture `/api/portfolio` for
-   `6A3JVW6LMuYE1eriipCPWchf1riGqem1cenpCyVMHAXj` (4 real SOL/USDC positions)
-   into a golden file. Every Phase 1 step moves these numbers; each movement
-   must be explained before merge. Without this a correct fix and a new bug look
-   identical.
-2. Then **1.1** (direct fee measurement from our own `feeGrowthGlobal` snapshots)
-   and **1.2** (position-level realised yield via `feeGrowthInside`) — these
-   *delete* the vendor-modelled estimates rather than improving them.
-3. Then 1.3 (quadrature) … 1.10 in order.
+**Regression harness — DONE ✅.** `platform/tools/regression/regress.mjs`
+(capture / diff / accept) + `REGRESSION_LOG.md`; golden of `/api/portfolio`
+for the 4 real positions. Every deploy below has its number movements
+explained in the log before re-baselining.
+
+**1.1 — DONE ✅, deployed.** `poolDailyYield` is measured from our own
+15-min `feeGrowthGlobal` snapshots (`measurePoolDailyYield` in
+`@lh/market-data`; web reader `apps/web/src/lib/server/pool-yield.ts`).
+Birdeye retained only as a labelled fallback (`poolYield.source` /
+`fallbackReason` / window on the wire, shown on the card). The
+concentration factor's TVL now comes from exact on-chain vaults.
+Measured vendor error at deploy: **+5.73%** (Birdeye understated), 20h
+window, 81 gapless intervals. The simulate route's stochastic fee
+intensity anchors its LEVEL to the same basis; only the fluctuation
+shape still uses Birdeye pair candles.
+
+**1.2 — DONE ✅, deployed; realised path activates as history accrues.**
+New `lh.position_fee_snapshots` + `lh.tracked_positions`; positions are
+auto-registered by the dashboard, snapshotted by the collector each
+cycle AND opportunistically on every portfolio request (discovery
+already reconstructs `feeGrowthInside` — persisting it is free). Once
+≥ 6h of coverage exists, `measuredDailyYield` = the position's own
+`L × Δinside / 2⁶⁴` (source `"realised-inside"` on the wire); until
+then the modelled r_pool × f × c chain serves, labelled
+`"modelled-chain"` with the reason. Thresholds via
+`POSITION_YIELD_*` / `POOL_YIELD_*` env (defaults in code, `numericEnv`).
+
+Commit: `ed30198`. Live verification passed: served poolDailyYield
+reproducible bit-for-bit from `lh.pool_snapshots`; stored
+feeGrowthInside matches independent chain reads bit-for-bit; web and
+collector writers agree.
+
+**Post-deploy estimator audit (two independent agents, 2026-07-27) —
+confirmed findings fixed same day:**
+
+- **Staleness**: no max-age gate existed on either measured window — a
+  dead collector would have served days-old data labelled "measured".
+  Now gated at `*_MAX_AGE_SECONDS` (default 1h) with the window's
+  `lastT` on the wire.
+- **Estimand** (both agents' top finding): the realised path originally
+  substituted a TRAILING yield into E[F]/VI — forward quantities. Now
+  serves realised IN-RANGE intensity × forward in-range fraction;
+  trailing occupancy never enters a forward formula.
+- **Torn reads**: feeGrowthInside mixes pool and tick accounts read in
+  separate RPC calls; a boundary crossing in between corrupts the
+  snapshot. Both the collector and discovery now re-read the pool and
+  drop the capture unless the accumulator was stable across reads.
+- **Current-L suffix**: realised fees are measured only over history at
+  the position's current liquidity (the dust-withdrawal case otherwise
+  produced a green badge from another position's fees).
+- Relative per-interval plausibility ceiling (0.5 × position value);
+  simulate constant-mode rates now labelled "modelled" on fallback;
+  registration capped/SOL-USDC-only/append-throttled; finite guards on
+  all wire numerics; prov key says "est. (model)" until realised.
+
+**Deferred, scheduled:** out-of-range explicit state → 1.9 (interim
+risk reduced by the estimand fix); VI₂ MC sign-noise → 1.3 quadrature;
+`null=∞` wire encoding rework → 1.7; tracked-positions retention job →
+Phase 5 cleanup (no DELETE grant exists — needs a maintenance role);
+`hedge-ledger`'s governance `expectedDailyFee` vs the card's E[F] →
+1.8 `getPricingParams()`.
+
+Next: **1.3** (deterministic quadrature for FV and E[ΔV]) … 1.10 in
+order.
 
 ### Caveat for whoever picks this up
 

@@ -118,7 +118,10 @@ export interface ResolvedYieldRate {
   positionAddress: string;
   /** %/day WHILE in range (the engine consumes it ÷ 100). */
   ratePctPerDay: number;
-  source: "measured" | "override";
+  /** "measured" = snapshot-derived pool rate (§1.1); "modelled" = the
+   *  Birdeye fallback — labelled so the echo never upgrades a model to
+   *  a measurement; "override" = user-supplied. */
+  source: "measured" | "modelled" | "override";
 }
 
 /**

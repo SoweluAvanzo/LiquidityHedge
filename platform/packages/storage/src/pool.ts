@@ -20,6 +20,10 @@ export interface StorageConfig {
   /** Max pool size; keep small so one service cannot exhaust the server. */
   maxConnections?: number;
   statementTimeoutMs?: number;
+  /** Connect timeout. Request-path callers (the web app) should keep
+   *  this SHORT: with Postgres down, every read in a request serialises
+   *  a full connect wait, and "DB down" must not look like "site down". */
+  connectTimeoutMs?: number;
   ssl?: boolean;
 }
 
@@ -28,7 +32,7 @@ export function createPool(config: StorageConfig): Pool {
     connectionString: config.connectionString,
     max: config.maxConnections ?? 8,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 10_000,
+    connectionTimeoutMillis: config.connectTimeoutMs ?? 10_000,
     // Bound every statement; a runaway query cannot pin the server.
     statement_timeout: config.statementTimeoutMs ?? 30_000,
     application_name: "lh-platform",
