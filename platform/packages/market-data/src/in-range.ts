@@ -19,6 +19,7 @@
  */
 
 import { Candle } from "./types";
+import { movingBlockResampleMeans, quantileSortedFloor } from "./bootstrap";
 
 export interface RealizedInRange {
   /** Close-price indicator estimate. */
@@ -62,12 +63,24 @@ export function realizedInRangeFraction(
 export interface EmpiricalInRangeResult {
   /** Mean over all rolling windows — the headline estimate. */
   mean: number;
-  /** Distribution across windows: pessimistic/typical/optimistic. */
+  /** OUTCOME distribution across windows (how a single realized window
+   *  can land) — NOT the precision of `mean`; that is `meanCi`. */
   p05: number;
   p50: number;
   p95: number;
+  /** Raw rolling-window count. Windows overlap horizonSteps−1 of
+   *  horizonSteps days, so this OVERSTATES the evidence ~horizonSteps-
+   *  fold; quote `nEffective` next to any interval (§1.5). */
   windows: number;
   horizonSteps: number;
+  /**
+   * 90% moving-block bootstrap CI for `mean` itself — the number the
+   * yield chain actually consumes. Blocks span 2× the horizon so the
+   * window overlap cannot fake independence. Seeded/deterministic.
+   */
+  meanCi: { p05: number; p95: number };
+  /** windows / horizonSteps, the honest independent-evidence count. */
+  nEffective: number;
 }
 
 /**
@@ -164,6 +177,16 @@ function summariseFractions(
     const hi = Math.ceil(pos);
     return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
   };
+  // §1.5: interval for the MEAN via moving-block bootstrap. Adjacent
+  // window fractions share horizonSteps−1 of horizonSteps observations;
+  // blocks of 2×horizonSteps keep that dependence inside blocks, so the
+  // interval reflects ~windows/horizonSteps independent observations
+  // rather than pretending to `windows` of them.
+  const means = movingBlockResampleMeans(fractions, {
+    blockLength: 2 * horizonSteps,
+    resamples: 400,
+    seed: 0x5eed15,
+  }).sort((a, b) => a - b);
   return {
     mean: fractions.reduce((s, f) => s + f, 0) / nWindows,
     p05: q(0.05),
@@ -171,5 +194,10 @@ function summariseFractions(
     p95: q(0.95),
     windows: nWindows,
     horizonSteps,
+    meanCi: {
+      p05: quantileSortedFloor(means, 0.05),
+      p95: quantileSortedFloor(means, 0.95),
+    },
+    nEffective: Math.max(1, Math.round(nWindows / horizonSteps)),
   };
 }

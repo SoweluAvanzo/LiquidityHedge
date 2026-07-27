@@ -49,8 +49,8 @@ Every movement explained:
   measurement `Σ Δ feeGrowthGlobal × L_active / 2⁶⁴ ÷ TVL_vaults` over
   81 snapshot intervals, 20.0h covered, zero gaps. The +5.73% IS the
   measured vendor error — an offline check of the same snapshot table
-  gave measured/modelled = 1.0573 ($16,045 actual LP fees vs the model's
-  understatement on $26.2M TVL). Direction: vendor 24h volume was stale
+  gave measured/modelled = 1.0573 (\$16,045 actual LP fees vs the model's
+  understatement on \$26.2M TVL). Direction: vendor 24h volume was stale
   relative to the realised fee run-rate of the last 20h.
 - **`measuredDailyYield`, `viabilityIndex`, `twoSided.viabilityIndex`
   +5.75%** on all 4 positions: linear pass-through of r_pool (the extra
@@ -109,7 +109,7 @@ Golden re-baselined to the 12-14-43 capture.
 
 1. **§1.1 math vs live table** (offline recomputation, scratchpad): the
    snapshot-derived yield over 19.74h of gapless coverage was
-   0.0744%/day from $16,044.89 of LP fees on $26.2M vault TVL;
+   0.0744%/day from \$16,044.89 of LP fees on \$26.2M vault TVL;
    Birdeye-modelled same instant: 0.0704%/day → measured vendor error
    +5.7%, consistent with the calculation audit's earlier window.
 2. **§1.1 reproducibility**: served `poolDailyYield`
@@ -123,7 +123,7 @@ Golden re-baselined to the 12-14-43 capture.
    the fee-reader path (mint → PDA, finalized commitment) bit-for-bit;
    web-written and collector-written rows agree bit-for-bit; realised
    fees over the stored window are exactly 0 (out of range — measured
-   truth). The pool-path cross-check attributed $0.000003 to EPRLfJkP
+   truth). The pool-path cross-check attributed \$0.000003 to EPRLfJkP
    via its ½-crossing approximation near the window edge — the exact
    error class the position accumulator eliminates.
 
@@ -182,7 +182,7 @@ Every movement explained:
   zero expectation (8–108% SE); the quadrature resolves that term to
   ~1e-9 (martingale identity, asserted in tests). 38uAbrUp — the
   position the audit cited (VI₂ spanning 3.90–12.66 on the seed alone)
-  — shows the largest correction: E[ΔV] −$0.000763 → −$0.000984, VI₂
+  — shows the largest correction: E[ΔV] −\$0.000763 → −\$0.000984, VI₂
   0.923 → 0.806. The MC had been flattering it by ~13%.
 - `twoSided.breakeven`/`unhedgedBreakeven` move linearly with E[ΔV];
   one-sided VI moves ±0.3–0.7% (market only: spot −0.035%, empirical f
@@ -241,3 +241,33 @@ here rather than decided silently. Also: the hedge QUOTE path's σ
 GK σ — reconciliation belongs to 1.8's getPricingParams.
 
 Golden re-baselined to the 13-18-24 capture.
+
+---
+
+## 2026-07-27 · §1.5 — honest uncertainty on the empirical in-range fraction
+
+Diff: `captures/2026-07-27T13-36-01-782Z.json` →
+`captures/2026-07-27T13-36-20-841Z.json`, spot +0.087%.
+
+- **New fields, no estimate change by construction**: the bootstrap
+  only DESCRIBES the estimate. `meanCi` (90% moving-block bootstrap on
+  the mean, blocks = 2× horizon, seeded) e.g. EPRL [0.421, 0.546] —
+  compare the outcome band's [0, 1], which the card previously showed
+  as if it were the uncertainty. `nEffective: 51` (= 358 windows ÷ 7:
+  adjacent windows share 6 of 7 days). The verbatim description now
+  states "≈51 effective — windows overlap 6 of 7 days" so the raw
+  window count can no longer overstate the evidence.
+- Card: the in-range prov line now shows the mean CI + n_eff; the
+  single-window outcome spread moved to the tooltip, labelled as
+  outcome spread, not estimate precision.
+- `fraction` +0.9–1.6% and everything downstream: MARKET, not code —
+  spot +0.087% with all four positions hugging their lower bounds; the
+  GBM reference fraction moved the same +1.7–1.9%, which is the
+  fingerprint of a spot-driven move (a code-driven one would move only
+  the empirical leg).
+- Shared bootstrap util extracted (§1.4's GK now uses it): verified
+  bit-identical on live candles — σ 0.5192458481443899, band
+  [0.4142554698863901, 0.626896211553188], exact match pre/post
+  refactor.
+
+Golden re-baselined to the 13-36-20 capture.

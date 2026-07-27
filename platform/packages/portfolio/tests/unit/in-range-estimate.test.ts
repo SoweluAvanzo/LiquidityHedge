@@ -53,4 +53,30 @@ describe("@lh/portfolio in-range estimator composition (transparency contract)",
     expect(r.method).to.equal("gbm-analytic");
     expect(r.fallbackReason).to.match(/only 59 historical windows/);
   });
+
+  it("§1.5: meanCi and nEffective pass through, and the description states the effective count", () => {
+    const r = composeInRangeEstimate({
+      empirical: {
+        ...EMP,
+        meanCi: { p05: 0.48, p95: 0.62 },
+        nEffective: 43,
+      },
+      gbm: GBM,
+    });
+    expect(r.meanCi).to.deep.equal({ p05: 0.48, p95: 0.62 });
+    expect(r.nEffective).to.equal(43);
+    // The verbatim description must not overstate the evidence: raw
+    // window count and effective count travel together.
+    expect(r.description).to.match(/300 rolling historical windows \(≈43 effective/);
+    expect(r.description).to.match(/overlap 6 of 7 days/);
+    // The outcome band is preserved unchanged alongside the new CI.
+    expect(r.band).to.deep.equal({ p05: 0.2, p95: 0.9 });
+  });
+
+  it("§1.5: older callers without meanCi still compose (null fields, old description)", () => {
+    const r = composeInRangeEstimate({ empirical: EMP, gbm: GBM });
+    expect(r.meanCi).to.equal(null);
+    expect(r.nEffective).to.equal(null);
+    expect(r.description).to.match(/300 rolling historical windows —/);
+  });
 });

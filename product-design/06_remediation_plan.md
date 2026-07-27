@@ -505,19 +505,33 @@ analytic 1/√(2n) band. Measured at deploy: σ 0.439 → 0.519 (+18.3%),
 range 3.96% vs mean |close move| 1.80% — closes miss intraday
 variance). E[ΔV] scaled with σ² (−41…−45%), VI₂ EPRL 0.41 → 0.30.
 
-**⚠ Owner decision queued (measure-level, same class as 1.6):**
-GK⁄CC = 1.16 on live data means the within-bar GBM assumption fails
-(intraday chop). Range-based σ = intrabar quadratic variation;
-close-based σ = what the 7-day terminal distribution compounds. Under
-chop GK may overstate tenor-scale vol. The band [41%, 63%] covers both
-estimators; whether corridor pricing should use range-, close-based or
-blended σ is recorded in REGRESSION_LOG.md rather than decided
-silently. Also: the card's σ (GK) now differs from the hedge quote
+**Owner decision D5 (taken 2026-07-27): settle range-vs-close σ
+EMPIRICALLY, not by taste.** GK⁄CC = 1.16 on live data means the
+within-bar GBM assumption fails (intraday chop); range-based σ =
+intrabar quadratic variation, close-based σ = what the 7-day terminal
+distribution compounds, and under chop GK may overstate tenor-scale
+vol. Decision: measure dispersion directly at the tenor scale — a
+variance-ratio / weekly-return-vol check over ~1y of daily data — and
+let that arbitrate (or set the blend). **To be implemented with
+1.6/1.7.** Until then GK serves with its band [41%, 63%], which covers
+both estimators. Also: the card's σ (GK) differs from the hedge quote
 path's σ (regime CC + Binance IV) — reconcile in **1.8
 getPricingParams()**.
 
-Next: **1.5** (honest uncertainty on the empirical in-range fraction)
-… 1.10 in order.
+**1.5 — DONE ✅, deployed.** The empirical in-range estimate now ships
+a 90% moving-block bootstrap CI for its MEAN (blocks = 2× horizon, so
+the 6-of-7-day window overlap cannot fake independence; seeded,
+deterministic) plus `nEffective = windows ÷ horizon` (358 → ≈51). The
+verbatim description states the effective count; the card shows the
+mean CI + n_eff and demotes the single-window outcome spread ([0,1])
+to the tooltip, labelled as outcome spread. Shared bootstrap util
+extracted; §1.4's GK band verified bit-identical after the refactor.
+Note: the `MIN_EMPIRICAL_WINDOWS = 60` gate still counts RAW windows
+(≈9 effective) — whether the gate should use effective count is left
+for 1.7's propagation work, where the CI itself can gate.
+
+Next: **1.6** (explicit about the measure — drift-sensitivity band;
+includes D5's tenor-scale variance-ratio check) … 1.10 in order.
 
 ### Caveat for whoever picks this up
 

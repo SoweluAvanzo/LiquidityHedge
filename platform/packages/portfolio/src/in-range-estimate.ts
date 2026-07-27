@@ -14,6 +14,11 @@ export interface EmpiricalInRangeInput {
   p95: number;
   windows: number;
   horizonSteps: number;
+  /** §1.5: 90% block-bootstrap CI for `mean` itself (optional for
+   *  older callers; always supplied by the viability pipeline). */
+  meanCi?: { p05: number; p95: number };
+  /** §1.5: windows/horizonSteps — the honest evidence count. */
+  nEffective?: number;
 }
 
 export interface GbmInRangeInput {
@@ -27,8 +32,17 @@ export interface InRangeEstimate {
   /** The fraction to USE (primary estimator). */
   fraction: number;
   method: InRangeMethod;
-  /** Uncertainty band (empirical only; null for model-based). */
+  /** OUTCOME distribution across historical windows (how a single
+   *  realized window can land — legitimately wide). NOT the precision
+   *  of `fraction`; that is `meanCi` (§1.5). Empirical only. */
   band: { p05: number; p95: number } | null;
+  /** §1.5: 90% block-bootstrap CI for `fraction` itself — the honest
+   *  interval on the estimate the yield chain consumes. */
+  meanCi: { p05: number; p95: number } | null;
+  /** §1.5: effective sample size (windows ÷ horizon — overlapping
+   *  windows share horizon−1 of horizon days). Quote THIS, not the raw
+   *  window count, as the weight of evidence. */
+  nEffective: number | null;
   /** The other estimator's value, for side-by-side display. */
   reference: { method: InRangeMethod; fraction: number } | null;
   /** |empirical − gbm| / gbm when both exist. */
@@ -68,6 +82,8 @@ export function composeInRangeEstimate(inputs: {
       fraction: gbm.fraction,
       method: "gbm-analytic",
       band: null,
+      meanCi: null,
+      nEffective: null,
       reference: null,
       divergence: null,
       modelRiskFlag: false,
@@ -78,15 +94,25 @@ export function composeInRangeEstimate(inputs: {
 
   const divergence =
     gbm.fraction > 0 ? Math.abs(empirical.mean - gbm.fraction) / gbm.fraction : null;
+  // §1.5: the raw window count overstates the evidence horizon-fold
+  // (adjacent windows share horizon−1 of horizon days) — the verbatim
+  // description states the effective count next to it.
+  const evidence =
+    empirical.nEffective !== undefined
+      ? `${empirical.windows} rolling historical windows (≈${empirical.nEffective} effective — ` +
+        `windows overlap ${empirical.horizonSteps - 1} of ${empirical.horizonSteps} days)`
+      : `${empirical.windows} rolling historical windows`;
   return {
     fraction: empirical.mean,
     method: "empirical",
     band: { p05: empirical.p05, p95: empirical.p95 },
+    meanCi: empirical.meanCi ?? null,
+    nEffective: empirical.nEffective ?? null,
     reference: { method: "gbm-analytic", fraction: gbm.fraction },
     divergence,
     modelRiskFlag: divergence !== null && divergence > MODEL_RISK_THRESHOLD,
     description:
-      `Empirical: measured over ${empirical.windows} rolling historical windows — ` +
+      `Empirical: measured over ${evidence} — ` +
       `for a range of this width started at each window's opening price, the ` +
       `realized fraction of the following ${empirical.horizonSteps} steps spent ` +
       `in range. No price model assumed.`,

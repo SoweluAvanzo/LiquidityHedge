@@ -128,9 +128,12 @@ function EstimatorLine({ viability }: { viability: PositionViabilityWire }) {
   const est = viability.inRangeEstimate;
   const empirical = est.method === "empirical";
 
+  const outcomeSpread = est.band
+    ? `\n\nSingle-window outcome spread (not estimate precision): p05 ${formatFraction(est.band.p05)} – p95 ${formatFraction(est.band.p95)}.`
+    : "";
   const tipText =
     est.reference !== null
-      ? `${est.description}\n\nEmpirical ${formatFraction(est.fraction)} vs GBM ${formatFraction(est.reference.fraction)}`
+      ? `${est.description}${outcomeSpread}\n\nEmpirical ${formatFraction(est.fraction)} vs GBM ${formatFraction(est.reference.fraction)}`
       : est.description;
 
   const py = viability.poolYield;
@@ -169,11 +172,15 @@ function EstimatorLine({ viability }: { viability: PositionViabilityWire }) {
             : "modelled (pool × in-range × concentration)"}
         </span>
       )}
-      {empirical && est.band && (
+      {empirical && (
         <span className="lh-prov-item">
           <span className="lh-prov-key">in range {viability.tenorDays}d</span>
-          {formatFraction(est.fraction)} (p05 {formatFraction(est.band.p05)} –
-          p95 {formatFraction(est.band.p95)})
+          {formatFraction(est.fraction)}
+          {est.meanCi
+            ? ` (90% CI ${formatFraction(est.meanCi.p05)}–${formatFraction(est.meanCi.p95)}, n_eff ≈ ${est.nEffective ?? "?"})`
+            : est.band
+              ? ` (p05 ${formatFraction(est.band.p05)} – p95 ${formatFraction(est.band.p95)})`
+              : ""}
         </span>
       )}
       <InfoTip text={tipText} />

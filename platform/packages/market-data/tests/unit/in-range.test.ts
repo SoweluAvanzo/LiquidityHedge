@@ -107,5 +107,24 @@ describe("@lh/market-data empirical in-range estimators", () => {
       expect(() => empiricalInRangeFraction([1, 2], 500, 5)).to.throw(/too short/);
       expect(() => empiricalInRangeFraction([1, 2, 3], 0, 1)).to.throw(/widthBps/);
     });
+
+    it("§1.5: meanCi is a deterministic block-bootstrap interval on the MEAN, far tighter than the outcome band", () => {
+      // A wiggly deterministic series: enough windows that the mean is
+      // precise while single-window outcomes still span widely.
+      const closes = Array.from({ length: 365 }, (_, i) =>
+        100 * Math.exp(0.05 * Math.sin(i / 3) + 0.02 * Math.sin(i / 11)),
+      );
+      const a = empiricalInRangeFraction(closes, 400, 7);
+      const b = empiricalInRangeFraction(closes, 400, 7);
+      // Deterministic (seeded) — regression-harness contract.
+      expect(a.meanCi).to.deep.equal(b.meanCi);
+      // The CI brackets the mean and is much tighter than the outcome
+      // spread — that is the whole point of §1.5.
+      expect(a.meanCi.p05).to.be.at.most(a.mean);
+      expect(a.meanCi.p95).to.be.at.least(a.mean);
+      expect(a.meanCi.p95 - a.meanCi.p05).to.be.lessThan((a.p95 - a.p05) * 0.5);
+      // Effective sample size: windows/horizon, rounded.
+      expect(a.nEffective).to.equal(Math.round(a.windows / 7));
+    });
   });
 });

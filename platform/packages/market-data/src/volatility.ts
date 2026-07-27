@@ -8,6 +8,7 @@
  */
 
 import { Candle, CoverageReport, Timeframe, TIMEFRAME_SECONDS } from "./types";
+import { movingBlockResampleMeans, quantileSortedFloor } from "./bootstrap";
 
 const SECONDS_PER_YEAR = 365 * 86_400;
 
@@ -62,19 +63,6 @@ export interface OhlcRealizedVol {
   method: "garman-klass";
 }
 
-/** Deterministic 32-bit PRNG (mulberry32) — the bootstrap band must be
- *  reproducible for the regression harness; no ambient randomness. */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 /**
  * Garman–Klass (1980) realized volatility from OHLC bars:
  *
@@ -124,31 +112,20 @@ export function computeGarmanKlassVol(
   const sigma = Math.sqrt(mean * periodsPerYear);
 
   // Moving-block bootstrap on the per-bar variance contributions.
-  const resamples = opts?.bootstrap?.resamples ?? 400;
-  const blockLength = Math.min(
-    opts?.bootstrap?.blockLength ?? 5,
-    contributions.length,
-  );
-  const rng = mulberry32(opts?.bootstrap?.seed ?? 0x1e35a7);
-  const n = contributions.length;
-  const sigmas: number[] = [];
-  for (let r = 0; r < resamples; r++) {
-    let sum = 0;
-    let count = 0;
-    while (count < n) {
-      const start = Math.floor(rng() * (n - blockLength + 1));
-      for (let j = 0; j < blockLength && count < n; j++, count++) {
-        sum += contributions[start + j];
-      }
-    }
-    sigmas.push(Math.sqrt(Math.max(0, sum / n) * periodsPerYear));
-  }
-  sigmas.sort((a, b) => a - b);
-  const q = (p: number) => sigmas[Math.min(sigmas.length - 1, Math.floor(p * sigmas.length))];
+  const sigmas = movingBlockResampleMeans(contributions, {
+    blockLength: opts?.bootstrap?.blockLength ?? 5,
+    resamples: opts?.bootstrap?.resamples ?? 400,
+    seed: opts?.bootstrap?.seed ?? 0x1e35a7,
+  })
+    .map((m) => Math.sqrt(Math.max(0, m) * periodsPerYear))
+    .sort((a, b) => a - b);
 
   return {
     sigma,
-    band: { p05: q(0.05), p95: q(0.95) },
+    band: {
+      p05: quantileSortedFloor(sigmas, 0.05),
+      p95: quantileSortedFloor(sigmas, 0.95),
+    },
     nDays: candles.length,
     windowSeconds:
       candles.length > 0 ? candles[candles.length - 1].t - candles[0].t + stepSeconds : 0,
