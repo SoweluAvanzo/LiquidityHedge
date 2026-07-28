@@ -114,7 +114,7 @@ function poolYieldLabel(viability: PositionViabilityWire): string {
       py.coveredSeconds !== null ? (py.coveredSeconds / 3600).toFixed(1) : "?";
     return `pool fee yield measured from on-chain fee-growth snapshots (${hours}h window)`;
   }
-  return "Birdeye-modelled pool fee yield (snapshot history unavailable)";
+  return `Birdeye-modelled pool fee yield (${viability.poolYield?.fallbackReason ?? "snapshot history unavailable"}; vendor uncertainty is unquantified and omitted from the index band)`;
 }
 
 /**
@@ -139,7 +139,7 @@ function measuredYieldMethodology(viability: PositionViabilityWire): string {
  *  the position's own accumulator; the modelled chain says so. */
 function yieldProvKey(viability: PositionViabilityWire): string {
   return viability.positionYield?.source === "realised-inside"
-    ? "measured"
+    ? "meas. rate × est. occ."
     : "est. (model)";
 }
 
@@ -332,7 +332,7 @@ function ViabilityRow({
             </span>
           )}
           <InfoTip
-            text={`Model-based estimate (range breakeven; see product-design docs). Breakeven is ${viability.bound}-bound from a deterministic quadrature fair value of the 7-day range payoff (risk-neutral GBM) at sigma ${formatPercent(viability.sigmaAnnualized, 1)} (${viability.sigmaWindowDays}d realized vol). ${measuredYieldMethodology(viability)}. The [brackets] are a 90% interval from the quantified input uncertainties (sigma band, in-range sampling, fee-flow sampling), combined in quadrature; the verdict changes only when the whole interval clears a threshold — borderline states say so instead of flipping on small price moves. Not a prediction.`}
+            text={`Model-based estimate (range breakeven; see product-design docs). Breakeven is ${viability.bound}-bound from a deterministic quadrature fair value of the 7-day range payoff (risk-neutral GBM) at sigma ${formatPercent(viability.sigmaAnnualized, 1)} (${viability.sigmaWindowDays}d window, tenor-adjusted - see the sigma line). ${measuredYieldMethodology(viability)}. The [brackets] are a 90% interval from the quantified input uncertainties (sigma band, in-range sampling, fee-flow sampling), combined in quadrature; the verdict changes only when the whole interval clears a threshold — borderline states say so instead of flipping on small price moves. Not a prediction.`}
           />
         </span>
       </div>

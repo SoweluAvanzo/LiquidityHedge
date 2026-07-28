@@ -15,6 +15,7 @@ import {
   isProductId,
   withOrders,
 } from "@/lib/server/order-ledger";
+import { datasetCoverage } from "@/lib/server/dataset-coverage";
 
 export const dynamic = "force-dynamic";
 
@@ -80,8 +81,15 @@ export async function POST(req: NextRequest) {
   );
   const payment = buildPaymentRequest(order, config.revenueWallet, config.usdcMint);
 
+  // B1: the covered period and exact row count, quoted BEFORE payment,
+  // from the same table the download streams from. Null for pre-orders
+  // (nothing collected yet) and when the store cannot answer — the
+  // client states "could not be quoted", never an invented figure.
+  const coverage = PRODUCTS[productId].preOrder ? null : await datasetCoverage();
+
   return NextResponse.json({
     orderId: order.orderId,
+    coverage,
     // AUDIT #9: returned ONCE, to the creator only. The orderId travels
     // on-chain in the payment memo and is therefore public; this is what
     // proves the caller is the buyer when they come back for the download

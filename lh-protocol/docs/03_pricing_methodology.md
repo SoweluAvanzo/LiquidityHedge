@@ -10,7 +10,7 @@ FV = E^Q[PI(S_T)] = integral from 0 to infinity of PI(S_T) * f(S_T) dS_T
 
 where `f(S_T)` is the risk-neutral density of `S_T` under GBM (Section 2.2.2) and `PI(S_T) = V(S_0) - V(clamp(S_T, p_l, p_u))` is the swap payoff (Definition 2.2).
 
-**Sign of `FV`.** Even though the integrand is signed — positive for `S_T < S_0`, negative for `S_T > S_0` — the integral `FV = E_Q[V(S_0) - V(clamp(S_T, p_l, p_u))]` is **always non-negative**. This follows from Jensen's inequality applied to the concave function `V(clamp(·, p_l, p_u))`: under the risk-neutral measure (with `r = 0`, `E_Q[S_T] = S_0`),
+**Sign of `FV`.** Even though the integrand is signed — positive for `S_T < S_0`, negative for `S_T > S_0` — the integral `FV = E_Q[V(S_0) - V(clamp(S_T, p_l, p_u))]` is **always non-negative for `S_0 ∈ (p_l, p_u)`** (outside the corridor the raw integral is genuinely negative and the payoff is not the intended product — implementations must refuse or explicitly suppress such positions rather than clamp silently). Inside the domain this follows from Jensen's inequality applied to the concave function `V(clamp(·, p_l, p_u))`: under the risk-neutral measure (with `r = 0`, `E_Q[S_T] = S_0`),
 
 ```
 E_Q[V(clamp(S_T, p_l, p_u))] <= V(E_Q[clamp(S_T, p_l, p_u)]) <= V(S_0),
@@ -33,7 +33,7 @@ FV_put_spread  = E_Q[min(Cap_down, max(0, V(S_0) − V(max(S_T, p_l))))]   (down
 FV_call_spread = E_Q[min(Cap_up,   max(0, V(min(S_T, p_u)) − V(S_0)))]    (upside leg)
 ```
 
-Both legs are non-negative, and by the concavity wedge of Proposition 2.1, `FV_put_spread > FV_call_spread`, so `FV_swap > 0`. The decomposition is useful for both intuition and pricing: each leg is a standard capped-put FV integral, and the swap FV is their difference.
+Both legs are non-negative, and by the concavity wedge of Proposition 2.1, `FV_put_spread > FV_call_spread`, so `FV_swap > 0` (again for `S_0 ∈ (p_l, p_u)`). The decomposition is useful for both intuition and pricing: each leg is a standard capped-put FV integral, and the swap FV is their difference.
 
 Substituting the standard normal parameterization `z -> S_T(z) = S_0 * exp(-sigma^2/2 * T + sigma * sqrt(T) * z)`:
 
@@ -314,12 +314,20 @@ For each z_i:
   PI(S_T) = V(S_0) − V(clamp(S_T, p_l, p_u))   (signed)
   g(z_i) = PI(S_T) * phi(z_i)
 
-FV_swap ≈ FV_put_spread − FV_call_spread
-        ≈ \$0.63 − \$0.25
-        ≈ \$0.38
+FV_swap = FV_put_spread − FV_call_spread
+        = \$1.266 − \$0.485
+        = \$0.781
 ```
 
-The swap's FV is roughly 60% of the capped-put FV at these parameters: the upside-giveup leg (`FV_call_spread ≈ \$0.25`) partially offsets the downside leg (`FV_put_spread ≈ \$0.63`). The difference shrinks for narrower widths (where both caps are smaller) and widens for wider widths.
+(Regenerated 2026-07-28 from the verified implementation — `computeQuadratureFV`
+and the leg decomposition agree with an independent log-space trapezoid
+integration to 0.016% and with Monte-Carlo to sampling error; the previous
+figures \$0.63 − \$0.25 = \$0.38 did not reproduce.) The upside-giveup leg
+(`FV_call_spread ≈ \$0.485`) partially offsets the downside leg
+(`FV_put_spread ≈ \$1.266`) — the convexity wedge `Cap_up < Cap_down` in
+expectation. The position notional at these parameters is `V(S_0) ≈ \$59.92`.
+The difference shrinks for narrower widths (where both caps are smaller) and
+widens for wider widths.
 
 **Step 3: Fee Discount**
 

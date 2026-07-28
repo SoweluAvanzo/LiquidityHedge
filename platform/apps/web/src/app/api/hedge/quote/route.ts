@@ -31,6 +31,7 @@ import {
   withHedge,
 } from "@/lib/server/hedge-ledger";
 import { getMarketInputs } from "@/lib/server/hedge-market";
+import { solSigmaEstimate } from "@/lib/server/viability";
 import {
   issueChallenge,
   challengeMessage,
@@ -154,6 +155,22 @@ export async function POST(request: NextRequest) {
     }
 
     const market = await getMarketInputs(config.tenorSeconds);
+    // F1 (§1.8 completion, paper verifier): ONE σ for the card and the
+    // quote. FV is priced at the same D5 tenor-adjusted estimator the
+    // dashboard serves; the regime updater's 15-minute close-to-close RV
+    // remains only as the IV/RV markup denominator and in diagnostics.
+    // If the shared estimator is unavailable the quote falls back to the
+    // regime σ — logged, and visible in pricingInputs.sigmaAnnual.
+    const sharedSigma = await solSigmaEstimate();
+    const marketInputs = sharedSigma
+      ? { ...market.inputs, sigmaAnnual: sharedSigma.sigma }
+      : market.inputs;
+    if (!sharedSigma) {
+      console.warn(
+        "[api/hedge/quote] shared sigma estimator unavailable — quoting at " +
+          `regime RV ${market.inputs.sigmaAnnual.toFixed(4)}`,
+      );
+    }
 
     const position: HedgedPositionInput = {
       positionMint: view.positionMint,
@@ -170,7 +187,7 @@ export async function POST(request: NextRequest) {
     const { quote, termSheet } = await withHedge((ledger, cfg) => {
       // Tidy up first so a previously expired quote never blocks re-quoting.
       ledger.lapseExpiredQuotes();
-      const issued = ledger.issueQuote(position, market.inputs);
+      const issued = ledger.issueQuote(position, marketInputs);
       return { quote: issued, termSheet: buildTermSheet(issued, cfg) };
     });
 
@@ -184,6 +201,23 @@ export async function POST(request: NextRequest) {
         amountUsdc: quote.totalPayableUsdc,
         memoReference: quote.referenceKey,
         expiresAtTs: quote.validUntilTs,
+      },
+      // C6: every premium input, on the quote itself. ivSource also
+      // closes C5's display half: a Binance outage shows as the labelled
+      // fallback, never as a measurement (the quote still prices at the
+      // markup floor in that case, which is the conservative bound).
+      pricingInputs: {
+        tenorDays: config.tenorSeconds / 86_400,
+        sigmaAnnual: marketInputs.sigmaAnnual,
+        ivRvRatio: market.inputs.ivRvRatio,
+        ivSource: market.detail.ivSource,
+        ivFallbackUsed: market.detail.fallbackUsed,
+        markupFloor: config.markupFloor,
+        effectiveMarkup: Math.max(config.markupFloor, market.inputs.ivRvRatio),
+        feeSplitRate: config.feeSplitRate,
+        expectedDailyFee: config.expectedDailyFee,
+        premiumFloorUsdc: config.premiumFloorUsdc,
+        protocolFeeBps: config.protocolFeeBps,
       },
     };
     return NextResponse.json(body);

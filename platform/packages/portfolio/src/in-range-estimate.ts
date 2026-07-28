@@ -113,7 +113,8 @@ export function composeInRangeEstimate(inputs: {
     modelRiskFlag: divergence !== null && divergence > MODEL_RISK_THRESHOLD,
     description:
       `Empirical: measured over ${evidence} — ` +
-      `for a range of this width started at each window's opening price, the ` +
+      `for a range holding this position's own offsets from today's price ` +
+      `(NOT re-centred), anchored at each window's opening price, the ` +
       `realized fraction of the following ${empirical.horizonSteps} steps spent ` +
       `in range. No price model assumed.`,
     fallbackReason: null,

@@ -211,11 +211,24 @@ function summarizeSnapshots(rows: PoolSnapshot[]): string[] {
   return notes;
 }
 
+export interface PoolDataSource {
+  address: string;
+  meta: TrackedPoolMeta | null;
+  rows: PoolSnapshot[];
+}
+
 export interface ReportInputs {
   /** Directory holding *.snapshots.jsonl (pool fee-growth + TVL). */
   snapshotDir?: string;
   /** Directory holding the web app's .data ledgers. */
   webDataDir?: string;
+  /**
+   * #3: pre-loaded pool data (the Postgres source). When present it is
+   * used INSTEAD of the snapshotDir scan — the emailed export used to
+   * glob JSONL frozen at 642 rows inside the image while Postgres held
+   * 6,955. The caller (report-cli) loads this when DATABASE_URL is set.
+   */
+  poolData?: PoolDataSource[];
 }
 
 export function buildDataReport(inputs: ReportInputs, nowIso: string): DataReport {
@@ -290,17 +303,33 @@ export function buildDataReport(inputs: ReportInputs, nowIso: string): DataRepor
   };
 
   // ── All pools in ONE long-format CSV with a `pool` column ──────────
-  if (inputs.snapshotDir && fs.existsSync(inputs.snapshotDir)) {
-    const meta = loadTrackedMeta(inputs.snapshotDir);
-    const files = fs
+  // Sources, in order of truth: pre-loaded Postgres data (#3), else the
+  // JSONL directory (dev fallback).
+  let sources: PoolDataSource[] | null = null;
+  let sourceMeta = new Map<string, TrackedPoolMeta>();
+  if (inputs.poolData && inputs.poolData.length > 0) {
+    sources = inputs.poolData;
+    for (const s of sources) if (s.meta) sourceMeta.set(s.address, s.meta);
+  } else if (inputs.snapshotDir && fs.existsSync(inputs.snapshotDir)) {
+    sourceMeta = loadTrackedMeta(inputs.snapshotDir);
+    sources = fs
       .readdirSync(inputs.snapshotDir)
-      .filter((f) => f.endsWith(".snapshots.jsonl"));
-
+      .filter((f) => f.endsWith(".snapshots.jsonl"))
+      .map((f) => {
+        const address = f.replace(".snapshots.jsonl", "");
+        return {
+          address,
+          meta: sourceMeta.get(address) ?? null,
+          rows: readJsonl(path.join(inputs.snapshotDir!, f)) as PoolSnapshot[],
+        };
+      });
+  }
+  if (sources) {
+    const meta = sourceMeta;
     const merged: Record<string, unknown>[] = [];
     const perPool: { address: string; rows: PoolSnapshot[] }[] = [];
-    for (const f of files) {
-      const address = f.replace(".snapshots.jsonl", "");
-      const rows = readJsonl(path.join(inputs.snapshotDir, f)) as PoolSnapshot[];
+    for (const src of sources) {
+      const { address, rows } = src;
       if (rows.length === 0) continue;
       perPool.push({ address, rows });
       const m = meta.get(address);

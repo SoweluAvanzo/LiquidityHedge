@@ -52,9 +52,13 @@ async function readSettlementPrice(
   );
   const quote = await withHedge((l) => l.getState().quotes.get(cert.quoteId));
   if (!quote) throw new Error(`no quote for ${cert.quoteId}`);
-  const info = await connection.getAccountInfo(new PublicKey(quote.position.whirlpool), {
-    commitment: "finalized",
-  });
+  // C3: price and slot from ONE finalized response — the previous
+  // separate getSlot() could pair a price with a later slot, making the
+  // archived "price at slot N" claim unverifiable.
+  const { context, value: info } = await connection.getAccountInfoAndContext(
+    new PublicKey(quote.position.whirlpool),
+    { commitment: "finalized" },
+  );
   if (!info) throw new Error("whirlpool account unreadable at settlement");
   const pool = decodeWhirlpoolAccount(info.data);
   const price = sqrtPriceX64ToPrice(
@@ -62,24 +66,42 @@ async function readSettlementPrice(
     quote.position.decimalsA,
     quote.position.decimalsB,
   );
-  const slot = await connection.getSlot("finalized");
+  const slot = context.slot;
 
-  // Cross-check against the vendor price; a wide divergence defers
-  // settlement rather than settling on a possibly manipulated quote.
-  let crossCheck = price;
+  // C2: the §7.1 divergence guard must not disable itself precisely when
+  // it is needed. A missing/unusable cross-check REFUSES to settle (the
+  // sentinel divergence routes into the runner's defer path) — it never
+  // writes an archive record asserting an independent source agreed.
   try {
     const { getPoolOverview } = await import("./birdeye");
     const overview = await getPoolOverview(
       quote.position.whirlpool,
       pool.feeRate / 1_000_000, // u16 hundredths of a bp → decimal
     );
-    if (overview?.priceUsd && overview.priceUsd > 0) crossCheck = overview.priceUsd;
-  } catch {
-    /* vendor unavailable → divergence 0, pool price stands */
+    if (!(overview?.priceUsd && overview.priceUsd > 0)) {
+      throw new Error("vendor returned no usable price");
+    }
+    const crossCheck = overview.priceUsd;
+    return {
+      priceUsd: price,
+      slot,
+      crossCheckPriceUsd: crossCheck,
+      divergenceBps: (Math.abs(price - crossCheck) / crossCheck) * 10_000,
+      crossCheckSource: "birdeye",
+    };
+  } catch (error) {
+    console.warn(
+      `[settler] cross-check unavailable for ${cert.quoteId} — deferring ` +
+        `settlement (${error instanceof Error ? error.message : error})`,
+    );
+    return {
+      priceUsd: price,
+      slot,
+      crossCheckPriceUsd: 0,
+      divergenceBps: Number.MAX_SAFE_INTEGER,
+      crossCheckSource: "unavailable",
+    };
   }
-  const divergenceBps =
-    crossCheck > 0 ? Math.abs(price - crossCheck) / crossCheck * 10_000 : 0;
-  return { priceUsd: price, slot, crossCheckPriceUsd: crossCheck, divergenceBps };
 }
 
 function queuePayout(entry: Record<string, unknown>): void {

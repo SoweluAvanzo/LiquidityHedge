@@ -41,6 +41,12 @@ export function integerSqrt(n: bigint): bigint {
  *
  * Reference: Adams et al. (2021), Uniswap V3 Core, Section 6.1.
  */
+/**
+ * #8: computed via Math.pow (double precision, relative error ~1.4e-13),
+ * then truncated to an integer Q64.64 — NOT the Whirlpool program's exact
+ * bit-for-bit floor. Immaterial for analytics (sub-tick precision); do
+ * not use where exact on-chain equality with the program is required.
+ */
 export function tickToSqrtPriceX64(tick: number): bigint {
   const sqrtPrice = Math.sqrt(Math.pow(1.0001, tick));
   return BigInt(Math.floor(sqrtPrice * Number(Q64)));

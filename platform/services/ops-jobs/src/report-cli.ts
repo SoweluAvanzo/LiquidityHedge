@@ -19,9 +19,15 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { buildDataReport } from "./data-report";
+import { buildDataReport, type PoolDataSource } from "./data-report";
 import { sendReportViaResend } from "./email-transport";
-import { numericEnv } from "@lh/storage";
+import {
+  numericEnv,
+  createPool,
+  safeDsn,
+  PgPoolSnapshotStore,
+  PgTrackedPoolStore,
+} from "@lh/storage";
 
 /** Read a var from the environment, falling back to lh-protocol/.env —
  *  the same convention the other CLIs use for local runs. */
@@ -44,8 +50,50 @@ function inputs() {
   };
 }
 
+/**
+ * #3: production truth lives in Postgres — the JSONL dir inside the
+ * image is a frozen dev copy (it shipped 642 rows while the store held
+ * 6,955). Returns null (dir fallback) when DATABASE_URL is unset or the
+ * store is unreachable; the report then LABELS its source either way.
+ */
+async function loadPoolDataFromPostgres(): Promise<PoolDataSource[] | null> {
+  const dsn = envVar("DATABASE_URL");
+  if (!dsn) return null;
+  const pg = createPool({ connectionString: dsn, maxConnections: 2 });
+  try {
+    const snaps = new PgPoolSnapshotStore(pg);
+    const tracked = new PgTrackedPoolStore(pg);
+    const metaByAddress = new Map(
+      (await tracked.list()).map((t) => [t.address, t]),
+    );
+    const now = Math.floor(Date.now() / 1000);
+    const out: PoolDataSource[] = [];
+    for (const address of await snaps.pools()) {
+      out.push({
+        address,
+        meta: metaByAddress.get(address) ?? null,
+        rows: await snaps.read(address, 0, now),
+      });
+    }
+    console.log(`dataset source: postgres ${safeDsn(dsn)} (${out.length} pools)`);
+    return out;
+  } catch (e) {
+    console.error(
+      "postgres dataset source unavailable, falling back to files:",
+      e instanceof Error ? e.message : e,
+    );
+    return null;
+  } finally {
+    await pg.end().catch(() => undefined);
+  }
+}
+
 async function runOnce(send: boolean): Promise<void> {
-  const report = buildDataReport(inputs(), new Date().toISOString());
+  const poolData = await loadPoolDataFromPostgres();
+  const report = buildDataReport(
+    { ...inputs(), ...(poolData ? { poolData } : {}) },
+    new Date().toISOString(),
+  );
   console.log(report.text);
 
   if (report.datasets.length === 0) {

@@ -17,7 +17,17 @@ import type {
  * product-design docs. Null on any card means "unavailable", never 0.
  */
 export interface PositionViabilityWire {
-  /** measured / breakeven; null encodes Infinity (zero breakeven). */
+  /**
+   * D2b/F2: BRANCH ON THIS before interpreting any index. Out of range
+   * the server suppresses both indices and their bands (they assume
+   * in-range comparability and Definition 2.2's FV domain; the quote
+   * path refuses such positions outright) — a null index then means
+   * SUPPRESSED, never "unbounded pass". The transparency inputs
+   * (yields, σ, fractions, E[ΔV], premium) remain served.
+   */
+  rangeState: "in-range" | "out-of-range";
+  /** measured / breakeven; null encodes Infinity (zero breakeven) when
+   *  in range, suppression when out of range (see rangeState). */
   viabilityIndex: number | null;
   /**
    * §1.7: 90% band on the index from the three quantified input
@@ -59,7 +69,7 @@ export interface PositionViabilityWire {
     breakevenDailyYield: number;
     /** r_u = −E[ΔV]/(V·T): fees vs divergence loss alone (φ = 0 case). */
     unhedgedBreakevenDailyYield: number;
-    /** Corollary 2.1 wedge r* − r_u; the paper measures < 0.65 bps/day. */
+    /** Corollary 2.1 wedge r* − r_u; the paper measures ≤ 0.8 bps/day at its §8.8 reference position. */
     protocolFeeWedgeDailyYield: number;
     /** E[ΔV] over the tenor, USD. Negative = expected divergence loss. */
     expectedValueChangeUsd: number;
@@ -70,21 +80,21 @@ export interface PositionViabilityWire {
    * Simpson quadrature under risk-neutral GBM (§1.3), same method as
    * the hedge quote path; no sampling noise. */
   fairValueUsd: number;
-  /** Annualized realized vol used for the MC and in-range fraction. */
+  /** Annualized σ actually priced with (tenor-adjusted; see sigmaTenorAdjust) — feeds the quadrature FV/E[ΔV] and the GBM in-range reference. */
   sigmaAnnualized: number;
   /** Realized-vol lookback actually used (30d preferred, 90d fallback). */
   sigmaWindowDays: 30 | 90;
   /**
    * §1.4: σ's own 90% interval (p05/p95) — block bootstrap on the
-   * Garman–Klass path, analytic 1/√(2n) on the close-to-close fallback.
-   * σ error propagation into the indices is §1.7; until then the band
-   * states the input's resolution rather than implying false precision.
+   * Garman–Klass path, analytic 1/√(2n) on the close-to-close fallback,
+   * COMBINED in quadrature with the D5 tenor-ratio's own sampling error
+   * (n≈52 weekly returns). Propagated into the index bands (§1.7).
    */
   sigmaBand: { p05: number; p95: number };
   /** "garman-klass" = OHLC estimator (~7.4× close-to-close efficiency);
    *  "close-to-close" = labelled fallback for corrupt OHLC. */
   sigmaMethod: "garman-klass" | "close-to-close";
-  /** Bars actually integrated (in-progress day always dropped). */
+  /** Observations integrated: bars on the GK path, returns (bars−1) on the CC fallback; the in-progress day is always dropped. */
   sigmaDays: number;
   /** Unadjusted daily-annualised σ (before the D5 tenor scaling). */
   sigmaDaily: number;
@@ -137,8 +147,9 @@ export interface PositionViabilityWire {
    * from our own 15-minute feeGrowthGlobal snapshots (the accumulator the
    * Whirlpool program pays LPs from; vendor-free, net of protocol fee by
    * construction) over the reported window. "modelled-birdeye" = the
-   * legacy volume × LP-fee-tier ÷ TVL model, served ONLY when snapshot
-   * coverage is insufficient, with the reason attached.
+   * legacy volume × LP-fee-tier ÷ TVL model, served whenever the
+   * measured path cannot (short/stale coverage, no DATABASE_URL,
+   * non-USD quote, broken accumulator) — fallbackReason states which.
    */
   poolYield: {
     source: "measured-snapshots" | "modelled-birdeye";

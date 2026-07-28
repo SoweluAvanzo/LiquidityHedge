@@ -43,6 +43,18 @@ export interface DataOrderResponse {
   amountUsdc: number;
   expiresAtTs: number;
   payment: DataPaymentInstructions;
+  /**
+   * B1: what the dataset contains RIGHT NOW, quoted before payment from
+   * the same table the download streams from. Null on pre-orders
+   * (nothing collected yet) or when the store could not be queried —
+   * the UI says so rather than showing a stale figure.
+   */
+  coverage: {
+    rows: number;
+    pools: number;
+    firstT: number | null;
+    lastT: number | null;
+  } | null;
 }
 
 export interface DataStatusResponse {

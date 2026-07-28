@@ -168,7 +168,9 @@ export function PortfolioDashboard({
           <h1 className="lh-h1">Concentrated-liquidity positions.</h1>
         </div>
         <p className="lh-note" style={{ maxWidth: "34ch" }}>
-          Read-only. No signature is ever requested and no key or seed phrase
+          Read-only. No transaction signature is ever requested (the optional
+          hedge flow asks for a wallet message signature to prove ownership —
+          it moves nothing) and no key or seed phrase
           is ever asked for.
         </p>
       </div>

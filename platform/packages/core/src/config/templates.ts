@@ -42,7 +42,7 @@ export const DEFAULT_POOL_CONFIG: PoolInitConfig = {
   markupFloor: DEFAULT_MARKUP_FLOOR,     // 1.05 minimum markup
   feeSplitRate: DEFAULT_FEE_SPLIT_RATE,  // 10% of LP fees to RT
   expectedDailyFee: DEFAULT_EXPECTED_DAILY_FEE, // 0.5%/day
-  premiumFloorUsdc: LEGACY_DEFAULT_PREMIUM_FLOOR_USDC, // $1.50
+  premiumFloorUsdc: LEGACY_DEFAULT_PREMIUM_FLOOR_USDC, // $1.50 — LEGACY emulator default (D1); live platform floor is $0.05
   protocolFeeBps: DEFAULT_PROTOCOL_FEE_BPS,     // 1.5%
 };
 

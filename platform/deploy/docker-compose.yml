@@ -279,6 +279,9 @@ services:
       REPORT_INTERVAL_HOURS: ${REPORT_INTERVAL_HOURS:-48}
       SNAPSHOT_DIR: /snapshots
       WEB_DATA_DIR: /webdata
+      # #3: the export's dataset source of truth. The JSONL dir stays as
+      # a labelled fallback only.
+      DATABASE_URL: postgres://lh_writer:${LH_WRITER_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-lh}
     volumes:
       - lh_snapshots:/snapshots:ro
       - lh_data:/webdata:ro
@@ -287,7 +290,10 @@ services:
       - no-new-privileges:true
     mem_limit: 256m
     logging: *logging
-    networks: [edge]
+    networks: [edge, data]
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   regime-updater:
     profiles: [jobs]

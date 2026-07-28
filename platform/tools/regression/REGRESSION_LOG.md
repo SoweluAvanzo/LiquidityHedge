@@ -385,3 +385,57 @@ Diff: `captures/2026-07-27T16-05-53-316Z.json` →
   indices follow linearly; bands re-derive.
 
 Golden re-baselined to the 16-06-21 capture.
+
+---
+
+## 2026-07-28 · §1.2 realised-yield FLIP observed (the last Phase-1 loose end)
+
+Evidence: `captures/2026-07-28T09-17-06-828Z.json` (pre-deploy). The
+host slept 21:00→morning (collector frozen mid-loop, gap correctly
+EXCLUDED from covered time — windowSeconds 75745 vs coveredSeconds
+21876); coverage crossed the 6h gate at the ~09:15 collector cycle and
+`positionYield.source` flipped to **"realised-inside"**:
+
+- covered 6.08h, of which 0.92h in range; realised fees \$0.000267.
+- Realised in-range intensity ≈ **0.43%/day** — ~3× the modelled
+  pool×c chain (0.14%/day). Not a bug: the in-range stretch happened
+  at the range EDGE, where the position's liquidity density (and so
+  its fee share) peaks — exactly the concentration reality the
+  modelled first-order c underestimates. It is measured, labelled,
+  and carries a wide fee-bootstrap band (`uncertaintyDominatedBy:
+  "yield"`, VI₂ band [0.44, 8.81] — 0.92h of in-range evidence is
+  thin and the band says so).
+- With it, VI₁ 0.177 / VI₂ 3.58 momentarily served — then the same
+  deploy's D2b server suppression correctly nulled the indices (all
+  positions far out of range at SOL ≈ 73.3).
+
+---
+
+## 2026-07-28 · Phases 2–5 + paper-verifier fixes deployed
+
+Diff: `captures/2026-07-28T09-17-06-828Z.json` →
+`captures/2026-07-28T09-17-35-206Z.json`, spot ±0.000%.
+
+- **`rangeState: "out-of-range"` appears; both indices + bands →
+  null** (D2b/F2, now SERVER-side; wire docs state null = suppressed
+  here, not ∞). The pre-deploy capture had just demonstrated the
+  hazard this closes: VI₂ 3.58 served for an out-of-range position.
+- **Estimator description reworded** (paper verifier #1 display
+  finding): "for a range holding this position's own offsets from
+  today's price (NOT re-centred)" — the old text described the
+  spot-centred estimator whose bias was removed in Phase 1.
+- **`reference.fraction` +12.7%, divergence −30%** (F5): the GBM
+  reference is now DISCRETE at steps 1..7 — the empirical estimand —
+  instead of a continuous average including P(0); the removed
+  half-step bias had been inflating the model-divergence flag.
+- **`sigmaBand` widens both sides** (p05 −7%, p95 +5.6%; F4b): the D5
+  tenor-ratio's own sampling error (±16%, n=52 weekly returns) now
+  combines in quadrature instead of being treated as exact.
+- Market drift: poolDailyYield −0.66% (new interval), ivRvRatio
+  0.99 → 0.97 (live Binance), position intervals 45 → 46.
+- Not visible in this endpoint but in the same deploy: B1 coverage
+  quote on orders, B7 token-safe download, C2/C3/C4/C8 settlement
+  gates, quote-path σ unified with the card (F1), prediction-log v2
+  already live, docs corrected (worked example \$0.38 → \$0.781).
+
+Golden re-baselined to the 09-17-35 capture.

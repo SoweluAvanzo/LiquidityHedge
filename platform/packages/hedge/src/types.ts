@@ -176,6 +176,13 @@ export interface SettlementPriceReading {
   slot: number;
   crossCheckPriceUsd: number;
   divergenceBps: number;
+  /**
+   * C2: where the cross-check came from. "unavailable" is only ever
+   * paired with a sentinel divergence that forces deferral — a reading
+   * asserting agreement with a source that was never consulted must be
+   * unrepresentable in the archive.
+   */
+  crossCheckSource?: "birdeye" | "unavailable";
 }
 
 export class LedgerError extends Error {}

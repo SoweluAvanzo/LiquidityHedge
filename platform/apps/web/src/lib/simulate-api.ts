@@ -154,9 +154,10 @@ export interface SimulateResponse {
   /** Number of USD-quoted positions included in the run. */
   positionsCount: number;
   /**
-   * Base mints simulated, in the asset order of the run. More than one
-   * means the paths were drawn jointly, so the reported portfolio
-   * dispersion carries the assets' historical co-movement.
+   * Base mints simulated, in the asset order of the run. With more than
+   * one, paths are drawn jointly under sampling:"joint" (co-movement
+   * preserved) and independently under sampling:"independent" — the
+   * echoed `sampling` field says which.
    */
   assets: string[];
   /**

@@ -66,12 +66,17 @@ requirements are marked **[corrected]** with the original intent noted.
   price history + periodic position snapshots.
 - **FR-M7** Data freshness: prices ≤ 10 s staleness, position state ≤ 60 s (poll-based,
   budget-tiered), with visible "as of" timestamps and manual refresh.
-- **FR-M8** **Viability Index** per position: `VI = r_measured / r_breakeven`, where
-  `r_measured` is the measured position fee yield (Birdeye volume×feeTier/TVL ×
-  inRangeFraction × concentration factor — reuse `orca-volume-adapter.ts`) and
-  `r_breakeven` is the two-sided breakeven yield from the quote engine (docs §8.5–8.6).
-  Displayed with clear interpretation bands (e.g. VI ≥ 1 viable). Definition to be
-  reconciled with the paper's exact wording by the author.
+- **FR-M8** **Viability Index** per position: `VI = r_measured / r_breakeven`
+  *(updated 2026-07-28 to match the shipped Phase-1 estimator chain)*:
+  `r_measured` is the realised in-range fee intensity from the position's own
+  `feeGrowthInside` accumulator × the forward in-range fraction when ≥6h of
+  history exists, else the measured pool yield (own `feeGrowthGlobal`
+  snapshots; Birdeye as labelled fallback) × in-range fraction ×
+  concentration factor. `r_breakeven` for the FIRST index is the markup-drag
+  breakeven (fees vs the hedge's cost above fair value); the SECOND,
+  two-sided index (paper §2.4.3–2.4.4) uses `r* = r_u + φP/(V·T)`. Both ship
+  with 90% uncertainty bands, provenance labels, and are suppressed for
+  out-of-range positions (decision D2b).
 - **FR-M9** Historical market data ingestion: OHLCV (15 m and 1 d) for supported tokens,
   target retention ≥ 3 years, with gap detection/backfill and a documented fallback source
   (vendor-risk mitigation, see §E7).

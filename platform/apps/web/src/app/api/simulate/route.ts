@@ -51,6 +51,7 @@ import {
   birdeyeApiKey,
 } from "@/lib/server/birdeye";
 import { computePoolYieldBasis } from "@/lib/server/viability";
+import { getStaticPricingParams } from "@/lib/server/pricing-params";
 import {
   SIM_COMPOSITIONS,
   SIM_FEE_RATE_OVERRIDE_MAX_PCT,
@@ -78,8 +79,10 @@ const DAY_SECONDS = 86_400;
  * trading fees over the tenor to the Risk Taker at settlement (the same
  * y that discounts the premium: Premium = max(P_floor, FV·m_vol − y·E[F])).
  * Applied to accrued fees in yield-bearing compositions when hedged.
+ * §1.8: read from the ONE pricing-params module — a second hardcoded y
+ * beside it would recreate the A7 defect class.
  */
-const HEDGE_FEE_SPLIT_RATE = 0.1;
+const HEDGE_FEE_SPLIT_RATE = getStaticPricingParams().feeSplitRate;
 
 // ---------------------------------------------------------------------------
 // Strict body validation

@@ -234,10 +234,13 @@ export function inRangeProbabilityAt(
 ): number {
   if (tYears <= 0) return 1;
   const w = widthBps / 10_000;
-  if (w <= 0 || w >= 1) return w >= 1 ? 1 : 0;
+  if (w <= 0) return 0;
   const mu = -0.5 * sigmaAnnualized * sigmaAnnualized;
   const s = sigmaAnnualized * Math.sqrt(tYears);
   const zUpper = (Math.log(1 + w) - mu * tYears) / s;
+  // F13: w ≥ 1 puts the lower bound at/below zero — the true
+  // probability is Φ(zUpper) < 1, not the hard 1.0 previously returned.
+  if (w >= 1) return normalCdf(zUpper);
   const zLower = (Math.log(1 - w) - mu * tYears) / s;
   return normalCdf(zUpper) - normalCdf(zLower);
 }
@@ -277,6 +280,40 @@ export function inRangeFractionBounds(
     sum += (i % 2 === 0 ? 2 : 4) * P(i * h);
   }
   return Math.min(1, Math.max(0, ((h / 3) * sum) / T));
+}
+
+/**
+ * F5 (paper verifier): DISCRETE-step counterpart of
+ * `inRangeFractionBounds` — the mean of P(S at step d ∈ range) for
+ * d = 1..steps, with no P(0) = 1 term. This is EXACTLY the empirical
+ * estimator's estimand (daily closes at steps 1..N), so it is the
+ * correct GBM reference/fallback wherever the empirical estimator is
+ * primary; the continuous time-average above is biased up against it
+ * by roughly the first half-step of decay, which inflated the model-
+ * divergence flag.
+ */
+export function inRangeFractionBoundsDiscrete(
+  priceLower: number,
+  priceUpper: number,
+  spot: number,
+  sigmaAnnualized: number,
+  steps: number,
+  stepSeconds: number = 86_400,
+): number {
+  if (steps < 1) {
+    return spot >= priceLower && spot < priceUpper ? 1 : 0;
+  }
+  let sum = 0;
+  for (let d = 1; d <= steps; d++) {
+    sum += inRangeProbabilityBounds(
+      priceLower,
+      priceUpper,
+      spot,
+      sigmaAnnualized,
+      (d * stepSeconds) / SECONDS_PER_YEAR,
+    );
+  }
+  return Math.min(1, Math.max(0, sum / steps));
 }
 
 export function inRangeFraction(

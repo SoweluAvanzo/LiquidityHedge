@@ -2,7 +2,7 @@
 
 One-page synthesis of what the protocol actually delivers under
 correctly-priced (Gauss-Hermite quadrature) premiums with
-measurement-driven inputs (Birdeye pool data, on-chain concentration,
+measurement-driven inputs (own on-chain fee-growth snapshots primary since 2026-07-27, Birdeye as labelled fallback; on-chain concentration,
 Binance options IV).
 
 > **Snapshot: 2026-04-22.** Backtest window 2025-04-17 → 2026-04-16 (52

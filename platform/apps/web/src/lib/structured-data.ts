@@ -84,7 +84,7 @@ const forwardDataset: JsonObject = {
   name: "Orca Whirlpool fee-growth snapshots — 2026 forward",
   alternateName: "Orca concentrated-liquidity fee accrual dataset",
   description:
-    "Fifteen-minute snapshots of every Orca Whirlpool on Solana clearing a 10,000 USDC 24-hour volume threshold (approximately 107 pools; the tracked set is refreshed daily). Each row records the pool's own fee accumulators feeGrowthGlobalA and feeGrowthGlobalB (cumulative swap fees per unit of liquidity, Q64.64 fixed point), the liquidity active at the current tick, the decimal-adjusted pool price, and both token vault balances, which give exact on-chain TVL. Because fee growth is denominated per unit of liquidity, the dataset supports computing the exact counterfactual fee income of any price range in any covered pool — including ranges that were never held — which volume, TVL or APR feeds cannot do. No other source of this series is known to exist: a Whirlpool account stores only its current cumulative fee totals and never the history, so the series can exist only where somebody sampled it at the time, and any uncovered interval is unrecoverable. Continuous forward collection has run since 26 July 2026.",
+    "Fifteen-minute snapshots of every Orca Whirlpool on Solana clearing a 10,000 USDC 24-hour volume threshold (the tracked set is refreshed daily; the live pool count is quoted on each order). Each row records the pool's own fee accumulators feeGrowthGlobalA and feeGrowthGlobalB (cumulative swap fees per unit of liquidity, Q64.64 fixed point), the liquidity active at the current tick, the decimal-adjusted pool price, and both token vault balances, which give exact on-chain TVL. Because fee growth is denominated per unit of liquidity, the dataset supports computing the exact counterfactual fee income of any price range in any covered pool — including ranges that were never held — which volume, TVL or APR feeds cannot do. No other source of this series is known to exist: a Whirlpool account stores only its current cumulative fee totals and never the history, so the series can exist only where somebody sampled it at the time, and any uncovered interval is unrecoverable. Continuous forward collection has run since 26 July 2026.",
   url: `${SITE_URL}/#data`,
   keywords: [
     "Orca Whirlpool fee growth data",
@@ -252,6 +252,27 @@ export const STRUCTURED_DATA: JsonObject[] = [
  * a tag and break out of the script element (the pattern Next's own JSON-LD
  * guide prescribes).
  */
+/**
+ * B4: a Product must not advertise schema.org/InStock while the order
+ * endpoint answers 503. When sales are not configured, every offer is
+ * republished as OutOfStock (including pre-orders — they cannot be
+ * placed either). The static export stays for type-safety and tests;
+ * pages should render THIS.
+ */
+export function structuredDataWithAvailability(
+  salesConfigured: boolean,
+): JsonObject[] {
+  if (salesConfigured) return STRUCTURED_DATA;
+  return STRUCTURED_DATA.map((block) => {
+    const offers = (block as { offers?: JsonObject }).offers;
+    if (!offers || typeof offers !== "object") return block;
+    return {
+      ...block,
+      offers: { ...offers, availability: "https://schema.org/OutOfStock" },
+    } as JsonObject;
+  });
+}
+
 export function serializeJsonLd(data: unknown): string {
   return JSON.stringify(data).replace(/</g, "\\u003c");
 }

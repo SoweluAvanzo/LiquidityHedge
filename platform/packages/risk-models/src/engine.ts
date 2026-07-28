@@ -192,7 +192,10 @@ export function simulatePortfolio(
       for (let i = 0; i < positions.length; i++) {
         const price = paths.prices[meta[i].a][p][s];
         const inRange = price >= meta[i].pL && price <= meta[i].pU;
-        if (!inRange) exited = true;
+        // #6: step 0 is the CURRENT state, not a simulated exit — counting
+        // it made every already-out-of-range portfolio report a 100%
+        // exit probability by construction, which carries no information.
+        if (!inRange && s > 0) exited = true;
         const posValue = meta[i].valueAt(price);
         value += posValue;
         // Accrue over the interval ENDING at s, using the interval's start

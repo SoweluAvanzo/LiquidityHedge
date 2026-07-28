@@ -145,7 +145,10 @@ async function streamFromPostgres(dsn: string): Promise<Response | null> {
                     ELSE s.vault_b / power(10::numeric, p.decimals_b)
                        + (s.vault_a / power(10::numeric, p.decimals_a)) * s.price
                END                                                 AS "tvlQuote",
-               (p.quote_mint = ANY (ARRAY[${usdMintList}]))         AS "quoteIsUsd"
+               CASE WHEN p.quote_mint IS NULL THEN ''
+                    WHEN p.quote_mint = ANY (ARRAY[${usdMintList}]) THEN 'true'
+                    ELSE 'false'
+               END                                                 AS "quoteIsUsd"
           FROM lh.pool_snapshots s
           LEFT JOIN lh.tracked_pools p ON p.address = s.pool
          ORDER BY s.pool, s.t
@@ -200,6 +203,42 @@ export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
   if (!/^[a-f0-9]{4,64}$/i.test(orderId) || token.length < 16 || token.length > 128) {
     return NextResponse.json({ error: "Invalid download link." }, { status: 400 });
+  }
+
+  // B7: prove the stream is PRODUCIBLE before touching order state or
+  // the single-use token — a paid buyer must never burn their grant on
+  // a 503. The probe hits the same sources the stream will use; the
+  // residual race (store dying between probe and stream) is recoverable
+  // via the claim secret, which re-issues a fresh grant.
+  const dsnProbe = databaseUrl();
+  let producible = false;
+  if (dsnProbe) {
+    const probePool = createPool({ connectionString: dsnProbe, maxConnections: 1, connectTimeoutMs: 3_000 });
+    try {
+      const { rows } = await probePool.query(
+        `SELECT count(*)::bigint AS n FROM lh.pool_snapshots`,
+      );
+      producible = Number(rows[0]?.n ?? 0) > 0;
+    } catch {
+      producible = false;
+    } finally {
+      await probePool.end().catch(() => undefined);
+    }
+  }
+  if (!producible) {
+    const dir = snapshotDir();
+    producible =
+      existsSync(dir) &&
+      readdirSync(dir).some((f) => f.endsWith(".snapshots.jsonl"));
+  }
+  if (!producible) {
+    return NextResponse.json(
+      {
+        error:
+          "Dataset is temporarily unavailable. Your download link has NOT been used — retry shortly.",
+      },
+      { status: 503 },
+    );
   }
 
   // Consume the grant, atomically. The link is advertised as single-use;

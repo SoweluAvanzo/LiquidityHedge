@@ -336,6 +336,23 @@ export interface TrackedPoolRow {
 export class PgTrackedPoolStore {
   constructor(private readonly pool: Pool) {}
 
+  /** Full tracked set — metadata for exports (#3). */
+  async list(): Promise<TrackedPoolRow[]> {
+    const { rows } = await this.pool.query(
+      `SELECT address, symbol_a, symbol_b, decimals_a, decimals_b, quote_mint, fee_rate
+         FROM lh.tracked_pools ORDER BY address`,
+    );
+    return rows.map((r: Record<string, unknown>) => ({
+      address: String(r.address),
+      symbolA: String(r.symbol_a),
+      symbolB: String(r.symbol_b),
+      decimalsA: Number(r.decimals_a),
+      decimalsB: Number(r.decimals_b),
+      quoteMint: String(r.quote_mint),
+      feeRate: Number(r.fee_rate),
+    }));
+  }
+
   /** Upsert the whole tracked set; safe to call every cycle. */
   async upsert(rows: TrackedPoolRow[], refreshedAt: number): Promise<number> {
     if (rows.length === 0) return 0;

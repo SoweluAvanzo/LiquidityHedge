@@ -575,6 +575,32 @@ export function DataCheckout() {
           </div>
         </dl>
 
+        {/* B1: covered period + exact row count, quoted BEFORE payment
+            from the same table the download streams from. */}
+        {!order.preOrder && (
+          <div className="lh-callout" data-tone="quiet" style={{ marginTop: "1rem" }}>
+            <p className="lh-callout-h">What you get, as of this order</p>
+            {order.coverage ? (
+              <p>
+                <b>{order.coverage.rows.toLocaleString("en-US")}</b> rows across{" "}
+                <b>{order.coverage.pools}</b> pools, covering{" "}
+                {order.coverage.firstT
+                  ? formatTimestamp(order.coverage.firstT)
+                  : "—"}{" "}
+                to{" "}
+                {order.coverage.lastT ? formatTimestamp(order.coverage.lastT) : "—"}{" "}
+                (UTC). The download contains at least these rows — collection
+                continues until you download.
+              </p>
+            ) : (
+              <p>
+                Coverage could not be quoted right now (store unreachable). The
+                row count is stated in the download itself; nothing is inferred.
+              </p>
+            )}
+          </div>
+        )}
+
         {status?.note && (
           <div className="lh-callout" data-tone="quiet" style={{ marginTop: "1rem" }}>
             <p className="lh-callout-h">From the chain check</p>

@@ -129,11 +129,16 @@ term).
 ## 7. Settlement
 
 7.1 **Settlement Price policy (deterministic).** S_T is the Referenced Position's pool
-price at the first Finalized slot at or after the Expiry Time, cross-checked against an
-independent price source. If the two diverge by more than [1]%, settlement is deferred
-(max [6] hours) and S_T is the median of the pool's time-weighted average price over the
-first [30] minutes after Expiry Time and the independent source; the procedure and all
-raw inputs are recorded and reproducible.
+price read on-chain at Finalized commitment by the settlement engine on its first
+settlement cycle at or after the Expiry Time (cycles run at most [60] seconds apart;
+the price and the slot it was read at come from a single finalized response and both
+are recorded). The reading is cross-checked against an independent price source. If
+the two diverge by more than [1]%, **or the independent source is unavailable**,
+settlement is deferred to a subsequent cycle and re-attempted until a reading passes
+the cross-check; a deferral can therefore extend settlement until the independent
+source recovers or the divergence clears. The price actually used, its slot, the
+cross-check value and the cross-check source are recorded and reproducible; a record
+asserting agreement with a source that was not consulted cannot be produced.
 
 7.2 **Settlement Amount** (positive = payable to Buyer):
 `Settlement = Π(S_T) − FeeSplitAmount + Collateral`.

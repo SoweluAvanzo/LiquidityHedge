@@ -7,7 +7,8 @@ import { RangeFigure } from "@/components/landing/range-figure";
 import { SiteFooter } from "@/components/chrome/site-footer";
 import { SiteHeader } from "@/components/chrome/site-header";
 import { FAQ, PRICING } from "@/lib/landing-content";
-import { STRUCTURED_DATA, serializeJsonLd } from "@/lib/structured-data";
+import { structuredDataWithAvailability, serializeJsonLd } from "@/lib/structured-data";
+import { commerceConfig } from "@/lib/server/order-ledger";
 import { LEGAL_ENTITY, SITE_NAME, SITE_URL, mailto } from "@/lib/site";
 
 const DESCRIPTION =
@@ -65,6 +66,14 @@ export default async function LandingPage() {
   // than executable script, but carrying the nonce keeps it valid under a
   // stricter policy too.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
+
+  // B4: never advertise InStock while /api/data/order would answer 503.
+  let salesConfigured = true;
+  try {
+    commerceConfig();
+  } catch {
+    salesConfigured = false;
+  }
 
   return (
     <div className="lp">
@@ -571,7 +580,7 @@ export default async function LandingPage() {
 
       <SiteFooter />
 
-      {STRUCTURED_DATA.map((block, i) => (
+      {structuredDataWithAvailability(salesConfigured).map((block, i) => (
         <script
           key={i}
           type="application/ld+json"

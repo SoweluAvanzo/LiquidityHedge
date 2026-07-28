@@ -115,9 +115,14 @@ function computeGridPoint(
   const eFeesOverTenor = V0 * feeRatePerDay * tenorDays;
   const feeDiscount = FEE_SPLIT_RATE * eFeesOverTenor;
 
-  // Premium (ignoring P_floor so we see the raw sensitivity; the floor
-  // only *raises* premium, which shrinks the wedge — so this is a
-  // conservative upper bound).
+  // Premium (ignoring P_floor so we see the raw sensitivity). F5 NOTE
+  // (2026-07-28): the floor only *raises* premium, and the wedge
+  // φP/(7V) is strictly INCREASING in P — so excluding the floor makes
+  // this an UNDER-estimate of the wedge for small positions where the
+  // floor binds, not a conservative bound as previously claimed. The
+  // §8.8 "< 0.65 bps/day" figure is therefore a statement about the
+  // §8.8 reference position (V₀ ≈ \$11k, floor not binding), not a
+  // universal bound.
   const premium = Math.max(0, fvSwap * mVol - feeDiscount);
 
   // Theorem 2.2 wedge: r* − r_u = φ · P̄ / (7 · V̄)

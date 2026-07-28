@@ -206,7 +206,18 @@ export async function captureSnapshots(
   // cycle lands atomically rather than as a torn partial set.
   const batch = store as { appendMany?: (rows: { pool: string; snapshot: PoolSnapshot }[]) => Promise<number> };
   if (typeof batch.appendMany === "function") {
-    await batch.appendMany(captured.map((c) => ({ pool: c.pool.address, snapshot: c.snapshot })));
+    const written = await batch.appendMany(
+      captured.map((c) => ({ pool: c.pool.address, snapshot: c.snapshot })),
+    );
+    // #7: ON CONFLICT DO NOTHING can silently drop rows; a dataset sold
+    // on completeness must not report a short write as success.
+    if (written < captured.length) {
+      console.error(
+        `[collector] SHORT WRITE: ${written}/${captured.length} snapshot rows ` +
+          `persisted this cycle (${captured.length - written} dropped as ` +
+          `conflicts) — investigate duplicate timestamps or a clock issue`,
+      );
+    }
   } else {
     for (const c of captured) await store.append(c.pool.address, c.snapshot);
   }

@@ -117,7 +117,7 @@ dV/dS|_{right} = 0
 
 The derivatives also match at `p_u`. Thus `V` is C^1 on `(0, infinity)` and `d^2V/dS^2 <= 0` everywhere, establishing global concavity. QED.
 
-**Corollary 2.1.** The impermanent loss `IL(S) = V(S_0) - V(S)` is convex on `(0, infinity)` for any fixed `S_0 in (p_l, p_u)`.
+**Lemma 2.1** *(renamed 2026-07-28; formerly a duplicate "Corollary 2.1" — every external citation of "Corollary 2.1" means the §2.4.4 wedge corollary below)*. The impermanent loss `IL(S) = V(S_0) - V(S)` is convex on `(0, infinity)` for any fixed `S_0 in (p_l, p_u)`.
 
 ### 2.1.4 Token Amounts in Q64.64 Fixed-Point
 
@@ -416,13 +416,13 @@ r* − r_u = φ Σ_w P_w / (7 · Σ_w V_w)
 
 ### 2.4.5 Magnitude of the Protocol Fee Wedge
 
-At the default protocol fee of `φ = 0.015` (1.5%), the wedge scales with the average premium `P̄`. Under the signed-swap payoff (Definition 2.2), the backtest in §8.5 observed `P̄ ≈ \$129/wk` at the joint-breakeven configuration for a ±10% position with `V_0 ≈ \$11,000`, giving a theoretical wedge of
+At the default protocol fee of `φ = 0.015` (1.5%), the wedge scales with the average premium `P̄`. Under the signed-swap payoff (Definition 2.2), the §8.5.3 backtest observed `P̄ ≈ \$76/wk` at the joint-breakeven configuration for a ±10% position with `V_0 ≈ \$11,000`, giving a theoretical wedge of
 
 ```
-r* − r_u  ≈  0.015 × 129 / (7 × 11,000)  ≈  0.25 bps/day
+r* − r_u  ≈  0.015 × 76 / (7 × 11,000)  ≈  0.15 bps/day
 ```
 
-matching the observed 0.2–0.3 bps/day in §8.5.3. Under the earlier capped-put baseline the corresponding `P̄ ≈ \$193/wk` gave a theoretical 0.38 bps/day wedge. The swap's smaller `P̄` therefore makes the hedge even closer to free in aggregate, because less premium flows through the treasury fee.
+matching §8.5.3's reported ≈0.15 bps/day. (D-8 note, 2026-07-28: this section previously quoted `P̄ ≈ \$129/wk` → 0.25 bps/day — a stale figure from before the capped-put → signed-swap migration; §8.5.3 is the source of truth.) Under the earlier capped-put baseline the corresponding `P̄ ≈ \$193/wk` gave a theoretical 0.38 bps/day wedge. The swap's smaller `P̄` therefore makes the hedge even closer to free in aggregate, because less premium flows through the treasury fee.
 
 ### 2.4.6 Implications
 

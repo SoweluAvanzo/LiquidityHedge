@@ -29,6 +29,25 @@ export interface HedgeQuoteResponse {
   /** The six acknowledgment texts (legal doc 03), server-provided. */
   consentItems: string[];
   paymentInstructions: HedgePaymentInstructions;
+  /**
+   * C6: EVERY input behind the premium, shown with the quote — tenor,
+   * σ, IV/RV (with source), markup floor, effective markup, fee split
+   * y, expected daily fee, premium floor, protocol fee. Nothing about
+   * the price is left to be taken on faith.
+   */
+  pricingInputs: {
+    tenorDays: number;
+    sigmaAnnual: number;
+    ivRvRatio: number;
+    ivSource: string;
+    ivFallbackUsed: boolean;
+    markupFloor: number;
+    effectiveMarkup: number;
+    feeSplitRate: number;
+    expectedDailyFee: number;
+    premiumFloorUsdc: number;
+    protocolFeeBps: number;
+  };
 }
 
 export interface HedgeMonitorWire {
@@ -36,6 +55,19 @@ export interface HedgeMonitorWire {
   activeExposureUsdc: number;
   paused: boolean;
   invariants: { ok: boolean; failures: string[] };
+  /**
+   * C4: "published reserves … verifiable on-chain" made true. The
+   * ledger figure is reconciled against the treasury USDC ATA read at
+   * finalized commitment on every status call; a divergence beyond the
+   * tolerance ALSO appends to invariants.failures. onChainUsdc null =
+   * the chain could not be read (labelled unverified, never assumed).
+   */
+  reserves: {
+    ledgerUsdc: number;
+    onChainUsdc: number | null;
+    deltaUsdc: number | null;
+    reconciled: boolean | null;
+  };
 }
 
 export interface HedgeStatusResponse {

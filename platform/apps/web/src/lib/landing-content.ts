@@ -28,7 +28,7 @@ export const CSV_FIELDS: SpecField[] = [
     name: "pair",
     type: "string",
     description:
-      "Token symbols as A/B, e.g. SOL/USDC. Token A is the base, token B the quote.",
+      "Token symbols as A/B, e.g. SOL/USDC. Token A is the base, token B the quote. Where a token publishes no symbol in the Orca token list, the first characters of its mint address stand in (e.g. A7bd/EPjF) — currently the case for a minority of long-tail pools; the pool column is always the authoritative key, and empty when the pool's metadata could not be resolved at all.",
   },
   {
     name: "t",
@@ -121,11 +121,11 @@ export const FAQ: FaqItem[] = [
   },
   {
     q: "How are the covered pools chosen?",
-    a: "By traded volume over 24 hours, not by TVL: fee accrual is volume-driven, so a large but inactive pool yields little information. Every covered pool clears a 10,000 USDC 24-hour volume threshold — roughly 107 pools at the time of writing. The tracked set is refreshed daily, so pools that rise above the threshold are added and pools that fall below it are removed; rows already collected for a pool are retained in either case.",
+    a: "By traded volume over 24 hours, not by TVL: fee accrual is volume-driven, so a large but inactive pool yields little information. Every covered pool clears a 10,000 USDC 24-hour volume threshold; the live pool count is quoted on the order before payment (the tracked set is refreshed daily, so pools that rise above the threshold are added and pools that fall below it are removed; rows already collected for a pool are retained in either case).",
   },
   {
     q: "What is delivered, and in what format?",
-    a: "One long-format CSV containing every covered pool, keyed by a pool column and sorted by pool then by time, one row per pool per 15-minute snapshot. RFC-4180 quoting, UTF-8. The full field specification is published at the checkout before payment, and delivery is by email attachment or a signed download link with the covered period and exact row count stated in the message.",
+    a: "One long-format CSV containing every covered pool, keyed by a pool column and sorted by pool then by time, one row per pool per 15-minute snapshot. RFC-4180 quoting, UTF-8. The full field specification is published at the checkout before payment; the covered period and exact row count are quoted on the order itself, before you pay. Delivery is a signed, single-use download link issued the moment payment is verified on-chain.",
   },
   {
     q: "How do I buy the data?",

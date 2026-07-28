@@ -2,12 +2,13 @@
  * Per-position Viability Index (FR-M8), computed server-side for
  * /api/portfolio on each SOL/USDC position:
  *
- *   measuredDailyYield — pool daily yield × in-range fraction × on-chain
- *                        concentration factor. The pool yield is MEASURED
- *                        from our own feeGrowthGlobal snapshots (§1.1)
- *                        when coverage allows, with the Birdeye
- *                        volume-model retained only as a labelled
- *                        fallback; provenance travels on the wire. The
+ *   measuredDailyYield — realised in-range fee intensity (the
+ *                        position's own feeGrowthInside, §1.2) × the
+ *                        FORWARD in-range fraction when history allows;
+ *                        otherwise pool yield (measured from our own
+ *                        feeGrowthGlobal snapshots §1.1, Birdeye as
+ *                        labelled fallback) × fraction × concentration
+ *                        factor; provenance travels on the wire. The
  *                        in-range fraction comes from the composed
  *                        estimator (empirical primary / GBM fallback,
  *                        see composeInRangeEstimate) — which method
@@ -18,8 +19,9 @@
  *                        horizon (risk-neutral GBM, σ = realized vol);
  *   VI                 — computeViability() from @lh/portfolio.
  *
- * Failure policy: any missing input (no BIRDEYE_API_KEY, pool-overview
- * fetch failure, insufficient candles for realized vol) yields null —
+ * Failure policy: each source degrades independently and LABELLED
+ * (measured→modelled fallbacks with reasons); only when no source can
+ * serve an input (e.g. no candles for σ) does the record become null —
  * the card shows "viability unavailable"; a value is never faked.
  */
 
@@ -50,7 +52,7 @@ import type { WhirlpoolData } from "@lh/core/src/market-data/decoder";
 import {
   computeConcentrationFactor,
   estimatePoolDailyYield,
-  inRangeFractionBounds,
+  inRangeFractionBoundsDiscrete,
   lpFeeTier,
   type PoolOverview,
 } from "@lh/core/src/market-data/orca-volume-adapter";
@@ -75,7 +77,8 @@ const TENOR_SECONDS = PRICING.tenorSeconds;
 const TENOR_DAYS = TENOR_SECONDS / 86_400;
 const PREMIUM_FLOOR_USD = PRICING.premiumFloorUsdc / 1e6;
 /** Protocol treasury fee φ — the only leakage in the paper's §2.4.2
- * redistribution identity, and the whole of Corollary 2.1's wedge. */
+ * redistribution identity, and the whole of the docs/02 wedge corollary
+ * φP/(V·T) (the second 'Corollary 2.1' there — see the Lemma renumber). */
 const PROTOCOL_FEE_RATE = PRICING.protocolFeeBps / 10_000;
 const FEE_SPLIT_RATE = PRICING.feeSplitRate;
 
@@ -146,13 +149,24 @@ function appendPredictionLog(record: InRangePredictionRecord): void {
   }
 }
 
-/** Short human-readable cause for the UI's "empirical unavailable" note. */
+/** Short human-readable cause for the UI's "empirical unavailable"
+ *  note. F13: raw internal exception text (e.g. "widthBps 0 out of
+ *  (0, 10000)") must never reach the browser — known failure classes
+ *  map to plain language, everything else to a generic line with the
+ *  raw text kept in server logs. */
 function empiricalFailureReason(error: unknown): string {
   const msg = error instanceof Error ? error.message : String(error);
   if (/HTTP 401|HTTP 403|HTTP 429/.test(msg)) {
     return "market-data provider rejected the request (key suspended?)";
   }
-  return msg.length > 140 ? `${msg.slice(0, 137)}...` : msg;
+  if (/history too short/.test(msg)) {
+    return "price history too short for the horizon";
+  }
+  if (/widthBps|invalid range|horizonSteps/.test(msg)) {
+    return "range parameters outside the estimator's domain";
+  }
+  console.error("[viability] empirical estimator failure (raw):", msg);
+  return "estimator unavailable (details in server logs)";
 }
 
 /**
@@ -191,7 +205,7 @@ async function loadEmpiricalInRange(
   }
 }
 
-interface SigmaEstimate {
+export interface SigmaEstimate {
   /** The σ actually served and priced with: daily estimator × tenor
    *  adjustment (when available). */
   sigma: number;
@@ -475,7 +489,13 @@ async function tenorAdjustFor(
   }
 }
 
-async function solSigmaEstimate(): Promise<SigmaEstimate | null> {
+/**
+ * §1.8/F1: EXPORTED because the hedge QUOTE path prices with this same
+ * estimator — the card and a live quote must never price FV at two
+ * different σs (the regime updater's 15-minute close-to-close RV stays
+ * as the IV/RV denominator and a transparency figure only).
+ */
+export async function solSigmaEstimate(): Promise<SigmaEstimate | null> {
   const { candles, coverage } = await getSolDailyCandles(CANDLE_WINDOW_DAYS);
   if (coverage.coverageRatio < SIGMA_MIN_COVERAGE) {
     console.error(
@@ -528,12 +548,26 @@ async function solSigmaEstimate(): Promise<SigmaEstimate | null> {
   }
   if (!base) return null;
 
-  // D5: scale the current-regime daily estimate to the tenor.
+  // D5: scale the current-regime daily estimate to the tenor. F4b (paper
+  // verifier): the ratio is itself estimated from ~52 weekly returns —
+  // its analytic relative half-width 1.645/√(2n) ≈ 16% is the largest
+  // single σ-error term, so it combines per side in quadrature with the
+  // base band instead of being treated as exact.
   const tenorAdjust = await tenorAdjustFor(base.method);
   const k = tenorAdjust?.ratio ?? 1;
+  let band = { p05: base.band.p05 * k, p95: base.band.p95 * k };
+  if (tenorAdjust) {
+    const relRatio = 1.645 / Math.sqrt(2 * tenorAdjust.weeklyN);
+    const relLo = Math.hypot(1 - base.band.p05 / base.sigma, relRatio);
+    const relHi = Math.hypot(base.band.p95 / base.sigma - 1, relRatio);
+    band = {
+      p05: Math.max(0, base.sigma * k * (1 - relLo)),
+      p95: base.sigma * k * (1 + relHi),
+    };
+  }
   return {
     sigma: base.sigma * k,
-    band: { p05: base.band.p05 * k, p95: base.band.p95 * k },
+    band,
     windowDays: base.windowDays,
     method: base.method,
     nDays: base.nDays,
@@ -671,25 +705,21 @@ export async function computePositionViability(
     if (!basis) return null;
     const { concentrationFactor: c } = basis;
 
-    // Symmetric-width equivalent of the position's range around the
-    // current price (the adapter's in-range model is symmetric in w).
-    const widthBps = Math.max(
-      1,
-      ((view.priceUpper - view.priceLower) / 2 / view.price) * 10_000,
-    );
-
     const { sigma, windowDays } = sigmaEstimate;
     // The GBM in-range fraction now uses the range's ACTUAL bounds rather
     // than a half-width re-centred on spot. The old form reported a
     // position as ~98% in range while its price sat entirely outside the
     // range, and that fraction multiplies straight into measuredDailyYield
     // — the numerator of BOTH viability indices.
-    const gbmFractionBounds = inRangeFractionBounds(
+    // F5: DISCRETE steps 1..N — the same estimand as the empirical
+    // estimator (daily closes), so the divergence flag compares
+    // like-for-like in time-sampling too, not only in bounds.
+    const gbmFractionBounds = inRangeFractionBoundsDiscrete(
       view.priceLower,
       view.priceUpper,
       view.price,
       sigma,
-      TENOR_SECONDS,
+      TENOR_DAYS,
     );
     const poolDaily = basis.poolDailyYield;
 
@@ -773,22 +803,32 @@ export async function computePositionViability(
     }
     if (!Number.isFinite(measuredDailyYield)) return null;
 
+    // F2 (paper verifier) + D2b: Definition 2.2's FV ≥ 0 and both index
+    // constructions assume S0 ∈ (p_l, p_u); the quote path refuses such
+    // positions outright. Out of range the server therefore SUPPRESSES
+    // the indices (nulls, rangeState flag) rather than serving numbers
+    // computed through the clamp — and skips the perturbation legs.
+    const inRangeForIndices = view.inRange;
+
     // §1.7: perturbation legs — each quantified input evaluated at its
     // own band edges through the same path as the point estimate.
     //  σ leg: FV and E[ΔV] move; the fraction moves too when the GBM
     //  analytic is primary (it is a function of σ), not when empirical.
-    const sigmaLeg = [sigmaEstimate.band.p05, sigmaEstimate.band.p95].map((s) =>
+    const sigmaLeg = (inRangeForIndices
+      ? [sigmaEstimate.band.p05, sigmaEstimate.band.p95]
+      : []
+    ).map((s) =>
       evaluateIndices(
         s,
         inRangeEstimate.method === "gbm-analytic"
-          ? inRangeFractionBounds(view.priceLower, view.priceUpper, view.price, s, TENOR_SECONDS)
+          ? inRangeFractionBoundsDiscrete(view.priceLower, view.priceUpper, view.price, s, TENOR_DAYS)
           : inRangeEstimate.fraction,
         inRangeRate,
       ),
     );
     //  in-range leg: empirical mean CI (absent on the GBM path — σ leg
     //  already carries that uncertainty).
-    const fractionLeg = inRangeEstimate.meanCi
+    const fractionLeg = inRangeForIndices && inRangeEstimate.meanCi
       ? [inRangeEstimate.meanCi.p05, inRangeEstimate.meanCi.p95].map((f) =>
           evaluateIndices(sigma, f, inRangeRate),
         )
@@ -802,7 +842,7 @@ export async function computePositionViability(
       : basis.poolDailyYieldCi
         ? { p05: basis.poolDailyYieldCi.p05 * c, p95: basis.poolDailyYieldCi.p95 * c }
         : null;
-    const rateLeg = rateCi
+    const rateLeg = inRangeForIndices && rateCi
       ? [rateCi.p05, rateCi.p95].map((r) => evaluateIndices(sigma, inRangeEstimate.fraction, r))
       : [];
 
@@ -885,23 +925,29 @@ export async function computePositionViability(
     });
 
     return {
+      // D2b/F2: consumers MUST branch on rangeState before interpreting
+      // a null index — out of range, null means SUPPRESSED (the indices
+      // assume in-range comparability); in range, null encodes Infinity.
+      rangeState: view.inRange ? ("in-range" as const) : ("out-of-range" as const),
       // Infinity (zero breakeven) does not survive JSON — null encodes it.
-      viabilityIndex: Number.isFinite(result.viabilityIndex)
-        ? result.viabilityIndex
-        : null,
+      viabilityIndex:
+        inRangeForIndices && Number.isFinite(result.viabilityIndex)
+          ? result.viabilityIndex
+          : null,
       // §1.7: 90% band from the three quantified input uncertainties,
       // combined in quadrature through the SAME evaluation path.
-      viabilityIndexBand,
-      uncertaintyDominatedBy,
+      viabilityIndexBand: inRangeForIndices ? viabilityIndexBand : null,
+      uncertaintyDominatedBy: inRangeForIndices ? uncertaintyDominatedBy : null,
       breakevenDailyYield: result.breakevenDailyYield,
       measuredDailyYield,
       bound: result.bound,
       // Second index: includes divergence loss (paper §2.4.3-2.4.4).
       twoSided: {
-        viabilityIndex: Number.isFinite(twoSided.viabilityIndex)
-          ? twoSided.viabilityIndex
-          : null,
-        viabilityIndexBand: twoSidedIndexBand,
+        viabilityIndex:
+          inRangeForIndices && Number.isFinite(twoSided.viabilityIndex)
+            ? twoSided.viabilityIndex
+            : null,
+        viabilityIndexBand: inRangeForIndices ? twoSidedIndexBand : null,
         breakevenDailyYield: twoSided.breakevenDailyYield,
         unhedgedBreakevenDailyYield: twoSided.unhedgedBreakevenDailyYield,
         protocolFeeWedgeDailyYield: twoSided.protocolFeeWedgeDailyYield,

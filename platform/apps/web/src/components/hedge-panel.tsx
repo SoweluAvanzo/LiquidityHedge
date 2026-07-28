@@ -148,6 +148,8 @@ export function HedgePanel({
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [quote, setQuote] = useState<QuoteRecord | null>(null);
+  const [pricingInputs, setPricingInputs] =
+    useState<HedgeQuoteResponse["pricingInputs"] | null>(null);
   const [payment, setPayment] = useState<HedgePaymentInstructions | null>(null);
   const [certificate, setCertificate] = useState<CertificateRecord | null>(null);
   const [consentItems, setConsentItems] = useState<string[]>([]);
@@ -224,6 +226,7 @@ export function HedgePanel({
         }),
       });
       setQuote(payload.quote);
+      setPricingInputs(payload.pricingInputs ?? null);
       setPayment(payload.paymentInstructions);
       setConsentItems(payload.consentItems);
       setChecks(new Array(payload.consentItems.length).fill(false));
@@ -548,7 +551,7 @@ export function HedgePanel({
                           </td>
                         </tr>
                         <tr>
-                          <td>σ — annualized realized vol</td>
+                          <td>σ — tenor-adjusted realized vol (same estimator as the dashboard)</td>
                           <td className="lh-td-num">
                             {formatPercent(quote.breakdown.sigmaAnnual)}
                           </td>
@@ -558,11 +561,53 @@ export function HedgePanel({
                   </div>
                 </div>
 
+                {/* C6: every input behind this premium, verbatim. */}
+                {pricingInputs && (
+                  <p className="lh-prov">
+                    <span className="lh-prov-item">
+                      <span className="lh-prov-key">tenor</span>
+                      {pricingInputs.tenorDays}d
+                    </span>
+                    <span className="lh-prov-item">
+                      <span className="lh-prov-key">σ</span>
+                      {(pricingInputs.sigmaAnnual * 100).toFixed(1)}%
+                    </span>
+                    <span className="lh-prov-item">
+                      <span className="lh-prov-key">IV/RV</span>
+                      {pricingInputs.ivRvRatio.toFixed(3)}
+                      {pricingInputs.ivFallbackUsed
+                        ? " (feed unavailable — floor binds)"
+                        : ` (${pricingInputs.ivSource})`}
+                    </span>
+                    <span className="lh-prov-item">
+                      <span className="lh-prov-key">markup</span>
+                      {pricingInputs.effectiveMarkup.toFixed(3)} (floor{" "}
+                      {pricingInputs.markupFloor.toFixed(2)})
+                    </span>
+                    <span className="lh-prov-item">
+                      <span className="lh-prov-key">fee split y</span>
+                      {(pricingInputs.feeSplitRate * 100).toFixed(0)}%
+                    </span>
+                    <span className="lh-prov-item">
+                      <span className="lh-prov-key">E[F] daily rate</span>
+                      {(pricingInputs.expectedDailyFee * 100).toFixed(3)}%
+                    </span>
+                    <span className="lh-prov-item">
+                      <span className="lh-prov-key">premium floor</span>
+                      ${(pricingInputs.premiumFloorUsdc / 1e6).toFixed(2)}
+                    </span>
+                    <span className="lh-prov-item">
+                      <span className="lh-prov-key">protocol fee φ</span>
+                      {(pricingInputs.protocolFeeBps / 100).toFixed(2)}%
+                    </span>
+                  </p>
+                )}
+
                 <CopyField
                   label="Term sheet hash (SHA-256)"
                   display={quote.termSheetHash}
                   copyValue={quote.termSheetHash}
-                  help="Shown before acceptance, anchored at activation — the terms you accepted stay identifiable afterwards."
+                  help="Shown before acceptance — keep a copy. The hash identifies exactly the terms you accepted; on-chain anchoring of this hash is planned but NOT yet live."
                 />
 
                 {!quoteExpired && (
@@ -635,7 +680,9 @@ export function HedgePanel({
                   <p className="lh-prov" role="status">
                     <span className="lh-prov-item">
                       <span className="lh-prov-key">checking</span>
-                      the chain for your payment every 5 seconds
+                      for your payment every 5 seconds — this poll reads the
+                      certificate ledger, which the platform&rsquo;s payment
+                      watcher updates from verified on-chain transfers
                     </span>
                     <span className="lh-prov-item">
                       <span className="lh-prov-key">quote valid for</span>

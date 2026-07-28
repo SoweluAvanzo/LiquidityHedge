@@ -179,6 +179,18 @@ function init(): HedgeSingleton {
     const lines = readFileSync(EVENTS_PATH, "utf8")
       .split("\n")
       .filter((line) => line.trim() !== "");
+    // C8: synthetic dev payments carry txSignature "dev-…". Replaying
+    // them outside dev mode would permanently credit treasuryUsdc with
+    // money that never moved — the C4 on-chain reconciliation would
+    // then report a divergence that looks like theft. Refuse loudly
+    // (skipping silently could break event-chain invariants instead).
+    if (!hedgeDevMode() && lines.some((l) => l.includes('"txSignature":"dev-'))) {
+      throw new Error(
+        `synthetic dev events found in ${EVENTS_PATH} while HEDGE_DEV_MODE!=1 — ` +
+          `refusing to replay a ledger containing simulated payments in ` +
+          `production; archive or remove the file`,
+      );
+    }
     const events = lines.map((line) => JSON.parse(line) as LedgerEvent);
     // Replay FACTS from disk — a corrupted/tampered log fails loudly here.
     ledger = CertificateLedger.fromEvents(config, clock, ids, events);

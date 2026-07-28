@@ -586,8 +586,80 @@ restored (F12 closed). Divergence-flag like-for-like CONFIRMED by a
 cross-validation test (asymmetric −4%/+12% range on synthetic GBM:
 empirical ≈ analytic within 3%).
 
-**PHASE 1 COMPLETE.** Remaining phases: 2 (make the claims true),
-3 (dataset delivery), 4 (pre-enablement gates), 5 (cleanup).
+**PHASE 1 COMPLETE.**
+
+### 2026-07-28 — Phases 2, 3, 5 and Phase-4 code gates: DONE ✅
+
+**Phase 2** (claims made true): B1 covered-period + exact row count +
+live pool count quoted on the order BEFORE payment (same table the
+download streams from; shown at checkout); B3 email-delivery claim
+dropped (live product; pre-order hand-delivery kept, it is real); B4
+JSON-LD offers republish as OutOfStock when sales are unconfigured; B5
+verified already-done; B7 download probes producibility BEFORE
+consuming the single-use token; B8 hardcoded "107 pools" removed from
+FAQ + JSON-LD (live count on the order); C1 anchoring claim removed
+("planned but NOT yet live"); C6 every premium input on the quote
+(pricingInputs: tenor, σ, IV/RV + source, markup + floor, y, E[F]
+rate, floor, φ) — closes C5's display half; C9 hedge poll copy states
+it reads the ledger the payment watcher updates; C10 "no signature"
+qualified (message signature ≠ transaction).
+
+**Phase 3**: #3 the emailed export reads Postgres (labelled; JSONL is
+a dev fallback; data-reporter got DATABASE_URL + data network); #4 the
+pair-field spec states the mint-prefix degradation; #5 quoteIsUsd
+normalised to true/false/'' in the COPY stream; #7 short writes
+(rowCount < captured) are reported loudly.
+
+**Phase 4 code gates** (treasury still unset — DO NOT set it before
+the remaining owner-side gates): C2 a missing cross-check REFUSES to
+settle (sentinel divergence → the runner's defer path; crossCheckSource
+archived — a record asserting unconsulted agreement is
+unrepresentable); C3 price+slot from ONE finalized response and §7.1
+of the Master Terms re-written to match the implemented policy
+(re-hashed at boot; no term sheets were ever issued under the old
+hash); C4 /api/hedge/status reconciles ledger reserves against the
+treasury ATA read on-chain, divergence > 1 USDC fails invariants; C5
+done via C6's pricingInputs; C8 a production boot REFUSES to replay a
+ledger containing synthetic dev payments (txSignature dev-*).
+
+**Phase 5**: F13 raw exception strings sanitised before the browser +
+`inRangeProbabilityAt` returns Φ(z) for w ≥ 1; #6 pExitRange no longer
+counts step 0; #8 tickToSqrtPriceX64 documented as Math.pow-approx;
+dead `birdeye-adapter.ts` (hardcoded σ, zero callers) deleted; F5 the
+sensitivity-analysis comment corrected (the wedge φP/(7V) INCREASES in
+P; §8.8's figure restated as reference-position-specific, "≤ 0.8
+bps/day at §8.8's position" in code comments); D-8 §2.4.5 refreshed to
+§8.5.3's \$76/wk → 0.15 bps/day.
+
+### 2026-07-28 — Phase-1 closeout: paper verifiers re-run (2 agents)
+
+**Confirmed correct** (independently re-derived): quadrature ≡ §3.2
+(mass/martingale errors ~2e-9), payoff/Definition 2.1-2.2, canonical
+premium, both breakeven algebras, wedge corollary, value-neutrality
+unbroken, one day-count convention, display layer "in strikingly good
+shape". **Confirmed findings fixed same day**: F1 the quote path now
+prices FV at the SAME D5 tenor-adjusted σ as the card
+(solSigmaEstimate shared; regime 15m-RV remains only the IV/RV
+denominator + diagnostics); F2 out-of-range indices are suppressed
+SERVER-side (`rangeState` on the wire; nulls documented as
+suppression, not ∞); F3 doc 03 §3.5 worked example regenerated from
+verified code (FV \$0.781 = \$1.266 − \$0.485, was \$0.38); F4b the D5
+ratio's own sampling error (±16%, n=52) now combines into sigmaBand;
+F5 the GBM in-range reference is DISCRETE at steps 1..N (the empirical
+estimand) — divergence flag now like-for-like in time-sampling too;
+F6 duplicate "Corollary 2.1" renamed (IL convexity → Lemma 2.1); F7
+0.65-bps claims qualified; stale doc/comment batch (FR-M8, docs
+01/02/03/05/SUMMARY scope notes, \$0.05-on-\$1.50 comment collisions)
+corrected. **Queued, not silently done**: quote-path E[F] from the
+measured rate (needs an event-replay-safe issueQuote override; the
+governance constant is conservative-low meanwhile and displayed on the
+quote); F4a σ_daily-vs-σ_tenor for the intra-tenor occupancy integral
+(noted in code; empirical estimator is primary in production); F4c
+gap-skip in weekly stepping; hedge/pricing.ts's third Simpson copy.
+
+Remaining before enabling the hedge product: the owner-side gates
+(BVI counsel, Squads treasury, mainnet cent-scale dry run) and the
+queued items above.
 
 ### Caveat for whoever picks this up
 
