@@ -4,3 +4,4 @@ dist/
 *.tsbuildinfo
 coverage/
 .data/
+platform/tools/regression/captures/

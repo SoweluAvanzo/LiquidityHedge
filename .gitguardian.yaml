@@ -1,0 +1,24 @@
+# ggshield configuration (GitGuardian CLI / pre-commit users).
+#
+# The GitGuardian DASHBOARD monitors this public repo server-side and
+# does not read this file — dashboard incidents for the addresses below
+# must be closed there as "false positive". This file keeps any local
+# ggshield / pre-commit scans quiet for the same class of non-secrets:
+# public Solana on-chain identifiers (mints, pools, PDAs, wallets),
+# which are high-entropy base58 but public by definition.
+version: 2
+
+secret:
+  ignored_paths:
+    - "platform/tools/regression/captures/**"
+    - "platform/tools/regression/golden/**"
+    - "platform/tools/regression/portfolio-raw-*.json"
+  ignored_matches:
+    - name: "USDC mint (public Solana constant)"
+      match: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+    - name: "Wrapped SOL mint (public Solana constant)"
+      match: So11111111111111111111111111111111111111112
+    - name: "Canonical SOL/USDC whirlpool (public)"
+      match: Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE
+    - name: "Public example wallet (read-only demo)"
+      match: 6A3JVW6LMuYE1eriipCPWchf1riGqem1cenpCyVMHAXj

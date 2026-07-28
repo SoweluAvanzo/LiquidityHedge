@@ -8,6 +8,11 @@ then `node regress.mjs accept <after>` to re-baseline.
 Owner under regression: `6A3JVW6LMuYE1eriipCPWchf1riGqem1cenpCyVMHAXj`
 (4 real SOL/USDC positions, all in pool `Czfq3xZZ…`).
 
+Captures are LOCAL artifacts (gitignored since 2026-07-28 — they are
+verbatim public chain state, but their base58 addresses trip secret
+scanners and they grow without bound); the committed record is this
+log plus `golden/portfolio.json`.
+
 Live prices move between captures, so a diff is never empty — the diff
 prints the spot move first; the question for every other field is "is
 this the code change or the market?".

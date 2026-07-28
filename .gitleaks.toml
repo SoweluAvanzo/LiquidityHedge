@@ -36,3 +36,27 @@ regexes = [
   '''CHANGE_ME''',
   '''your_[a-z_]*key''',
 ]
+
+[[allowlists]]
+description = """Public Solana on-chain identifiers are not secrets. \
+Token mints, whirlpool addresses, position PDAs and wallet addresses are \
+high-entropy base58 but public by definition — generic-api-key flagged \
+the USDC mint itself (GitGuardian incident #35209826, 2026-07-27). \
+Deliberately NARROW: named well-known constants plus the regression \
+artifacts (verbatim /api/portfolio responses, public chain state by \
+construction). Arbitrary base58 is NOT allowlisted — a Solana PRIVATE \
+key is base58 too (~87-88 chars) and must still fail the scan."""
+paths = [
+  '''platform/tools/regression/captures/.*\.json$''',
+  '''platform/tools/regression/golden/.*\.json$''',
+  '''platform/tools/regression/portfolio-raw-.*\.json$''',
+]
+regexes = [
+  '''^EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v$''', # USDC mint
+  '''^Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB$''', # USDT mint
+  '''^So11111111111111111111111111111111111111112$''',  # wrapped SOL mint
+  '''^Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE$''',  # canonical SOL/USDC whirlpool
+  '''^6A3JVW6LMuYE1eriipCPWchf1riGqem1cenpCyVMHAXj$''',  # public example wallet (read-only)
+  '''^TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA$''',   # SPL Token program
+  '''^TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb$''',   # Token-2022 program
+]
