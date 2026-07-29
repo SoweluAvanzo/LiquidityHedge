@@ -172,7 +172,8 @@ services:
       # route answered 503 and the whole data product was dead in the
       # shipped deployment.
       DATA_REVENUE_WALLET: ${DATA_REVENUE_WALLET:-}
-      USDC_MINT: ${USDC_MINT:-}
+      # Real default (0.1 pattern): empty must not reach the app.
+      USDC_MINT: ${USDC_MINT:-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v}
       ORDER_TTL_SECONDS: ${ORDER_TTL_SECONDS:-}
       DOWNLOAD_TTL_SECONDS: ${DOWNLOAD_TTL_SECONDS:-}
       MIN_REFUND_USDC: ${MIN_REFUND_USDC:-}

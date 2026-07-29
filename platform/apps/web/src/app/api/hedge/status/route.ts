@@ -44,7 +44,7 @@ async function readTreasuryOnChainUsdc(
       "finalized",
     );
     const usdcMint = new PublicKey(
-      process.env.USDC_MINT ?? "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      process.env.USDC_MINT?.trim() || "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // "" = unset (audit 0.1)
     );
     const ata = getAssociatedTokenAddressSync(
       usdcMint,

@@ -49,7 +49,11 @@ export function commerceConfig(): CommerceConfig {
   }
   return {
     revenueWallet,
-    usdcMint: process.env.USDC_MINT ?? USDC_MINT,
+    // Audit 0.1 empty-string class, third instance: compose passes
+    // USDC_MINT: ${USDC_MINT:-} → "" which is NOT nullish, and
+    // new PublicKey("") then failed every chain check with "Invalid
+    // public key input". Empty means unset.
+    usdcMint: process.env.USDC_MINT?.trim() || USDC_MINT,
     orderTtlSeconds: numericEnv("ORDER_TTL_SECONDS", 3600),
     downloadTtlSeconds: numericEnv("DOWNLOAD_TTL_SECONDS", 86_400),
     minRefundUsdc: numericEnv("MIN_REFUND_USDC", 500_000),
