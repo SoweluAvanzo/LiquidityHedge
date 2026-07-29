@@ -435,8 +435,8 @@ export function DataCheckout() {
               />
               <p className="lh-help" id="checkout-email-help">
                 {product.requiresEmail
-                  ? "The archive is reconstructed by hand and delivered by email, so an address is required. Nothing is downloadable today."
-                  : "The download is granted in the browser as soon as the payment is verified; an email address only gives you a second copy of the receipt."}
+                  ? "The archive is reconstructed by hand and delivered by email, so an address is required. Nothing is downloadable today. The address is stored with the order for fulfilment only — see the Privacy Notice."
+                  : "The download is granted in the browser as soon as the payment is verified. An email address is optional: it is stored with the order purely as a support and refund contact — no automated mail is sent to it. See the Privacy Notice."}
               </p>
             </div>
 

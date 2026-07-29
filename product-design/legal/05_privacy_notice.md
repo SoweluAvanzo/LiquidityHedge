@@ -1,6 +1,6 @@
 # Privacy Notice
 
-**Version 0.1-draft · [●] · DRAFT — NOT LEGALLY REVIEWED**
+**Version 0.2-draft · 2026-07-29 · DRAFT — NOT LEGALLY REVIEWED**
 
 **Controller:** Blocksventures Ltd., BVI BC No. [●], registered office [●], email [●].
 This Notice is drafted against the BVI **Data Protection Act 2021** ("DPA") and follows
@@ -18,6 +18,7 @@ blocked from the paid service but may reach the free Site.]
 | Consent/acknowledgment records (timestamps, document hashes, checkbox states) | you | contract formation evidence, legal defense |
 | Quotes, term sheets, on-chain transaction signatures | platform + public blockchain | performing the hedging contract; accounting; audit |
 | Support correspondence + optional email | you | responding to you; optional settlement notices |
+| **Data-product order records**: order id, product, amount, payment transaction signature, paying wallet address, and the **email address** you enter at checkout (required for pre-orders — delivery is by email; optional otherwise) | you + public blockchain | fulfilling your order: payment matching, download grants, pre-order delivery, refunds of unmatched payments, accounting |
 | Technical logs (user agent, request metadata) | your browser | security monitoring, debugging |
 
 We do **not** collect: names, identity documents (unless AML obligations are confirmed by
@@ -31,7 +32,9 @@ permanently and outside our control. Do not use a wallet you consider private.
 
 ## 2. Legal bases and purposes
 
-Performance of a contract (quotes, certificates, settlement); legitimate interests
+Performance of a contract (quotes, certificates, settlement; **data-product orders —
+delivering what you bought, matching your payment, refunding unmatched payments**);
+legitimate interests
 (security, fraud prevention, defense of legal claims, service improvement from aggregate
 usage); legal obligation (sanctions screening, record-keeping, lawful requests);
 consent (optional email notices — withdrawable anytime).
@@ -42,7 +45,11 @@ Infrastructure processors (hosting, error monitoring, backup storage — current
 published on the Site) under data-processing terms; RPC and market-data providers receive
 technical queries (they see queried addresses, not your identity); professional advisers
 and auditors; authorities where legally required; a successor entity on reorganization.
-**We do not sell personal data.**
+Our **email delivery provider** (currently Resend, Inc., USA) acts as a processor when we
+send order-related mail: internal operator reports containing order records, pre-order
+delivery messages, and any order correspondence transit its systems. Order emails are
+used ONLY for order fulfilment and never for marketing without separate, withdrawable
+consent. **We do not sell personal data.**
 
 ## 4. International transfers
 
@@ -55,6 +62,10 @@ safeguards with processors. [COUNSEL: DPA 2021 transfer conditions; SCC-equivale
   (BVI limitation period) [COUNSEL: confirm period].
 - Security logs incl. IP: ≤ **12 months** unless part of an incident investigation.
 - Support correspondence: 24 months after closure.
+- Data-product order records, including the checkout email address: **6 years** after
+  fulfilment or refund (accounting records / BVI limitation period)
+  [COUNSEL: confirm period]. The order ledger is included in encrypted nightly backups
+  retained on a rolling **14-day** cycle.
 - Aggregated, de-identified statistics: indefinitely.
 
 ## 6. Your rights
