@@ -150,6 +150,9 @@ services:
     build:
       context: ../..
       dockerfile: platform/apps/web/Dockerfile
+      args:
+        # Build-time: inlined into the client bundle (see Dockerfile note).
+        NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-}
     restart: unless-stopped
     init: true
     read_only: true

@@ -19,6 +19,14 @@ RUN pnpm install --frozen-lockfile
 
 WORKDIR /app/platform/apps/web
 ENV NEXT_TELEMETRY_DISABLED=1
+# NEXT_PUBLIC_* is inlined into the CLIENT bundle at BUILD time — a
+# runtime env on the container cannot reach the browser. Passed from
+# compose build.args; empty falls back to the public endpoint (which
+# 403s browsers — set it for any deployment where the wallet-pay path
+# must work). NOTE: this value ships to every visitor's browser; use a
+# domain-restricted key or an RPC proxy on public deployments.
+ARG NEXT_PUBLIC_RPC_URL=
+ENV NEXT_PUBLIC_RPC_URL=$NEXT_PUBLIC_RPC_URL
 RUN pnpm build
 
 # ── Runtime: minimal, non-root, standalone server ────────────────────
