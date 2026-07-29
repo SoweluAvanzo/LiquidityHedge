@@ -65,7 +65,6 @@ import {
   type EffectiveMarkupResult,
 } from "./pricing-params";
 import type { PositionViabilityWire } from "@/lib/portfolio-api";
-import { numericEnv } from "@lh/storage";
 
 // §1.8: premium parameters come from the ONE module the quote path
 // also reads — the dashboard previously hardcoded EFFECTIVE_MARKUP =

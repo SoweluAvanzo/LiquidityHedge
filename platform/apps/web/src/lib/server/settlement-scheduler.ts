@@ -204,11 +204,10 @@ export async function runCycleOnce(): Promise<{ ok: boolean; summary: string }> 
 export function startSettlementScheduler(): void {
   const seconds = numericEnv("SETTLEMENT_INTERVAL_SECONDS", 60);
   if (seconds <= 0) return;
-  let cfg;
   try {
-    cfg = getHedgeConfig();
+    getHedgeConfig(); // availability probe — throws when hedging is disabled
   } catch (e) {
-    if (e instanceof HedgeUnavailableError) return; // hedging disabled
+    if (e instanceof HedgeUnavailableError) return;
     throw e;
   }
 

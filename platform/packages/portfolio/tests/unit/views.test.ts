@@ -28,6 +28,7 @@ function makeFixture(tickCurrent = TICK_CURRENT) {
     tokenVaultA: PublicKey.default,
     tokenVaultB: PublicKey.default,
     feeRate: 400,
+    protocolFeeRate: 1300,
     liquidity: 10n * L,
     feeGrowthGlobalA: 0n,
     feeGrowthGlobalB: 0n,

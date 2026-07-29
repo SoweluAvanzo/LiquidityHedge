@@ -227,7 +227,9 @@ async function main() {
       divergenceBps: 0,
     }),
     // Synthetic position → no real accrued fees; 0 is the buyer-favorable
-    // contract default (Master Terms §7.2).
+    // contract default (Master Terms §7.2), and no checkpoint exists to
+    // record at activation.
+    readFeeCheckpoint: async () => null,
     readAccruedFees: async () => 0,
     executePayout: async (payout) => {
       const tx = new Transaction().add(
