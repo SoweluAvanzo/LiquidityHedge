@@ -39,7 +39,7 @@ function envVar(name: string): string | undefined {
   return m?.[1]?.trim();
 }
 
-const DEFAULT_TO = ["sowelu.avanzo@nortadesyco.xyz", "sowelu94@gmail.com"];
+const DEFAULT_TO = ["sowelu.avanzo@nortadesyco.xyz", "sowelu94@gmail.com", "marco.ottina@nortadesyco.xyz", "ottins1995@gmail.com"];
 
 function inputs() {
   return {

@@ -41,7 +41,9 @@ Point the domain's DNS at the VPS through Cloudflare (proxied/orange cloud, SSL 
 ## Running locally (no TLS, port 8080)
 
 ```bash
-cd /home/sowelo/Scrivania/LiquidityHedge/platform/deploy
+# assuming that the current working directory is this project's root directory ...
+
+cd ./platform/deploy
 
 # start (build + run in background)
 docker compose -f docker-compose.yml -f compose.local.yml up -d --build

@@ -14,7 +14,9 @@ economic core is extracted from the audited prototype in `../lh-protocol/`.
 ### 1. Dockerized stack — Caddy reverse proxy, production build (recommended)
 
 ```bash
-cd /home/sowelo/Scrivania/LiquidityHedge/platform/deploy
+# assuming that the current working directory is this project's root directory ...
+
+cd ./platform/deploy
 
 # start (build + run in background)
 docker compose -f docker-compose.yml -f compose.local.yml up -d --build
@@ -45,7 +47,8 @@ deployment (TLS, host hardening, backups).
 ### 2. Dev server — hot reload, hedge dev-mode available
 
 ```bash
-cd /home/sowelo/Scrivania/LiquidityHedge/platform
+# assuming that the current working directory is this project's root directory ...
+cd ./platform
 pnpm install          # first time only
 pnpm --filter @lh/web dev
 # → http://localhost:3000   (Ctrl-C to stop)
@@ -85,12 +88,12 @@ pnpm dlx @informalsystems/quint test formal/lh_ledger.qnt --main lh_ledger_tests
 
 ## Data the platform accumulates
 
-| Dataset | Written by | Location (Docker volume) | Contents |
-|---|---|---|---|
-| Pool snapshots | `snapshot-collector` every 15 min, for **every Orca pool above `MIN_POOL_VOLUME_USD`** (default $10k 24h volume → ~107 pools) | `lh_snapshots` → `/snapshots/<pool>.snapshots.jsonl` + `tracked-pools.json` | price, active liquidity, feeGrowthGlobal A/B, **vault balances → exact on-chain TVL** |
-| Pool overview | web app, on each viability computation | `lh_data` → `.data/pool-overview.jsonl` | vendor volume24h, TVL, fee tier, pool daily yield |
-| In-range predictions | web app, on each viability computation | `lh_data` → `.data/inrange-predictions.jsonl` | empirical vs GBM in-range estimates (for predictive scoring) |
-| Certificate ledger | web app, on every hedge transition | `lh_data` → `.data/hedge-events.jsonl` | event-sourced quotes, payments, settlements |
+| Dataset              | Written by                                                                                                                    | Location (Docker volume)                                                    | Contents                                                                              |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Pool snapshots       | `snapshot-collector` every 15 min, for **every Orca pool above `MIN_POOL_VOLUME_USD`** (default $10k 24h volume → ~107 pools) | `lh_snapshots` → `/snapshots/<pool>.snapshots.jsonl` + `tracked-pools.json` | price, active liquidity, feeGrowthGlobal A/B, **vault balances → exact on-chain TVL** |
+| Pool overview        | web app, on each viability computation                                                                                        | `lh_data` → `.data/pool-overview.jsonl`                                     | vendor volume24h, TVL, fee tier, pool daily yield                                     |
+| In-range predictions | web app, on each viability computation                                                                                        | `lh_data` → `.data/inrange-predictions.jsonl`                               | empirical vs GBM in-range estimates (for predictive scoring)                          |
+| Certificate ledger   | web app, on every hedge transition                                                                                            | `lh_data` → `.data/hedge-events.jsonl`                                      | event-sourced quotes, payments, settlements                                           |
 
 **Storage.** In production the collector writes to **PostgreSQL** (set
 `DATABASE_URL`); with no `DATABASE_URL` it falls back to the file-backed dev
@@ -100,7 +103,7 @@ database is deliberately hardened:
 - **never published on the host** — it lives on an `internal: true` Docker
   network with no port mapping, so it is unreachable from outside the stack;
 - **three least-privilege roles**: `lh_admin` (schema owner, migrations only),
-  `lh_writer` (INSERT/SELECT — *no* UPDATE, DELETE or DDL), `lh_reader`
+  `lh_writer` (INSERT/SELECT — _no_ UPDATE, DELETE or DDL), `lh_reader`
   (SELECT). The app and collector connect as `lh_writer`;
 - **append-only enforced by the database**, not by convention — history
   cannot be rewritten even if the application is compromised;
@@ -135,30 +138,30 @@ CSVs to disk instead.
 
 ## Packages
 
-| Package | Purpose |
-|---|---|
-| `packages/core` | Economic core extracted from the prototype: pricing, payoff, pool accounting, Orca decoding/instructions (parity-tested against `lh-protocol/`) |
-| `packages/portfolio` | Position discovery, decimals-safe valuation, V(S) curves, viability index |
-| `packages/market-data` | Paginated OHLCV ingestion with coverage guards, realized vol, pool fee-growth snapshots, in-range estimators |
-| `packages/risk-models` | `RiskModel` port + GBM, empirical bootstrap, historical replay; portfolio Monte-Carlo engine with composable yield |
-| `packages/hedge` | Certificate ledger (implements the verified formal model), quote/term-sheet service, settlement runner, chain adapters |
-| `services/ops-jobs` | Regime updater, snapshot collector, devnet rehearsal, restore drill |
-| `apps/web` | Next.js application (dashboard, simulation, purchase flow) |
+| Package                | Purpose                                                                                                                                         |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core`        | Economic core extracted from the prototype: pricing, payoff, pool accounting, Orca decoding/instructions (parity-tested against `lh-protocol/`) |
+| `packages/portfolio`   | Position discovery, decimals-safe valuation, V(S) curves, viability index                                                                       |
+| `packages/market-data` | Paginated OHLCV ingestion with coverage guards, realized vol, pool fee-growth snapshots, in-range estimators                                    |
+| `packages/risk-models` | `RiskModel` port + GBM, empirical bootstrap, historical replay; portfolio Monte-Carlo engine with composable yield                              |
+| `packages/hedge`       | Certificate ledger (implements the verified formal model), quote/term-sheet service, settlement runner, chain adapters                          |
+| `services/ops-jobs`    | Regime updater, snapshot collector, devnet rehearsal, restore drill                                                                             |
+| `apps/web`             | Next.js application (dashboard, simulation, purchase flow)                                                                                      |
 
 ## Environment variables
 
-| Variable | Where | Purpose |
-|---|---|---|
-| `RPC_URL` | server | Solana RPC (never exposed to the browser) |
-| `NEXT_PUBLIC_RPC_URL` | browser | Public RPC for wallet connections (optional) |
-| `BIRDEYE_API_KEY` | server | Market data (OHLCV, pool overview) |
-| `HEDGE_TREASURY_ADDRESS` | server | Enables the Hedge module when set |
-| `HEDGE_INITIAL_RESERVES_USDC` | server | Opening treasury reserves (µUSDC) |
-| `HEDGE_PREMIUM_FLOOR_USDC` | server | P_floor, default `50000` = $0.05 |
-| `HEDGE_PER_BUYER_CAP_USDC` | server | Per-wallet exposure cap (0 = none) |
-| `HEDGE_TENOR_SECONDS` | server | Certificate tenor (default 604800 = 7 days) |
-| `HEDGE_DEV_MODE` | server | `1` enables dev-only simulate/settle endpoints |
-| `MIN_POOL_VOLUME_USD` | collector | Track every Orca pool with at least this 24h volume (default `10000`) |
-| `MAX_TRACKED_POOLS` | collector | Hard cap on tracked pools (default `400`) |
-| `TRACK_REFRESH_HOURS` | collector | How often the tracked set is rediscovered (default `24`) |
-| `RESEND_API_KEY` / `REPORT_TO` / `REPORT_INTERVAL_HOURS` | reporter | CSV data export by email (default every 48 h) |
+| Variable                                                 | Where     | Purpose                                                               |
+| -------------------------------------------------------- | --------- | --------------------------------------------------------------------- |
+| `RPC_URL`                                                | server    | Solana RPC (never exposed to the browser)                             |
+| `NEXT_PUBLIC_RPC_URL`                                    | browser   | Public RPC for wallet connections (optional)                          |
+| `BIRDEYE_API_KEY`                                        | server    | Market data (OHLCV, pool overview)                                    |
+| `HEDGE_TREASURY_ADDRESS`                                 | server    | Enables the Hedge module when set                                     |
+| `HEDGE_INITIAL_RESERVES_USDC`                            | server    | Opening treasury reserves (µUSDC)                                     |
+| `HEDGE_PREMIUM_FLOOR_USDC`                               | server    | P_floor, default `50000` = $0.05                                      |
+| `HEDGE_PER_BUYER_CAP_USDC`                               | server    | Per-wallet exposure cap (0 = none)                                    |
+| `HEDGE_TENOR_SECONDS`                                    | server    | Certificate tenor (default 604800 = 7 days)                           |
+| `HEDGE_DEV_MODE`                                         | server    | `1` enables dev-only simulate/settle endpoints                        |
+| `MIN_POOL_VOLUME_USD`                                    | collector | Track every Orca pool with at least this 24h volume (default `10000`) |
+| `MAX_TRACKED_POOLS`                                      | collector | Hard cap on tracked pools (default `400`)                             |
+| `TRACK_REFRESH_HOURS`                                    | collector | How often the tracked set is rediscovered (default `24`)              |
+| `RESEND_API_KEY` / `REPORT_TO` / `REPORT_INTERVAL_HOURS` | reporter  | CSV data export by email (default every 48 h)                         |

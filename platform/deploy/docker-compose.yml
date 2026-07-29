@@ -62,7 +62,11 @@ services:
       - -c
       - log_checkpoints=on
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lh_admin} -d ${POSTGRES_DB:-lh}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-lh_admin} -d ${POSTGRES_DB:-lh}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -279,7 +283,7 @@ services:
       # Required at runtime; the CLI exits with a clear error if empty.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       REPORT_FROM: ${REPORT_FROM:-LH Reports <reports@nortadesyco.xyz>}
-      REPORT_TO: ${REPORT_TO:-sowelu.avanzo@nortadesyco.xyz,sowelu94@gmail.com}
+      REPORT_TO: ${REPORT_TO:-sowelu.avanzo@nortadesyco.xyz,sowelu94@gmail.com,marco.ottina@nortadesyco.xyz,ottins1995@gmail.com}
       REPORT_INTERVAL_HOURS: ${REPORT_INTERVAL_HOURS:-48}
       SNAPSHOT_DIR: /snapshots
       WEB_DATA_DIR: /webdata
